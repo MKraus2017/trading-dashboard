@@ -1,30 +1,26 @@
 # Trading Dashboard
 
-Live-Dashboard für OKX virtuelles Hebel-Depot, Trade Republic virtuelles Depot und Trade Republic reales Depot.
+Live-Dashboard für OKX (Hebel-Depot) und Trade Republic (virtuell + real).
 
 ## Features
-- OKX virtuelle Positionen mit Hebel, LONG/SHORT, P&L live
-- Trade Republic virtuelles Depot (NVDA)
-- Trade Republic reales Depot mit Transaktionshistorie
-- Dark Mode, Auto-Refresh alle 60 Sekunden
-- Live-Kurse via Yahoo Finance & CoinGecko
-
-## Deployment auf Render
-
-1. Repo mit Render verbinden: https://render.com/docs/github
-2. Service Type: Web Service
-3. Build Command: `pip install -r requirements.txt`
-4. Start Command: `gunicorn app:app`
-5. Umgebungsvariablen setzen (siehe unten)
-
-## Umgebungsvariablen (Render)
-
-Die Datenpfade müssen auf Render als Pfade zu Persistent Disks konfiguriert werden,
-oder die JSON-Dateien werden per API-Endpunkt vom Heimserver synchronisiert.
+- OKX virtuelles Hebel-Depot: offene Positionen, P&L, Trade-Historie
+- Trade Republic virtuell: NVDA und weitere Positionen
+- Trade Republic real: NVDA Echtgeld-Position
+- Live-Kurse über Yahoo Finance + OKX API
+- Auto-Refresh alle 60 Sekunden
+- Dark-Theme, responsive
 
 ## Lokaler Start
-
 ```bash
 pip install -r requirements.txt
 python app.py
 ```
+
+## Render Deploy
+1. GitHub Repo verbinden: https://github.com/MKraus2017/trading-dashboard
+2. Build: `pip install -r requirements.txt`
+3. Start: `gunicorn app:app`
+
+## Wichtig
+Die App liest Datendateien von `/opt/data/` — diese liegen auf dem Server.
+Render greift über die Push-API darauf zu (POST /api/push).

@@ -1,243 +1,312 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Dashboard</title>
-  <style>
-    :root {
-      --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
-      --border: #30363d; --text: #c9d1d9; --muted: #8b949e;
-      --green: #3fb950; --red: #f85149; --yellow: #d29922;
-      --blue: #58a6ff; --purple: #bc8cff; --orange: #ffa657;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
-    header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
-    header h1 { font-size: 20px; font-weight: 600; color: var(--blue); }
-    header span { color: var(--muted); font-size: 12px; }
-    .tabs { display: flex; gap: 4px; padding: 16px 24px 0; border-bottom: 1px solid var(--border); background: var(--bg2); }
-    .tab { padding: 8px 18px; border-radius: 6px 6px 0 0; cursor: pointer; color: var(--muted); border: 1px solid transparent; border-bottom: none; transition: all .2s; }
-    .tab.active { color: var(--text); background: var(--bg); border-color: var(--border); }
-    .tab:hover:not(.active) { color: var(--text); }
-    .page { display: none; padding: 24px; }
-    .page.active { display: block; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-    .card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
-    .card .value { font-size: 22px; font-weight: 700; }
-    .card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
-    .green { color: var(--green) !important; }
-    .red { color: var(--red) !important; }
-    .yellow { color: var(--yellow) !important; }
-    .blue { color: var(--blue) !important; }
-    table { width: 100%; border-collapse: collapse; background: var(--bg2); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
-    th { background: var(--bg3); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-    td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: var(--bg3); }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-    .badge.long { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
-    .badge.short { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
-    .section-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
-    .refresh-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-    .refresh-btn:hover { border-color: var(--blue); color: var(--blue); }
-    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; vertical-align: middle; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .no-data { color: var(--muted); text-align: center; padding: 32px; }
-    .mb { margin-bottom: 24px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+    --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --red: #f85149; --blue: #58a6ff;
+    --yellow: #d29922; --purple: #bc8cff; --orange: #ffa657;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; font-size:14px; }
+  header { background:var(--bg2); border-bottom:1px solid var(--border); padding:16px 24px; display:flex; align-items:center; justify-content:space-between; }
+  header h1 { font-size:20px; font-weight:600; color:var(--blue); }
+  .badge { background:var(--bg3); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:12px; color:var(--muted); }
+  #last-update { font-size:11px; color:var(--muted); }
+  nav { display:flex; gap:4px; padding:12px 24px; background:var(--bg2); border-bottom:1px solid var(--border); }
+  nav button { background:none; border:none; color:var(--muted); padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; transition:.15s; }
+  nav button:hover, nav button.active { background:var(--bg3); color:var(--text); }
+  nav button.active { border-bottom:2px solid var(--blue); border-radius:6px 6px 0 0; }
+  main { padding:24px; max-width:1400px; margin:0 auto; }
+  .section { display:none; }
+  .section.active { display:block; }
+  .grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+  .grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  @media(max-width:900px){ .grid-4{grid-template-columns:repeat(2,1fr);} .grid-2{grid-template-columns:1fr;} }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:20px; }
+  .card h3 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
+  .card .value { font-size:28px; font-weight:700; }
+  .card .sub { font-size:12px; color:var(--muted); margin-top:4px; }
+  .pos { color:var(--green); } .neg { color:var(--red); } .neu { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; padding:10px 12px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid var(--border); }
+  td { padding:10px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:var(--bg3); }
+  .tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+  .tag.long { background:#1a3a2a; color:var(--green); }
+  .tag.short { background:#3a1a1a; color:var(--red); }
+  .tag.buy { background:#1a3a2a; color:var(--green); }
+  .tag.sell { background:#3a1a1a; color:var(--red); }
+  .lev { background:#1a2a3a; color:var(--blue); display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:600; }
+  .section-title { font-size:16px; font-weight:600; margin-bottom:16px; color:var(--text); }
+  .card-full { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:0; overflow:hidden; margin-bottom:20px; }
+  .card-full .card-header { padding:16px 20px; border-bottom:1px solid var(--border); font-size:14px; font-weight:600; }
+  .loading { color:var(--muted); padding:40px; text-align:center; }
+  .pnl-bar { height:4px; border-radius:2px; margin-top:6px; }
+  .empty { color:var(--muted); padding:30px; text-align:center; font-size:13px; }
+</style>
 </head>
 <body>
-
 <header>
-  <h1>📈 Trading Dashboard</h1>
-  <span id="last-update">–</span>
+  <h1>📊 Trading Dashboard</h1>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <span id="last-update">Laden...</span>
+    <button onclick="loadAll()" style="background:var(--blue);color:#000;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">⟳ Aktualisieren</button>
+  </div>
 </header>
+<nav>
+  <button class="active" onclick="showTab('okx',this)">🔷 OKX Virtuell (Hebel)</button>
+  <button onclick="showTab('tr-virtual',this)">📈 Trade Republic Virtuell</button>
+  <button onclick="showTab('tr-real',this)">🏦 Trade Republic Real</button>
+</nav>
+<main>
 
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('okx')">🔀 OKX Virtuell</div>
-  <div class="tab" onclick="switchTab('virtual')">📊 TR Virtuell</div>
-  <div class="tab" onclick="switchTab('real')">🏦 TR Real</div>
-</div>
+  <!-- OKX -->
+  <div id="okx" class="section active">
+    <div class="grid-4" id="okx-stats"><div class="card loading">Laden...</div></div>
+    <div class="card-full">
+      <div class="card-header">📂 Offene Positionen</div>
+      <div id="okx-positions"><div class="loading">Laden...</div></div>
+    </div>
+    <div class="card-full">
+      <div class="card-header">📜 Trade-Historie (letzte 20)</div>
+      <div id="okx-trades"><div class="loading">Laden...</div></div>
+    </div>
+  </div>
 
-<!-- OKX Tab -->
-<div id="tab-okx" class="page active">
-  <div id="okx-cards" class="grid"></div>
-  <div class="mb">
-    <div class="section-title">Offene Positionen</div>
-    <table><thead><tr>
-      <th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einstieg</th><th>Kurs</th><th>Qty</th><th>Margin</th><th>Stop Loss</th><th>Take Profit</th><th>P&L €</th><th>P&L %</th><th>Geöffnet</th>
-    </tr></thead><tbody id="okx-open"></tbody></table>
+  <!-- TR Virtual -->
+  <div id="tr-virtual" class="section">
+    <div class="grid-4" id="trv-stats"><div class="card loading">Laden...</div></div>
+    <div class="card-full">
+      <div class="card-header">📂 Positionen</div>
+      <div id="trv-positions"><div class="loading">Laden...</div></div>
+    </div>
+    <div class="card-full">
+      <div class="card-header">📜 Transaktionen</div>
+      <div id="trv-trades"><div class="loading">Laden...</div></div>
+    </div>
   </div>
-  <div>
-    <div class="section-title">Trade Historie</div>
-    <table><thead><tr>
-      <th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einstieg</th><th>Ausstieg</th><th>P&L €</th><th>P&L %</th><th>Grund</th><th>Geschlossen</th>
-    </tr></thead><tbody id="okx-closed"></tbody></table>
-  </div>
-</div>
 
-<!-- Virtual TR Tab -->
-<div id="tab-virtual" class="page">
-  <div id="virt-cards" class="grid"></div>
-  <div class="mb">
-    <div class="section-title">Positionen</div>
-    <table><thead><tr>
-      <th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Aktuell</th><th>Investiert</th><th>Wert</th><th>P&L €</th><th>P&L %</th><th>Kaufdatum</th>
-    </tr></thead><tbody id="virt-positions"></tbody></table>
+  <!-- TR Real -->
+  <div id="tr-real" class="section">
+    <div class="grid-4" id="trr-stats"><div class="card loading">Laden...</div></div>
+    <div class="card-full">
+      <div class="card-header">📂 Reale Positionen</div>
+      <div id="trr-positions"><div class="loading">Laden...</div></div>
+    </div>
+    <div class="card-full">
+      <div class="card-header">📜 Transaktionshistorie</div>
+      <div id="trr-trades"><div class="loading">Laden...</div></div>
+    </div>
   </div>
-</div>
-
-<!-- Real TR Tab -->
-<div id="tab-real" class="page">
-  <div id="real-cards" class="grid"></div>
-  <div class="mb">
-    <div class="section-title">Reale Positionen</div>
-    <table><thead><tr>
-      <th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Aktuell</th><th>Investiert</th><th>Wert</th><th>P&L €</th><th>P&L %</th><th>Börse</th>
-    </tr></thead><tbody id="real-positions"></tbody></table>
-  </div>
-  <div>
-    <div class="section-title">Transaktionshistorie</div>
-    <table><thead><tr>
-      <th>Datum</th><th>Asset</th><th>Typ</th><th>Menge</th><th>Kurs</th><th>Gebühr</th><th>Gesamt</th>
-    </tr></thead><tbody id="real-transactions"></tbody></table>
-  </div>
-</div>
+</main>
 
 <script>
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['okx','virtual','real'][i] === name));
-  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'tab-'+name));
+function showTab(id, btn) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
 }
 
-function pnlClass(v) { return v > 0 ? 'green' : v < 0 ? 'red' : ''; }
-function fmt(v, dec=2) { return v != null ? v.toFixed(dec) : '–'; }
-function fmtEur(v) { return v != null ? '€'+v.toFixed(2) : '–'; }
+function pnlClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
+function pnlSign(v) { return v > 0 ? '+' : ''; }
+function fmt(v, d=2) { return typeof v === 'number' ? v.toFixed(d) : v; }
 
 async function loadOKX() {
-  const d = await fetch('/api/okx').then(r=>r.json());
-  document.getElementById('last-update').textContent = 'Aktualisiert: ' + d.updated;
+  const r = await fetch('/api/okx');
+  const d = await r.json();
+  if(d.error) { document.getElementById('okx-stats').innerHTML = `<div class="card">${d.error}</div>`; return; }
 
-  const totalVal = d.cash + d.open_positions.reduce((s,p) => s + (p.margin||0) + (p.pnl||0), 0);
-  const totalPnl = d.total_realized_pnl + d.total_open_pnl;
+  document.getElementById('okx-stats').innerHTML = `
+    <div class="card">
+      <h3>Depot-Wert</h3>
+      <div class="value">€${fmt(d.depot_value)}</div>
+      <div class="sub">Start: €${fmt(d.start_capital)}</div>
+    </div>
+    <div class="card">
+      <h3>Gesamt P&L</h3>
+      <div class="value ${pnlClass(d.total_pnl)}">${pnlSign(d.total_pnl)}€${fmt(d.total_pnl)}</div>
+      <div class="sub ${pnlClass(d.total_pnl_pct)}">${pnlSign(d.total_pnl_pct)}${fmt(d.total_pnl_pct)}%</div>
+    </div>
+    <div class="card">
+      <h3>Cash</h3>
+      <div class="value">€${fmt(d.cash)}</div>
+      <div class="sub">Verfügbar</div>
+    </div>
+    <div class="card">
+      <h3>Offene Positionen</h3>
+      <div class="value">${d.open_positions}</div>
+      <div class="sub">Aktive Trades</div>
+    </div>`;
 
-  document.getElementById('okx-cards').innerHTML = `
-    <div class="card"><div class="label">Startkapital</div><div class="value blue">${fmtEur(d.start_capital)}</div></div>
-    <div class="card"><div class="label">Cash</div><div class="value">${fmtEur(d.cash)}</div></div>
-    <div class="card"><div class="label">Offene Positionen</div><div class="value blue">${d.open_positions.length}</div></div>
-    <div class="card"><div class="label">Realisierter P&L</div><div class="value ${pnlClass(d.total_realized_pnl)}">${fmtEur(d.total_realized_pnl)}</div></div>
-    <div class="card"><div class="label">Offener P&L</div><div class="value ${pnlClass(d.total_open_pnl)}">${fmtEur(d.total_open_pnl)}</div></div>
-    <div class="card"><div class="label">Gesamt P&L</div><div class="value ${pnlClass(totalPnl)}">${fmtEur(totalPnl)}</div></div>
-  `;
-
-  const openTbody = document.getElementById('okx-open');
-  if (!d.open_positions.length) {
-    openTbody.innerHTML = '<tr><td colspan="12" class="no-data">Keine offenen Positionen</td></tr>';
+  if(d.positions.length === 0) {
+    document.getElementById('okx-positions').innerHTML = '<div class="empty">Keine offenen Positionen</div>';
   } else {
-    openTbody.innerHTML = d.open_positions.map(p => `
-      <tr>
+    document.getElementById('okx-positions').innerHTML = `<table>
+      <tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einstieg</th><th>Aktuell</th><th>Menge</th><th>Margin</th><th>P&L</th><th>P&L %</th><th>Stop Loss</th><th>Take Profit</th><th>Seit</th></tr>
+      ${d.positions.map(p => `<tr>
         <td><b>${p.symbol}</b></td>
-        <td><span class="badge ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? '🔼' : '🔽'} ${p.direction}</span></td>
-        <td>${p.leverage}x</td>
-        <td>€${fmt(p.entry, 4)}</td>
-        <td>${p.current ? '€'+fmt(p.current,4) : '–'}</td>
-        <td>${fmt(p.qty, 2)}</td>
+        <td><span class="tag ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? '🔼' : '🔽'} ${p.direction}</span></td>
+        <td><span class="lev">${p.leverage}x</span></td>
+        <td>€${fmt(p.entry_price,4)}</td>
+        <td>€${fmt(p.current_price,4)}</td>
+        <td>${fmt(p.quantity,4)}</td>
         <td>€${fmt(p.margin)}</td>
-        <td class="red">€${fmt(p.stop_loss,4)}</td>
-        <td class="green">€${fmt(p.take_profit,4)}</td>
-        <td class="${pnlClass(p.pnl)}">${fmtEur(p.pnl)}</td>
-        <td class="${pnlClass(p.pnl_pct)}">${p.pnl_pct != null ? p.pnl_pct.toFixed(2)+'%' : '–'}</td>
+        <td class="${pnlClass(p.pnl)}">${pnlSign(p.pnl)}€${fmt(p.pnl)}</td>
+        <td class="${pnlClass(p.pnl_pct)}">${pnlSign(p.pnl_pct)}${fmt(p.pnl_pct)}%</td>
+        <td style="color:var(--red)">€${fmt(p.stop_loss,4)}</td>
+        <td style="color:var(--green)">€${fmt(p.take_profit,4)}</td>
         <td style="color:var(--muted)">${p.opened}</td>
-      </tr>`).join('');
+      </tr>`).join('')}
+    </table>`;
   }
 
-  const closedTbody = document.getElementById('okx-closed');
-  if (!d.closed_trades.length) {
-    closedTbody.innerHTML = '<tr><td colspan="9" class="no-data">Keine abgeschlossenen Trades</td></tr>';
-  } else {
-    closedTbody.innerHTML = d.closed_trades.map(t => `
-      <tr>
-        <td><b>${t.symbol}</b></td>
-        <td><span class="badge ${t.direction.toLowerCase()}">${t.direction === 'LONG' ? '🔼' : '🔽'} ${t.direction}</span></td>
-        <td>${t.leverage}x</td>
-        <td>€${fmt(t.entry,4)}</td>
-        <td>€${fmt(t.exit,4)}</td>
-        <td class="${pnlClass(t.pnl)}">${fmtEur(t.pnl)}</td>
-        <td class="${pnlClass(t.pnl_pct)}">${t.pnl_pct.toFixed(2)}%</td>
-        <td style="color:var(--muted);font-size:12px">${t.reason}</td>
-        <td style="color:var(--muted)">${t.closed}</td>
-      </tr>`).join('');
-  }
+  document.getElementById('okx-trades').innerHTML = `<table>
+    <tr><th>Zeit</th><th>Aktion</th><th>Symbol</th><th>Kurs</th><th>Hebel</th><th>Margin</th><th>P&L</th><th>P&L %</th><th>Grund</th></tr>
+    ${d.trades.map(t => `<tr>
+      <td style="color:var(--muted)">${t.time}</td>
+      <td><span class="tag ${t.action.toLowerCase()}">${t.action === 'BUY' ? '🟢' : '🔴'} ${t.action}</span></td>
+      <td><b>${t.symbol}</b></td>
+      <td>€${fmt(t.price,4)}</td>
+      <td>${t.leverage ? `<span class="lev">${t.leverage}x</span>` : '-'}</td>
+      <td>${t.margin ? '€'+fmt(t.margin) : '-'}</td>
+      <td class="${pnlClass(t.pnl)}">${t.pnl != null ? pnlSign(t.pnl)+'€'+fmt(t.pnl) : '-'}</td>
+      <td class="${pnlClass(t.pnl_pct)}">${t.pnl_pct != null ? pnlSign(t.pnl_pct)+fmt(t.pnl_pct)+'%' : '-'}</td>
+      <td style="color:var(--muted);font-size:11px">${t.reason || '-'}</td>
+    </tr>`).join('')}
+  </table>`;
 }
 
-async function loadVirtual() {
-  const d = await fetch('/api/virtual').then(r=>r.json());
-  const totalVal = d.positionen.reduce((s,p) => s + (p.aktuell_gesamt||p.investiert), 0);
-  const totalPnl = d.positionen.reduce((s,p) => s + (p.pnl||0), 0);
+async function loadTRVirtual() {
+  const r = await fetch('/api/tradereublic/virtual');
+  const d = await r.json();
+  if(d.error) { document.getElementById('trv-stats').innerHTML = `<div class="card">${d.error}</div>`; return; }
 
-  document.getElementById('virt-cards').innerHTML = `
-    <div class="card"><div class="label">Startkapital</div><div class="value blue">${fmtEur(d.startkapital)}</div></div>
-    <div class="card"><div class="label">Cash</div><div class="value">${fmtEur(d.kassenstand)}</div></div>
-    <div class="card"><div class="label">Depot-Wert</div><div class="value">${fmtEur(totalVal)}</div></div>
-    <div class="card"><div class="label">Gesamt P&L</div><div class="value ${pnlClass(totalPnl)}">${fmtEur(totalPnl)}</div></div>
-  `;
+  document.getElementById('trv-stats').innerHTML = `
+    <div class="card">
+      <h3>Depot-Wert</h3>
+      <div class="value">€${fmt(d.depot_value)}</div>
+      <div class="sub">Start: €${fmt(d.start_capital)}</div>
+    </div>
+    <div class="card">
+      <h3>Gesamt P&L</h3>
+      <div class="value ${pnlClass(d.total_pnl)}">${pnlSign(d.total_pnl)}€${fmt(d.total_pnl)}</div>
+      <div class="sub ${pnlClass(d.total_pnl_pct)}">${pnlSign(d.total_pnl_pct)}${fmt(d.total_pnl_pct)}%</div>
+    </div>
+    <div class="card">
+      <h3>Investiert</h3>
+      <div class="value">€${fmt(d.invested_value)}</div>
+      <div class="sub">In Positionen</div>
+    </div>
+    <div class="card">
+      <h3>Cash</h3>
+      <div class="value">€${fmt(d.cash)}</div>
+      <div class="sub">Verfügbar</div>
+    </div>`;
 
-  document.getElementById('virt-positions').innerHTML = d.positionen.map(p => `
-    <tr>
+  document.getElementById('trv-positions').innerHTML = `<table>
+    <tr><th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Aktuell</th><th>Investiert</th><th>Wert</th><th>P&L</th><th>P&L %</th><th>Seit</th></tr>
+    ${d.positions.map(p => `<tr>
       <td><b>${p.asset}</b></td>
-      <td class="blue">${p.ticker}</td>
-      <td>${fmt(p.menge,4)}</td>
-      <td>€${fmt(p.kaufkurs,2)}</td>
-      <td>${p.aktuell ? '€'+fmt(p.aktuell,2) : '–'}</td>
-      <td>€${fmt(p.investiert,2)}</td>
-      <td>${p.aktuell_gesamt ? '€'+fmt(p.aktuell_gesamt,2) : '–'}</td>
-      <td class="${pnlClass(p.pnl)}">${fmtEur(p.pnl)}</td>
-      <td class="${pnlClass(p.pnl_pct)}">${p.pnl_pct != null ? p.pnl_pct.toFixed(2)+'%' : '–'}</td>
+      <td style="color:var(--blue)">${p.ticker}</td>
+      <td>${fmt(p.menge,6)}</td>
+      <td>€${fmt(p.kaufkurs)}</td>
+      <td>€${fmt(p.current_price)}</td>
+      <td>€${fmt(p.investiert)}</td>
+      <td>€${fmt(p.current_value)}</td>
+      <td class="${pnlClass(p.pnl)}">${pnlSign(p.pnl)}€${fmt(p.pnl)}</td>
+      <td class="${pnlClass(p.pnl_pct)}">${pnlSign(p.pnl_pct)}${fmt(p.pnl_pct)}%</td>
       <td style="color:var(--muted)">${p.kaufdatum}</td>
-    </tr>`).join('');
+    </tr>`).join('')}
+  </table>`;
+
+  document.getElementById('trv-trades').innerHTML = `<table>
+    <tr><th>Datum</th><th>Asset</th><th>Typ</th><th>Menge</th><th>Kurs</th><th>Betrag</th><th>Notiz</th></tr>
+    ${d.transaktionen.map(t => `<tr>
+      <td style="color:var(--muted)">${t.datum} ${t.uhrzeit||''}</td>
+      <td><b>${t.asset}</b></td>
+      <td><span class="tag ${t.typ === 'Kauf' ? 'buy' : 'sell'}">${t.typ === 'Kauf' ? '🟢' : '🔴'} ${t.typ}</span></td>
+      <td>${fmt(t.menge,6)}</td>
+      <td>€${fmt(parseFloat(t.kurs||0))}</td>
+      <td>€${fmt(parseFloat(t.betrag||0))}</td>
+      <td style="color:var(--muted);font-size:11px">${t.notiz||''}</td>
+    </tr>`).join('')}
+  </table>`;
 }
 
-async function loadReal() {
-  const d = await fetch('/api/real').then(r=>r.json());
-  const totalPnl = d.positionen.reduce((s,p) => s + (p.pnl||0), 0);
+async function loadTRReal() {
+  const r = await fetch('/api/tradereublic/real');
+  const d = await r.json();
 
-  document.getElementById('real-cards').innerHTML = `
-    <div class="card"><div class="label">Positionen</div><div class="value blue">${d.positionen.length}</div></div>
-    <div class="card"><div class="label">Gesamt P&L</div><div class="value ${pnlClass(totalPnl)}">${fmtEur(totalPnl)}</div></div>
-  `;
+  const pos = d.positions[0];
+  document.getElementById('trr-stats').innerHTML = `
+    <div class="card">
+      <h3>Position</h3>
+      <div class="value">${pos.asset}</div>
+      <div class="sub">${pos.ticker} — ${pos.boerse}</div>
+    </div>
+    <div class="card">
+      <h3>Aktueller Wert</h3>
+      <div class="value">€${fmt(pos.current_value)}</div>
+      <div class="sub">${fmt(pos.menge,6)} Stk × €${fmt(pos.current_price)}</div>
+    </div>
+    <div class="card">
+      <h3>P&L</h3>
+      <div class="value ${pnlClass(pos.pnl)}">${pnlSign(pos.pnl)}€${fmt(pos.pnl)}</div>
+      <div class="sub ${pnlClass(pos.pnl_pct)}">${pnlSign(pos.pnl_pct)}${fmt(pos.pnl_pct)}% seit ${pos.kaufdatum}</div>
+    </div>
+    <div class="card">
+      <h3>Kaufkurs</h3>
+      <div class="value">€${fmt(pos.kaufkurs)}</div>
+      <div class="sub">Investiert: €${fmt(pos.investiert)}</div>
+    </div>`;
 
-  document.getElementById('real-positions').innerHTML = d.positionen.map(p => `
+  document.getElementById('trr-positions').innerHTML = `<table>
+    <tr><th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Aktuell</th><th>Investiert</th><th>Wert</th><th>P&L</th><th>P&L %</th><th>Börse</th></tr>
     <tr>
-      <td><b>${p.asset}</b></td>
-      <td class="blue">${p.ticker}</td>
-      <td>${fmt(p.menge,4)}</td>
-      <td>€${fmt(p.kaufkurs,2)}</td>
-      <td>${p.aktuell ? '€'+fmt(p.aktuell,2) : '–'}</td>
-      <td>€${fmt(p.investiert,2)}</td>
-      <td>${p.aktuell_gesamt ? '€'+fmt(p.aktuell_gesamt,2) : '–'}</td>
-      <td class="${pnlClass(p.pnl)}">${fmtEur(p.pnl)}</td>
-      <td class="${pnlClass(p.pnl_pct)}">${p.pnl_pct != null ? p.pnl_pct.toFixed(2)+'%' : '–'}</td>
-      <td style="color:var(--muted)">${p.boerse}</td>
-    </tr>`).join('');
+      <td><b>${pos.asset}</b></td>
+      <td style="color:var(--blue)">${pos.ticker}</td>
+      <td>${fmt(pos.menge,6)}</td>
+      <td>€${fmt(pos.kaufkurs)}</td>
+      <td>€${fmt(pos.current_price)}</td>
+      <td>€${fmt(pos.investiert)}</td>
+      <td>€${fmt(pos.current_value)}</td>
+      <td class="${pnlClass(pos.pnl)}">${pnlSign(pos.pnl)}€${fmt(pos.pnl)}</td>
+      <td class="${pnlClass(pos.pnl_pct)}">${pnlSign(pos.pnl_pct)}${fmt(pos.pnl_pct)}%</td>
+      <td>${pos.boerse}</td>
+    </tr>
+  </table>`;
 
-  document.getElementById('real-transactions').innerHTML = d.transaktionen.map(t => `
-    <tr>
+  document.getElementById('trr-trades').innerHTML = `<table>
+    <tr><th>Datum</th><th>Asset</th><th>Typ</th><th>Menge</th><th>Preis</th><th>Gebühr</th><th>Steuer</th><th>Gesamt</th></tr>
+    ${d.transactions.map(t => `<tr>
       <td style="color:var(--muted)">${t.Datum}</td>
       <td><b>${t.Asset}</b></td>
-      <td><span class="badge ${t.Transaktion==='Kauf'?'long':'short'}">${t.Transaktion}</span></td>
-      <td>${fmt(parseFloat(t.Menge),4)}</td>
-      <td>€${fmt(parseFloat(t.Preis),2)}</td>
-      <td style="color:var(--muted)">€${fmt(parseFloat(t.Gebuehr),2)}</td>
-      <td class="${t.Transaktion==='Kauf'?'red':'green'}">€${fmt(parseFloat(t.Gesamtbetrag),2)}</td>
-    </tr>`).join('');
+      <td><span class="tag ${t.Transaktion === 'Kauf' ? 'buy' : 'sell'}">${t.Transaktion === 'Kauf' ? '🟢' : '🔴'} ${t.Transaktion}</span></td>
+      <td>${fmt(parseFloat(t.Menge||0),6)}</td>
+      <td>€${fmt(parseFloat(t.Preis||0))}</td>
+      <td>€${fmt(parseFloat(t.Gebuehr||0))}</td>
+      <td>€${fmt(parseFloat(t.Steuer||0))}</td>
+      <td>€${fmt(parseFloat(t.Gesamtbetrag||0))}</td>
+    </tr>`).join('')}
+  </table>`;
 }
 
-// Load all on start
-loadOKX(); loadVirtual(); loadReal();
-// Auto-refresh every 60s
-setInterval(() => { loadOKX(); loadVirtual(); loadReal(); }, 60000);
+async function loadAll() {
+  document.getElementById('last-update').textContent = 'Aktualisiere...';
+  await Promise.all([loadOKX(), loadTRVirtual(), loadTRReal()]);
+  document.getElementById('last-update').textContent = 'Zuletzt: ' + new Date().toLocaleTimeString('de-DE');
+}
+
+// Auto-Refresh alle 60 Sekunden
+loadAll();
+setInterval(loadAll, 60000);
 </script>
 </body>
 </html>
