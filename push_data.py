@@ -6,7 +6,7 @@ import urllib.request
 from datetime import datetime
 
 RENDER_URL = "https://trading-dashboard-6n5w.onrender.com"
-API_SECRET = os.environ.get("DASHBOARD_SECRET", "OKX2024secure!")
+API_SECRET = os.environ.get("API_SECRET", "OKX2024secure!")
 
 def load_json(path, default=None):
     try:
