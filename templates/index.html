@@ -5,308 +5,302 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trading Dashboard</title>
 <style>
-  :root {
-    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
-    --border: #30363d; --text: #e6edf3; --muted: #8b949e;
-    --green: #3fb950; --red: #f85149; --blue: #58a6ff;
-    --yellow: #d29922; --purple: #bc8cff; --orange: #ffa657;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; font-size:14px; }
-  header { background:var(--bg2); border-bottom:1px solid var(--border); padding:16px 24px; display:flex; align-items:center; justify-content:space-between; }
-  header h1 { font-size:20px; font-weight:600; color:var(--blue); }
-  .badge { background:var(--bg3); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:12px; color:var(--muted); }
-  #last-update { font-size:11px; color:var(--muted); }
-  nav { display:flex; gap:4px; padding:12px 24px; background:var(--bg2); border-bottom:1px solid var(--border); }
-  nav button { background:none; border:none; color:var(--muted); padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; transition:.15s; }
-  nav button:hover, nav button.active { background:var(--bg3); color:var(--text); }
-  nav button.active { border-bottom:2px solid var(--blue); border-radius:6px 6px 0 0; }
-  main { padding:24px; max-width:1400px; margin:0 auto; }
-  .section { display:none; }
-  .section.active { display:block; }
-  .grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
-  .grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
-  @media(max-width:900px){ .grid-4{grid-template-columns:repeat(2,1fr);} .grid-2{grid-template-columns:1fr;} }
-  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:20px; }
-  .card h3 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
-  .card .value { font-size:28px; font-weight:700; }
-  .card .sub { font-size:12px; color:var(--muted); margin-top:4px; }
-  .pos { color:var(--green); } .neg { color:var(--red); } .neu { color:var(--muted); }
-  table { width:100%; border-collapse:collapse; }
-  th { text-align:left; padding:10px 12px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid var(--border); }
-  td { padding:10px 12px; border-bottom:1px solid var(--border); font-size:13px; }
-  tr:last-child td { border-bottom:none; }
-  tr:hover td { background:var(--bg3); }
-  .tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
-  .tag.long { background:#1a3a2a; color:var(--green); }
-  .tag.short { background:#3a1a1a; color:var(--red); }
-  .tag.buy { background:#1a3a2a; color:var(--green); }
-  .tag.sell { background:#3a1a1a; color:var(--red); }
-  .lev { background:#1a2a3a; color:var(--blue); display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:600; }
-  .section-title { font-size:16px; font-weight:600; margin-bottom:16px; color:var(--text); }
-  .card-full { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:0; overflow:hidden; margin-bottom:20px; }
-  .card-full .card-header { padding:16px 20px; border-bottom:1px solid var(--border); font-size:14px; font-weight:600; }
-  .loading { color:var(--muted); padding:40px; text-align:center; }
-  .pnl-bar { height:4px; border-radius:2px; margin-top:6px; }
-  .empty { color:var(--muted); padding:30px; text-align:center; font-size:13px; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+  .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header .timestamp { color: #8b949e; font-size: 13px; }
+  .refresh-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .refresh-btn:hover { background: #30363d; }
+  .tabs { display: flex; gap: 4px; padding: 16px 24px 0; background: #161b22; border-bottom: 1px solid #30363d; }
+  .tab { padding: 8px 20px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 14px; color: #8b949e; border: 1px solid transparent; }
+  .tab.active { background: #0d1117; color: #e6edf3; border-color: #30363d; border-bottom-color: #0d1117; }
+  .tab:hover:not(.active) { color: #e6edf3; }
+  .content { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+  .card-label { color: #8b949e; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card-value { font-size: 24px; font-weight: 600; }
+  .card-value.green { color: #3fb950; }
+  .card-value.red { color: #f85149; }
+  .card-value.neutral { color: #e6edf3; }
+  .section-title { font-size: 16px; font-weight: 600; margin: 24px 0 12px; color: #e6edf3; border-bottom: 1px solid #30363d; padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  th { background: #21262d; color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; }
+  td { padding: 10px 14px; font-size: 13px; border-top: 1px solid #21262d; }
+  tr:hover td { background: #1c2129; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.long { background: #1a3a2a; color: #3fb950; }
+  .badge.short { background: #3a1a1a; color: #f85149; }
+  .badge.buy { background: #1a3a2a; color: #3fb950; }
+  .badge.sell { background: #3a1a1a; color: #f85149; }
+  .pnl-pos { color: #3fb950; }
+  .pnl-neg { color: #f85149; }
+  .loading { text-align: center; padding: 60px; color: #8b949e; }
+  .error { background: #2d1117; border: 1px solid #f85149; border-radius: 8px; padding: 16px; color: #f85149; margin: 16px 0; }
+  .no-data { color: #8b949e; font-style: italic; font-size: 14px; padding: 20px; text-align: center; }
 </style>
 </head>
 <body>
-<header>
+
+<div class="header">
   <h1>📊 Trading Dashboard</h1>
-  <div style="display:flex;gap:12px;align-items:center;">
-    <span id="last-update">Laden...</span>
-    <button onclick="loadAll()" style="background:var(--blue);color:#000;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">⟳ Aktualisieren</button>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="timestamp" id="last-update">Lade...</span>
+    <button class="refresh-btn" onclick="loadData()">⟳ Aktualisieren</button>
   </div>
-</header>
-<nav>
-  <button class="active" onclick="showTab('okx',this)">🔷 OKX Virtuell (Hebel)</button>
-  <button onclick="showTab('tr-virtual',this)">📈 Trade Republic Virtuell</button>
-  <button onclick="showTab('tr-real',this)">🏦 Trade Republic Real</button>
-</nav>
-<main>
+</div>
 
-  <!-- OKX -->
-  <div id="okx" class="section active">
-    <div class="grid-4" id="okx-stats"><div class="card loading">Laden...</div></div>
-    <div class="card-full">
-      <div class="card-header">📂 Offene Positionen</div>
-      <div id="okx-positions"><div class="loading">Laden...</div></div>
-    </div>
-    <div class="card-full">
-      <div class="card-header">📜 Trade-Historie (letzte 20)</div>
-      <div id="okx-trades"><div class="loading">Laden...</div></div>
-    </div>
+<div class="tabs">
+  <div class="tab active" onclick="showTab('okx')">🔷 OKX Virtuell (Hebel)</div>
+  <div class="tab" onclick="showTab('tr-virt')">📈 Trade Republic Virtuell</div>
+  <div class="tab" onclick="showTab('tr-real')">🏦 Trade Republic Real</div>
+</div>
+
+<div class="content">
+  <div id="loading" class="loading">⏳ Lade Daten...</div>
+  <div id="error" class="error" style="display:none"></div>
+
+  <!-- OKX Virtuell -->
+  <div class="panel active" id="panel-okx">
+    <div class="summary-grid" id="okx-summary"></div>
+    <div class="section-title">📂 Offene Positionen</div>
+    <div id="okx-positions"></div>
+    <div class="section-title">📋 Trade-Historie</div>
+    <div id="okx-trades"></div>
   </div>
 
-  <!-- TR Virtual -->
-  <div id="tr-virtual" class="section">
-    <div class="grid-4" id="trv-stats"><div class="card loading">Laden...</div></div>
-    <div class="card-full">
-      <div class="card-header">📂 Positionen</div>
-      <div id="trv-positions"><div class="loading">Laden...</div></div>
-    </div>
-    <div class="card-full">
-      <div class="card-header">📜 Transaktionen</div>
-      <div id="trv-trades"><div class="loading">Laden...</div></div>
-    </div>
+  <!-- TR Virtuell -->
+  <div class="panel" id="panel-tr-virt">
+    <div class="summary-grid" id="tr-virt-summary"></div>
+    <div class="section-title">📂 Positionen</div>
+    <div id="tr-virt-positions"></div>
+    <div class="section-title">📋 Transaktionen</div>
+    <div id="tr-virt-trades"></div>
   </div>
 
   <!-- TR Real -->
-  <div id="tr-real" class="section">
-    <div class="grid-4" id="trr-stats"><div class="card loading">Laden...</div></div>
-    <div class="card-full">
-      <div class="card-header">📂 Reale Positionen</div>
-      <div id="trr-positions"><div class="loading">Laden...</div></div>
-    </div>
-    <div class="card-full">
-      <div class="card-header">📜 Transaktionshistorie</div>
-      <div id="trr-trades"><div class="loading">Laden...</div></div>
-    </div>
+  <div class="panel" id="panel-tr-real">
+    <div class="summary-grid" id="tr-real-summary"></div>
+    <div class="section-title">📂 Positionen</div>
+    <div id="tr-real-positions"></div>
   </div>
-</main>
+</div>
 
 <script>
-function showTab(id, btn) {
-  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  btn.classList.add('active');
+let currentData = null;
+
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('active', ['okx','tr-virt','tr-real'][i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
 }
 
-function pnlClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
-function pnlSign(v) { return v > 0 ? '+' : ''; }
-function fmt(v, d=2) { return typeof v === 'number' ? v.toFixed(d) : v; }
+function pnlClass(v) { return v >= 0 ? 'pnl-pos' : 'pnl-neg'; }
+function pnlSign(v) { return v >= 0 ? '+' : ''; }
+function eur(v) { return (v !== null && v !== undefined) ? '€' + Number(v).toFixed(2) : '—'; }
+function pct(v) { return (v !== null && v !== undefined) ? pnlSign(v) + Number(v).toFixed(2) + '%' : '—'; }
 
-async function loadOKX() {
-  const r = await fetch('/api/okx');
-  const d = await r.json();
-  if(d.error) { document.getElementById('okx-stats').innerHTML = `<div class="card">${d.error}</div>`; return; }
+function card(label, value, cls='neutral') {
+  return `<div class="card"><div class="card-label">${label}</div><div class="card-value ${cls}">${value}</div></div>`;
+}
 
-  document.getElementById('okx-stats').innerHTML = `
-    <div class="card">
-      <h3>Depot-Wert</h3>
-      <div class="value">€${fmt(d.depot_value)}</div>
-      <div class="sub">Start: €${fmt(d.start_capital)}</div>
-    </div>
-    <div class="card">
-      <h3>Gesamt P&L</h3>
-      <div class="value ${pnlClass(d.total_pnl)}">${pnlSign(d.total_pnl)}€${fmt(d.total_pnl)}</div>
-      <div class="sub ${pnlClass(d.total_pnl_pct)}">${pnlSign(d.total_pnl_pct)}${fmt(d.total_pnl_pct)}%</div>
-    </div>
-    <div class="card">
-      <h3>Cash</h3>
-      <div class="value">€${fmt(d.cash)}</div>
-      <div class="sub">Verfügbar</div>
-    </div>
-    <div class="card">
-      <h3>Offene Positionen</h3>
-      <div class="value">${d.open_positions}</div>
-      <div class="sub">Aktive Trades</div>
-    </div>`;
+function renderOKX(d) {
+  const okx = d.okx_virtuell;
+  if (!okx) { document.getElementById('okx-summary').innerHTML = '<div class="no-data">Keine OKX-Daten</div>'; return; }
 
-  if(d.positions.length === 0) {
-    document.getElementById('okx-positions').innerHTML = '<div class="empty">Keine offenen Positionen</div>';
-  } else {
-    document.getElementById('okx-positions').innerHTML = `<table>
-      <tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einstieg</th><th>Aktuell</th><th>Menge</th><th>Margin</th><th>P&L</th><th>P&L %</th><th>Stop Loss</th><th>Take Profit</th><th>Seit</th></tr>
-      ${d.positions.map(p => `<tr>
-        <td><b>${p.symbol}</b></td>
-        <td><span class="tag ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? '🔼' : '🔽'} ${p.direction}</span></td>
-        <td><span class="lev">${p.leverage}x</span></td>
-        <td>€${fmt(p.entry_price,4)}</td>
-        <td>€${fmt(p.current_price,4)}</td>
-        <td>${fmt(p.quantity,4)}</td>
-        <td>€${fmt(p.margin)}</td>
-        <td class="${pnlClass(p.pnl)}">${pnlSign(p.pnl)}€${fmt(p.pnl)}</td>
-        <td class="${pnlClass(p.pnl_pct)}">${pnlSign(p.pnl_pct)}${fmt(p.pnl_pct)}%</td>
-        <td style="color:var(--red)">€${fmt(p.stop_loss,4)}</td>
-        <td style="color:var(--green)">€${fmt(p.take_profit,4)}</td>
-        <td style="color:var(--muted)">${p.opened}</td>
-      </tr>`).join('')}
-    </table>`;
+  const positions = [];
+  let totalPnl = 0, totalMargin = 0;
+
+  for (const [sym, posList] of Object.entries(okx.positions || {})) {
+    for (const pos of posList) {
+      if (pos.status !== 'open') continue;
+      const live = d.live_prices && d.live_prices[sym] ? d.live_prices[sym] : pos.entry_price;
+      const pnl = (live - pos.entry_price) * pos.quantity;
+      const pnlPct = ((live - pos.entry_price) / pos.entry_price) * 100 * pos.leverage;
+      totalPnl += pnl;
+      totalMargin += pos.margin;
+      positions.push({ sym, pos, live, pnl, pnlPct });
+    }
   }
 
-  document.getElementById('okx-trades').innerHTML = `<table>
-    <tr><th>Zeit</th><th>Aktion</th><th>Symbol</th><th>Kurs</th><th>Hebel</th><th>Margin</th><th>P&L</th><th>P&L %</th><th>Grund</th></tr>
-    ${d.trades.map(t => `<tr>
-      <td style="color:var(--muted)">${t.time}</td>
-      <td><span class="tag ${t.action.toLowerCase()}">${t.action === 'BUY' ? '🟢' : '🔴'} ${t.action}</span></td>
-      <td><b>${t.symbol}</b></td>
-      <td>€${fmt(t.price,4)}</td>
-      <td>${t.leverage ? `<span class="lev">${t.leverage}x</span>` : '-'}</td>
-      <td>${t.margin ? '€'+fmt(t.margin) : '-'}</td>
-      <td class="${pnlClass(t.pnl)}">${t.pnl != null ? pnlSign(t.pnl)+'€'+fmt(t.pnl) : '-'}</td>
-      <td class="${pnlClass(t.pnl_pct)}">${t.pnl_pct != null ? pnlSign(t.pnl_pct)+fmt(t.pnl_pct)+'%' : '-'}</td>
-      <td style="color:var(--muted);font-size:11px">${t.reason || '-'}</td>
-    </tr>`).join('')}
-  </table>`;
+  const cash = okx.cash || 0;
+  const start = okx.start_capital || 1000;
+  const depotVal = cash + totalMargin + totalPnl;
+  const depotPnl = depotVal - start;
+  const depotPct = (depotPnl / start) * 100;
+
+  document.getElementById('okx-summary').innerHTML =
+    card('Depot-Wert', eur(depotVal), depotPnl >= 0 ? 'green' : 'red') +
+    card('Gesamt P&L', pnlSign(depotPnl) + eur(depotPnl) + ' (' + pct(depotPct) + ')', depotPnl >= 0 ? 'green' : 'red') +
+    card('Cash', eur(cash)) +
+    card('Offene Pos.', positions.length) +
+    card('Startkapital', eur(start));
+
+  if (positions.length === 0) {
+    document.getElementById('okx-positions').innerHTML = '<div class="no-data">Keine offenen Positionen</div>';
+  } else {
+    let rows = positions.map(({sym, pos, live, pnl, pnlPct}) => `
+      <tr>
+        <td>${sym}</td>
+        <td><span class="badge ${pos.action==='BUY'?'long':'short'}">${pos.action==='BUY'?'🔼 LONG':'🔽 SHORT'}</span></td>
+        <td>${pos.leverage}x</td>
+        <td>${eur(pos.entry_price)}</td>
+        <td>${eur(live)}</td>
+        <td>${pos.quantity.toFixed(4)}</td>
+        <td>${eur(pos.margin)}</td>
+        <td>${eur(pos.exposure)}</td>
+        <td class="${pnlClass(pnl)}">${pnlSign(pnl)}${eur(pnl)}</td>
+        <td class="${pnlClass(pnlPct)}">${pct(pnlPct)}</td>
+        <td>${eur(pos.stop_loss)}</td>
+        <td>${eur(pos.take_profit)}</td>
+        <td>${(pos.opened||'').slice(0,16)}</td>
+      </tr>`).join('');
+    document.getElementById('okx-positions').innerHTML = `
+      <table><thead><tr>
+        <th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einstieg</th><th>Kurs</th>
+        <th>Menge</th><th>Margin</th><th>Exposure</th><th>P&L</th><th>P&L %</th>
+        <th>Stop-Loss</th><th>Take-Profit</th><th>Eröffnet</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  const trades = (okx.trades || []).slice(-20).reverse();
+  if (trades.length === 0) {
+    document.getElementById('okx-trades').innerHTML = '<div class="no-data">Keine Trades</div>';
+  } else {
+    let rows = trades.map(t => `
+      <tr>
+        <td>${(t.time||'').slice(0,16)}</td>
+        <td><span class="badge ${t.action==='BUY'?'buy':'sell'}">${t.action}</span></td>
+        <td>${t.name||t.symbol||''}</td>
+        <td>${eur(t.price)}</td>
+        <td>${t.leverage||''}x</td>
+        <td>${eur(t.margin)}</td>
+        <td class="${pnlClass(t.pnl)}">${t.pnl!=null?pnlSign(t.pnl)+eur(t.pnl):'—'}</td>
+        <td>${t.reason||''}</td>
+      </tr>`).join('');
+    document.getElementById('okx-trades').innerHTML = `
+      <table><thead><tr>
+        <th>Zeit</th><th>Aktion</th><th>Symbol</th><th>Preis</th><th>Hebel</th><th>Margin</th><th>P&L</th><th>Grund</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
 }
 
-async function loadTRVirtual() {
-  const r = await fetch('/api/tradereublic/virtual');
-  const d = await r.json();
-  if(d.error) { document.getElementById('trv-stats').innerHTML = `<div class="card">${d.error}</div>`; return; }
+function renderTRVirt(d) {
+  const tr = d.tr_virtuell;
+  if (!tr) { document.getElementById('tr-virt-summary').innerHTML = '<div class="no-data">Keine Daten</div>'; return; }
 
-  document.getElementById('trv-stats').innerHTML = `
-    <div class="card">
-      <h3>Depot-Wert</h3>
-      <div class="value">€${fmt(d.depot_value)}</div>
-      <div class="sub">Start: €${fmt(d.start_capital)}</div>
-    </div>
-    <div class="card">
-      <h3>Gesamt P&L</h3>
-      <div class="value ${pnlClass(d.total_pnl)}">${pnlSign(d.total_pnl)}€${fmt(d.total_pnl)}</div>
-      <div class="sub ${pnlClass(d.total_pnl_pct)}">${pnlSign(d.total_pnl_pct)}${fmt(d.total_pnl_pct)}%</div>
-    </div>
-    <div class="card">
-      <h3>Investiert</h3>
-      <div class="value">€${fmt(d.invested_value)}</div>
-      <div class="sub">In Positionen</div>
-    </div>
-    <div class="card">
-      <h3>Cash</h3>
-      <div class="value">€${fmt(d.cash)}</div>
-      <div class="sub">Verfügbar</div>
-    </div>`;
+  const positionen = tr.positionen || [];
+  let totalVal = 0, totalInvested = 0;
+  const rows_pos = positionen.map(pos => {
+    const live = d.live_prices && d.live_prices[pos.ticker] ? d.live_prices[pos.ticker] : pos.kaufkurs;
+    const val = live * pos.menge;
+    const inv = pos.investiert || pos.kaufkurs * pos.menge;
+    const pnl = val - inv;
+    const pnlPct = (pnl / inv) * 100;
+    totalVal += val;
+    totalInvested += inv;
+    return `<tr>
+      <td>${pos.asset||pos.ticker}</td>
+      <td>${pos.ticker}</td>
+      <td>${pos.menge.toFixed(6)}</td>
+      <td>${eur(pos.kaufkurs)}</td>
+      <td>${eur(live)}</td>
+      <td>${eur(inv)}</td>
+      <td>${eur(val)}</td>
+      <td class="${pnlClass(pnl)}">${pnlSign(pnl)}${eur(pnl)}</td>
+      <td class="${pnlClass(pnlPct)}">${pct(pnlPct)}</td>
+      <td>${pos.kaufdatum||''}</td>
+    </tr>`;
+  });
 
-  document.getElementById('trv-positions').innerHTML = `<table>
-    <tr><th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Aktuell</th><th>Investiert</th><th>Wert</th><th>P&L</th><th>P&L %</th><th>Seit</th></tr>
-    ${d.positions.map(p => `<tr>
-      <td><b>${p.asset}</b></td>
-      <td style="color:var(--blue)">${p.ticker}</td>
-      <td>${fmt(p.menge,6)}</td>
-      <td>€${fmt(p.kaufkurs)}</td>
-      <td>€${fmt(p.current_price)}</td>
-      <td>€${fmt(p.investiert)}</td>
-      <td>€${fmt(p.current_value)}</td>
-      <td class="${pnlClass(p.pnl)}">${pnlSign(p.pnl)}€${fmt(p.pnl)}</td>
-      <td class="${pnlClass(p.pnl_pct)}">${pnlSign(p.pnl_pct)}${fmt(p.pnl_pct)}%</td>
-      <td style="color:var(--muted)">${p.kaufdatum}</td>
-    </tr>`).join('')}
-  </table>`;
+  const cash = tr.kassenstand || 0;
+  const start = tr.startkapital || 10000;
+  const depot = totalVal + cash;
+  const pnl = depot - start;
+  const pnlP = (pnl / start) * 100;
 
-  document.getElementById('trv-trades').innerHTML = `<table>
-    <tr><th>Datum</th><th>Asset</th><th>Typ</th><th>Menge</th><th>Kurs</th><th>Betrag</th><th>Notiz</th></tr>
-    ${d.transaktionen.map(t => `<tr>
-      <td style="color:var(--muted)">${t.datum} ${t.uhrzeit||''}</td>
-      <td><b>${t.asset}</b></td>
-      <td><span class="tag ${t.typ === 'Kauf' ? 'buy' : 'sell'}">${t.typ === 'Kauf' ? '🟢' : '🔴'} ${t.typ}</span></td>
-      <td>${fmt(t.menge,6)}</td>
-      <td>€${fmt(parseFloat(t.kurs||0))}</td>
-      <td>€${fmt(parseFloat(t.betrag||0))}</td>
-      <td style="color:var(--muted);font-size:11px">${t.notiz||''}</td>
-    </tr>`).join('')}
-  </table>`;
+  document.getElementById('tr-virt-summary').innerHTML =
+    card('Depot-Wert', eur(depot), pnl >= 0 ? 'green' : 'red') +
+    card('Gesamt P&L', pnlSign(pnl)+eur(pnl)+' ('+pct(pnlP)+')', pnl >= 0 ? 'green' : 'red') +
+    card('Cash', eur(cash)) +
+    card('Investiert', eur(totalInvested)) +
+    card('Startkapital', eur(start));
+
+  document.getElementById('tr-virt-positions').innerHTML = positionen.length === 0
+    ? '<div class="no-data">Keine Positionen</div>'
+    : `<table><thead><tr><th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Kurs</th><th>Investiert</th><th>Wert</th><th>P&L</th><th>P&L %</th><th>Kaufdatum</th></tr></thead><tbody>${rows_pos.join('')}</tbody></table>`;
+
+  const trans = (tr.transaktionen || []).slice(-10).reverse();
+  document.getElementById('tr-virt-trades').innerHTML = trans.length === 0
+    ? '<div class="no-data">Keine Transaktionen</div>'
+    : `<table><thead><tr><th>Datum</th><th>Typ</th><th>Asset</th><th>Menge</th><th>Kurs</th><th>Betrag</th></tr></thead><tbody>`
+      + trans.map(t => `<tr><td>${t.datum||''}</td><td><span class="badge ${t.typ==='Kauf'?'buy':'sell'}">${t.typ}</span></td><td>${t.asset||''}</td><td>${t.menge||''}</td><td>${eur(t.kurs)}</td><td>${eur(t.betrag)}</td></tr>`).join('')
+      + '</tbody></table>';
 }
 
-async function loadTRReal() {
-  const r = await fetch('/api/tradereublic/real');
-  const d = await r.json();
+function renderTRReal(d) {
+  const tr = d.tr_real;
+  if (!tr) { document.getElementById('tr-real-summary').innerHTML = '<div class="no-data">Keine Daten</div>'; return; }
 
-  const pos = d.positions[0];
-  document.getElementById('trr-stats').innerHTML = `
-    <div class="card">
-      <h3>Position</h3>
-      <div class="value">${pos.asset}</div>
-      <div class="sub">${pos.ticker} — ${pos.boerse}</div>
-    </div>
-    <div class="card">
-      <h3>Aktueller Wert</h3>
-      <div class="value">€${fmt(pos.current_value)}</div>
-      <div class="sub">${fmt(pos.menge,6)} Stk × €${fmt(pos.current_price)}</div>
-    </div>
-    <div class="card">
-      <h3>P&L</h3>
-      <div class="value ${pnlClass(pos.pnl)}">${pnlSign(pos.pnl)}€${fmt(pos.pnl)}</div>
-      <div class="sub ${pnlClass(pos.pnl_pct)}">${pnlSign(pos.pnl_pct)}${fmt(pos.pnl_pct)}% seit ${pos.kaufdatum}</div>
-    </div>
-    <div class="card">
-      <h3>Kaufkurs</h3>
-      <div class="value">€${fmt(pos.kaufkurs)}</div>
-      <div class="sub">Investiert: €${fmt(pos.investiert)}</div>
-    </div>`;
+  const nvda_eur = tr.nvda_live_eur;
+  const nvda_qty = 5.269814;
+  const nvda_entry = 189.80;
+  const val = nvda_eur ? nvda_eur * nvda_qty : nvda_entry * nvda_qty;
+  const inv = nvda_entry * nvda_qty;
+  const pnl = val - inv;
+  const pnlP = (pnl / inv) * 100;
 
-  document.getElementById('trr-positions').innerHTML = `<table>
-    <tr><th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Aktuell</th><th>Investiert</th><th>Wert</th><th>P&L</th><th>P&L %</th><th>Börse</th></tr>
+  document.getElementById('tr-real-summary').innerHTML =
+    card('Depot-Wert', eur(val), pnl >= 0 ? 'green' : 'red') +
+    card('Gesamt P&L', pnlSign(pnl)+eur(pnl)+' ('+pct(pnlP)+')', pnl >= 0 ? 'green' : 'red') +
+    card('NVDA Kurs (EUR)', eur(nvda_eur)) +
+    card('EUR/USD', tr.eur_usd ? tr.eur_usd.toFixed(4) : '—');
+
+  document.getElementById('tr-real-positions').innerHTML = `
+    <table><thead><tr>
+      <th>Asset</th><th>Ticker</th><th>Menge</th><th>Kaufkurs</th><th>Kurs (EUR)</th>
+      <th>Investiert</th><th>Wert</th><th>P&L</th><th>P&L %</th><th>Kaufdatum</th><th>Börse</th>
+    </tr></thead><tbody>
     <tr>
-      <td><b>${pos.asset}</b></td>
-      <td style="color:var(--blue)">${pos.ticker}</td>
-      <td>${fmt(pos.menge,6)}</td>
-      <td>€${fmt(pos.kaufkurs)}</td>
-      <td>€${fmt(pos.current_price)}</td>
-      <td>€${fmt(pos.investiert)}</td>
-      <td>€${fmt(pos.current_value)}</td>
-      <td class="${pnlClass(pos.pnl)}">${pnlSign(pos.pnl)}€${fmt(pos.pnl)}</td>
-      <td class="${pnlClass(pos.pnl_pct)}">${pnlSign(pos.pnl_pct)}${fmt(pos.pnl_pct)}%</td>
-      <td>${pos.boerse}</td>
-    </tr>
-  </table>`;
-
-  document.getElementById('trr-trades').innerHTML = `<table>
-    <tr><th>Datum</th><th>Asset</th><th>Typ</th><th>Menge</th><th>Preis</th><th>Gebühr</th><th>Steuer</th><th>Gesamt</th></tr>
-    ${d.transactions.map(t => `<tr>
-      <td style="color:var(--muted)">${t.Datum}</td>
-      <td><b>${t.Asset}</b></td>
-      <td><span class="tag ${t.Transaktion === 'Kauf' ? 'buy' : 'sell'}">${t.Transaktion === 'Kauf' ? '🟢' : '🔴'} ${t.Transaktion}</span></td>
-      <td>${fmt(parseFloat(t.Menge||0),6)}</td>
-      <td>€${fmt(parseFloat(t.Preis||0))}</td>
-      <td>€${fmt(parseFloat(t.Gebuehr||0))}</td>
-      <td>€${fmt(parseFloat(t.Steuer||0))}</td>
-      <td>€${fmt(parseFloat(t.Gesamtbetrag||0))}</td>
-    </tr>`).join('')}
-  </table>`;
+      <td>NVIDIA</td><td>NVDA</td><td>5.269814</td><td>€189.80</td>
+      <td>${eur(nvda_eur)}</td><td>${eur(inv)}</td><td>${eur(val)}</td>
+      <td class="${pnlClass(pnl)}">${pnlSign(pnl)}${eur(pnl)}</td>
+      <td class="${pnlClass(pnlP)}">${pct(pnlP)}</td>
+      <td>2026-05-18</td><td>Lang & Schwarz</td>
+    </tr></tbody></table>`;
 }
 
-async function loadAll() {
-  document.getElementById('last-update').textContent = 'Aktualisiere...';
-  await Promise.all([loadOKX(), loadTRVirtual(), loadTRReal()]);
-  document.getElementById('last-update').textContent = 'Zuletzt: ' + new Date().toLocaleTimeString('de-DE');
+async function loadData() {
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('error').style.display = 'none';
+  try {
+    const r = await fetch('/api/data');
+    if (!r.ok) {
+      const e = await r.json();
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    const data = await r.json();
+    currentData = data;
+    document.getElementById('loading').style.display = 'none';
+    const ts = data.timestamp ? new Date(data.timestamp).toLocaleString('de-DE') : '—';
+    document.getElementById('last-update').textContent = 'Stand: ' + ts;
+    renderOKX(data);
+    renderTRVirt(data);
+    renderTRReal(data);
+  } catch(e) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').style.display = 'block';
+    document.getElementById('error').textContent = '⚠ ' + e.message;
+  }
 }
 
-// Auto-Refresh alle 60 Sekunden
-loadAll();
-setInterval(loadAll, 60000);
+loadData();
+setInterval(loadData, 60000); // alle 60 Sek auto-refresh
 </script>
 </body>
 </html>
