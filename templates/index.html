@@ -12,6 +12,8 @@
   .header .timestamp { color: #8b949e; font-size: 13px; }
   .refresh-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .refresh-btn:hover { background: #30363d; }
+  .logout-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; text-decoration: none; }
+  .logout-btn:hover { border-color: #f85149; color: #f85149; }
   .tabs { display: flex; gap: 4px; padding: 16px 24px 0; background: #161b22; border-bottom: 1px solid #30363d; }
   .tab { padding: 8px 20px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 14px; color: #8b949e; border: 1px solid transparent; }
   .tab.active { background: #0d1117; color: #e6edf3; border-color: #30363d; border-bottom-color: #0d1117; }
@@ -50,6 +52,7 @@
   <div style="display:flex;align-items:center;gap:12px;">
     <span class="timestamp" id="last-update">Lade...</span>
     <button class="refresh-btn" onclick="loadData()">⟳ Aktualisieren</button>
+    <a href="/logout" class="logout-btn">⎋ Logout</a>
   </div>
 </div>
 
