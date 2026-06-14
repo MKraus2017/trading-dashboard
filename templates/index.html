@@ -51,6 +51,7 @@
   <h1>📊 Trading Dashboard</h1>
   <div style="display:flex;align-items:center;gap:12px;">
     <span class="timestamp" id="last-update">Lade...</span>
+    <span class="timestamp" style="margin-left:12px; opacity:0.6;">🔄 Refresh in <span id="countdown">60s</span></span>
     <button class="refresh-btn" onclick="loadData()">⟳ Aktualisieren</button>
     <a href="/logout" class="logout-btn">⎋ Logout</a>
   </div>
@@ -303,7 +304,18 @@ async function loadData() {
 }
 
 loadData();
-setInterval(loadData, 60000); // alle 60 Sek auto-refresh
+setInterval(loadData, 60000);
+
+// Countdown-Timer
+let countdown = 60;
+const countdownEl = document.getElementById('countdown');
+function updateCountdown() {
+  if (countdownEl) countdownEl.textContent = countdown + 's';
+  countdown--;
+  if (countdown < 0) countdown = 60;
+}
+updateCountdown();
+setInterval(updateCountdown, 1000);
 </script>
 </body>
 </html>
