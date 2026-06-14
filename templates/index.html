@@ -20,6 +20,38 @@
   .tab:hover:not(.active) { color: #e6edf3; }
   .tab.action-tab { color: #f0883e; }
   .tab.action-tab.active { color: #f0883e; }
+  .tab.suggest-tab { color: #58a6ff; }
+  .tab.suggest-tab.active { color: #58a6ff; }
+  /* Vorschläge */
+  .suggest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
+  .suggest-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px; position: relative; transition: border-color 0.2s; }
+  .suggest-card:hover { border-color: #58a6ff; }
+  .suggest-card.okx { border-left: 3px solid #f0883e; }
+  .suggest-card.tr { border-left: 3px solid #3fb950; }
+  .suggest-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .suggest-name { font-size: 16px; font-weight: 700; }
+  .suggest-broker { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+  .suggest-broker.okx { background: #2d1f0e; color: #f0883e; }
+  .suggest-broker.tr { background: #0e2d1a; color: #3fb950; }
+  .suggest-direction { font-size: 22px; font-weight: 800; margin: 6px 0; }
+  .suggest-direction.long { color: #3fb950; }
+  .suggest-direction.short { color: #f85149; }
+  .suggest-direction.kauf { color: #3fb950; }
+  .suggest-direction.verkauf { color: #f85149; }
+  .suggest-direction.halten { color: #8b949e; }
+  .suggest-details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; font-size: 12px; }
+  .suggest-detail { background: #0d1117; border-radius: 4px; padding: 6px 8px; }
+  .suggest-detail-label { color: #8b949e; font-size: 11px; }
+  .suggest-detail-value { color: #e6edf3; font-weight: 600; margin-top: 2px; }
+  .suggest-reason { font-size: 12px; color: #8b949e; margin-top: 8px; font-style: italic; }
+  .score-bar { height: 4px; background: #21262d; border-radius: 2px; margin-top: 10px; }
+  .score-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #f0883e, #58a6ff); }
+  .suggest-btn { margin-top: 12px; width: 100%; padding: 8px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; background: #21262d; color: #e6edf3; transition: background 0.2s; }
+  .suggest-btn:hover { background: #30363d; }
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filter-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #8b949e; cursor: pointer; font-size: 13px; }
+  .filter-btn.active { border-color: #58a6ff; color: #58a6ff; background: #0d1f33; }
+  .suggest-loading { text-align: center; padding: 60px; color: #8b949e; font-size: 14px; }
   .content { padding: 24px; max-width: 1400px; margin: 0 auto; }
   .panel { display: none; }
   .panel.active { display: block; }
@@ -95,6 +127,7 @@
   <div class="tab" onclick="showTab('tr-virt')">📈 Trade Republic Virtuell</div>
   <div class="tab" onclick="showTab('tr-real')">🏦 Trade Republic Real</div>
   <div class="tab action-tab" onclick="showTab('handlung')">⚡ Handlung</div>
+  <div class="tab suggest-tab" onclick="showTab('vorschlaege'); loadSuggestions()">💡 Vorschläge</div>
 </div>
 
 <div class="content">
@@ -293,15 +326,34 @@
       <div id="pending-trades-list"></div>
     </div>
   </div>
+
+  <!-- VORSCHLÄGE PANEL -->
+  <div class="panel" id="panel-vorschlaege">
+    <div class="section-title">💡 Trade-Vorschläge — Beste Chancen jetzt</div>
+    <div class="filter-bar">
+      <span style="color:#8b949e;font-size:13px;">Filter:</span>
+      <button class="filter-btn active" id="filter-all" onclick="filterSuggestions('all')">Alle</button>
+      <button class="filter-btn" id="filter-okx" onclick="filterSuggestions('OKX')">OKX Krypto</button>
+      <button class="filter-btn" id="filter-tr" onclick="filterSuggestions('TradeRepublic')">Trade Republic</button>
+      <button class="filter-btn" id="filter-long" onclick="filterSuggestions('LONG')">LONG</button>
+      <button class="filter-btn" id="filter-short" onclick="filterSuggestions('SHORT')">SHORT</button>
+      <button class="refresh-btn" onclick="loadSuggestions()" style="margin-left:auto;">🔄 Neu laden</button>
+    </div>
+    <div id="suggest-container">
+      <div class="suggest-loading">⏳ Lade Marktdaten...</div>
+    </div>
+  </div>
 </div>
 
 <script>
 let currentData = null;
 let okxDirection = 'long';
 let trBroker = 'virt';
+let allSuggestions = [];
+let activeFilter = 'all';
 
 function showTab(name) {
-  const tabs = ['okx','tr-virt','tr-real','handlung'];
+  const tabs = ['okx','tr-virt','tr-real','handlung','vorschlaege'];
   document.querySelectorAll('.tab').forEach((t,i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
@@ -713,6 +765,110 @@ function updateCountdown() {
 }
 updateCountdown();
 setInterval(updateCountdown, 1000);
+
+// Vorschläge laden
+async function loadSuggestions() {
+  document.getElementById('suggest-container').innerHTML = '<div class="suggest-loading">⏳ Lade Live-Marktdaten für 18 Symbole...</div>';
+  try {
+    const r = await fetch('/api/suggestions');
+    const data = await r.json();
+    allSuggestions = data.suggestions || [];
+    renderSuggestions();
+  } catch(e) {
+    document.getElementById('suggest-container').innerHTML = '<div class="error">Fehler beim Laden der Vorschläge</div>';
+  }
+}
+
+function filterSuggestions(f) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('filter-' + (f === 'all' ? 'all' : f === 'OKX' ? 'okx' : f === 'TradeRepublic' ? 'tr' : f === 'LONG' ? 'long' : 'short')).classList.add('active');
+  renderSuggestions();
+}
+
+function renderSuggestions() {
+  let list = allSuggestions;
+  if (activeFilter !== 'all') {
+    if (activeFilter === 'LONG' || activeFilter === 'SHORT') {
+      list = list.filter(s => s.direction === activeFilter || s.direction === (activeFilter === 'LONG' ? 'KAUF' : 'VERKAUF'));
+    } else {
+      list = list.filter(s => s.broker === activeFilter);
+    }
+  }
+  if (list.length === 0) {
+    document.getElementById('suggest-container').innerHTML = '<div class="no-data">Keine Vorschläge für diesen Filter</div>';
+    return;
+  }
+  const html = list.map(s => {
+    const isOkx = s.broker === 'OKX';
+    const dirClass = s.direction.toLowerCase();
+    const dirIcon = s.direction === 'LONG' || s.direction === 'KAUF' ? '🔼' : s.direction === 'SHORT' || s.direction === 'VERKAUF' ? '🔽' : '⏸';
+    const risikoColor = s.risiko === 'Hoch' ? '#f85149' : s.risiko === 'Mittel' ? '#f0883e' : '#3fb950';
+    const changeColor = s.change_24h >= 0 ? '#3fb950' : '#f85149';
+    return `<div class="suggest-card ${isOkx ? 'okx' : 'tr'}">
+      <div class="suggest-header">
+        <span class="suggest-name">${s.name} <span style="color:#8b949e;font-size:13px;">${s.symbol}</span></span>
+        <span class="suggest-broker ${isOkx ? 'okx' : 'tr'}">${isOkx ? 'OKX' : 'Trade Republic'}</span>
+      </div>
+      <div class="suggest-direction ${dirClass}">${dirIcon} ${s.direction}${isOkx ? ' ' + s.hebel + 'x' : ''}</div>
+      <div class="suggest-details">
+        <div class="suggest-detail">
+          <div class="suggest-detail-label">Kurs</div>
+          <div class="suggest-detail-value">${isOkx ? '$' : '€'}${Number(s.preis).toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: isOkx && s.preis < 1 ? 6 : 2})}</div>
+        </div>
+        <div class="suggest-detail">
+          <div class="suggest-detail-label">24h Change</div>
+          <div class="suggest-detail-value" style="color:${changeColor}">${s.change_24h > 0 ? '+' : ''}${s.change_24h}%</div>
+        </div>
+        <div class="suggest-detail">
+          <div class="suggest-detail-label">Stop-Loss</div>
+          <div class="suggest-detail-value" style="color:#f85149">${isOkx ? '$' : '€'}${Number(s.stop_loss).toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: isOkx && s.stop_loss < 1 ? 6 : 2})}</div>
+        </div>
+        <div class="suggest-detail">
+          <div class="suggest-detail-label">Take-Profit</div>
+          <div class="suggest-detail-value" style="color:#3fb950">${isOkx ? '$' : '€'}${Number(s.take_profit).toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: isOkx && s.take_profit < 1 ? 6 : 2})}</div>
+        </div>
+        ${isOkx ? `<div class="suggest-detail">
+          <div class="suggest-detail-label">Empf. Hebel</div>
+          <div class="suggest-detail-value">${s.hebel}x</div>
+        </div>` : ''}
+        <div class="suggest-detail">
+          <div class="suggest-detail-label">Risiko</div>
+          <div class="suggest-detail-value" style="color:${risikoColor}">${s.risiko}</div>
+        </div>
+      </div>
+      <div class="suggest-reason">📊 ${s.begruendung}</div>
+      <div class="score-bar"><div class="score-fill" style="width:${s.score}%"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e;margin-top:4px;">
+        <span>Score</span><span>${s.score}/100</span>
+      </div>
+      <button class="suggest-btn" onclick="applyToForm('${s.broker}','${s.symbol}','${s.direction}',${s.hebel},${s.stop_loss},${s.take_profit})">
+        ⚡ In Handlung übernehmen
+      </button>
+    </div>`;
+  }).join('');
+  document.getElementById('suggest-container').innerHTML = `<div class="suggest-grid">${html}</div>`;
+}
+
+function applyToForm(broker, symbol, direction, hebel, sl, tp) {
+  showTab('handlung');
+  if (broker === 'OKX') {
+    document.querySelector('[onclick="setOkxBroker()"]') && document.querySelector('[onclick="setOkxBroker()"]').click();
+    const symEl = document.querySelector('#panel-handlung select');
+    if (symEl) { symEl.value = symbol; }
+    const dirLower = (direction === 'LONG' || direction === 'KAUF') ? 'long' : 'short';
+    const dirBtn = document.querySelector(`[onclick="setOkxDirection('${dirLower}')"]`);
+    if (dirBtn) dirBtn.click();
+    const hebelEl = document.querySelector('#panel-handlung input[type="range"]');
+    if (hebelEl) { hebelEl.value = hebel; hebelEl.dispatchEvent(new Event('input')); }
+  }
+  setTimeout(() => {
+    const slEl = document.querySelector('#panel-handlung input[placeholder*="Stop"]');
+    const tpEl = document.querySelector('#panel-handlung input[placeholder*="Take"]');
+    if (slEl) slEl.value = sl;
+    if (tpEl) tpEl.value = tp;
+  }, 200);
+}
 </script>
 </body>
 </html>

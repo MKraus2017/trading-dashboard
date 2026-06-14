@@ -148,6 +148,145 @@ def api_clear_trades():
     save_trades([])
     return jsonify({"ok": True})
 
+@app.route("/api/suggestions")
+@login_required
+def api_suggestions():
+    suggestions = []
+
+    # OKX Krypto-Symbole
+    okx_symbols = [
+        {"symbol": "BTC-USDT", "name": "Bitcoin"},
+        {"symbol": "ETH-USDT", "name": "Ethereum"},
+        {"symbol": "SOL-USDT", "name": "Solana"},
+        {"symbol": "BNB-USDT", "name": "BNB"},
+        {"symbol": "DOGE-USDT", "name": "Dogecoin"},
+        {"symbol": "AVAX-USDT", "name": "Avalanche"},
+        {"symbol": "XRP-USDT", "name": "XRP"},
+        {"symbol": "ADA-USDT", "name": "Cardano"},
+        {"symbol": "LINK-USDT", "name": "Chainlink"},
+        {"symbol": "DOT-USDT", "name": "Polkadot"},
+    ]
+
+    for item in okx_symbols:
+        try:
+            r = requests.get(
+                f"https://www.okx.com/api/v5/market/ticker?instId={item['symbol']}",
+                timeout=5
+            )
+            d = r.json().get("data", [{}])[0]
+            if not d:
+                continue
+            preis = float(d.get("last", 0))
+            open24 = float(d.get("open24h", preis))
+            high24 = float(d.get("high24h", preis))
+            low24 = float(d.get("low24h", preis))
+            vol = float(d.get("volCcy24h", 0))
+            if preis == 0 or open24 == 0:
+                continue
+            change_pct = ((preis - open24) / open24) * 100
+            range_pct = ((high24 - low24) / low24) * 100 if low24 > 0 else 0
+            pos_in_range = ((preis - low24) / (high24 - low24) * 100) if (high24 - low24) > 0 else 50
+
+            if pos_in_range < 35:
+                direction = "LONG"
+            elif pos_in_range > 65:
+                direction = "SHORT"
+            else:
+                direction = "LONG" if change_pct > 2 else ("SHORT" if change_pct < -2 else "LONG")
+
+            if range_pct > 15:
+                hebel, risiko = 5, "Hoch"
+            elif range_pct > 8:
+                hebel, risiko = 10, "Mittel"
+            else:
+                hebel, risiko = 20, "Niedrig"
+
+            score = min(100, abs(change_pct) * 3 + range_pct * 2 + (100 - pos_in_range if direction == "LONG" else pos_in_range) * 0.5)
+
+            sl = round(preis * 0.95, 6) if direction == "LONG" else round(preis * 1.05, 6)
+            tp = round(preis * 1.08, 6) if direction == "LONG" else round(preis * 0.92, 6)
+
+            suggestions.append({
+                "broker": "OKX",
+                "symbol": item["symbol"],
+                "name": item["name"],
+                "preis": preis,
+                "direction": direction,
+                "hebel": hebel,
+                "risiko": risiko,
+                "change_24h": round(change_pct, 2),
+                "range_24h": round(range_pct, 2),
+                "volumen": vol,
+                "score": round(score, 1),
+                "stop_loss": sl,
+                "take_profit": tp,
+                "begruendung": f"{'+' if change_pct > 0 else ''}{change_pct:.1f}% in 24h, {'nahe Tagestief' if pos_in_range < 35 else 'nahe Tageshoch' if pos_in_range > 65 else 'in Mitte'}, Range {range_pct:.1f}%"
+            })
+        except:
+            continue
+
+    # Trade Republic Aktien
+    tr_symbols = [
+        {"symbol": "NVDA", "name": "NVIDIA"},
+        {"symbol": "AAPL", "name": "Apple"},
+        {"symbol": "TSLA", "name": "Tesla"},
+        {"symbol": "MSFT", "name": "Microsoft"},
+        {"symbol": "AMZN", "name": "Amazon"},
+        {"symbol": "ASML", "name": "ASML"},
+        {"symbol": "AMD", "name": "AMD"},
+        {"symbol": "META", "name": "Meta"},
+    ]
+
+    for item in tr_symbols:
+        try:
+            r = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{item['symbol']}?interval=1d&range=5d",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=5
+            )
+            result = r.json().get("chart", {}).get("result", [{}])[0]
+            closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+            closes = [c for c in closes if c is not None]
+            if len(closes) < 2:
+                continue
+            preis = closes[-1]
+            prev = closes[-2]
+            low5 = min(closes)
+            high5 = max(closes)
+            change_pct = ((preis - prev) / prev) * 100
+            range_pct = ((high5 - low5) / low5) * 100 if low5 > 0 else 0
+            pos_in_range = ((preis - low5) / (high5 - low5) * 100) if (high5 - low5) > 0 else 50
+
+            if pos_in_range < 40:
+                direction = "KAUF"
+            elif pos_in_range > 75:
+                direction = "VERKAUF"
+            else:
+                direction = "HALTEN"
+
+            score = min(100, abs(change_pct) * 4 + range_pct * 1.5)
+
+            suggestions.append({
+                "broker": "TradeRepublic",
+                "symbol": item["symbol"],
+                "name": item["name"],
+                "preis": round(preis, 2),
+                "direction": direction,
+                "hebel": 1,
+                "risiko": "Niedrig" if range_pct < 5 else "Mittel",
+                "change_24h": round(change_pct, 2),
+                "range_5d": round(range_pct, 2),
+                "score": round(score, 1),
+                "stop_loss": round(preis * 0.94, 2),
+                "take_profit": round(preis * 1.10, 2),
+                "begruendung": f"{'+' if change_pct > 0 else ''}{change_pct:.1f}% heute, 5d-Range {range_pct:.1f}%, {'nahe 5d-Tief' if pos_in_range < 40 else 'nahe 5d-Hoch' if pos_in_range > 75 else 'neutral'}"
+            })
+        except:
+            continue
+
+    suggestions.sort(key=lambda x: x["score"], reverse=True)
+    return jsonify({"suggestions": suggestions, "updated": datetime.utcnow().isoformat()})
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "time": datetime.utcnow().isoformat()})
