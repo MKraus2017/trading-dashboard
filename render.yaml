@@ -19,7 +19,7 @@ services:
       - key: RENDER_DISK_PATH
         value: /data
       - key: SCHEDULER_API_KEY
-        generateValue: true
+        sync: false
     disk:
       name: trading-data
       mountPath: /data

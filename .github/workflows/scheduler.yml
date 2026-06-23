@@ -1,0 +1,63 @@
+name: Trading Scheduler
+
+on:
+  schedule:
+    # Refresh prices every 5 minutes (UTC)
+    - cron: "*/5 * * * *"
+    # Market analysis every 30 minutes during trading hours window
+    # US/EU overlap / trading window. 30 min cadence via every 30 min.
+    - cron: "*/30 * * * *"
+    # LLM analysis every 2 hours
+    - cron: "0 */2 * * *"
+    # Daily summary once per day at 22:15 UTC (after US close)
+    - cron: "15 22 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh_prices:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '*/5 * * * *'
+    steps:
+      - name: Refresh prices
+        run: |
+          curl -X POST \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/refresh_prices" \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error
+
+  market_analysis:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '*/30 * * * *'
+    steps:
+      - name: Market analysis
+        run: |
+          curl -X POST \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/market_analysis" \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error
+
+  llm_analysis:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 */2 * * *'
+    steps:
+      - name: LLM analysis + auto-trade
+        run: |
+          curl -X POST \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/llm_analysis?auto_trade=true" \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error
+
+  daily_summary:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '15 22 * * *'
+    steps:
+      - name: Daily summary
+        run: |
+          curl -X POST \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/daily_summary" \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error
