@@ -20,6 +20,19 @@ function showError(msg) {
   el.style.display = msg ? 'block' : 'none';
 }
 
+const SYMBOL_NAMES = {
+  AAPL: 'Apple', AMD: 'AMD', AMZN: 'Amazon', ASML: 'ASML Holding',
+  AVGO: 'Broadcom', GOOGL: 'Alphabet', JPM: 'JPMorgan Chase',
+  LMT: 'Lockheed Martin', MA: 'Mastercard', META: 'Meta Platforms',
+  MSFT: 'Microsoft', NESR: 'Nestlé', NESN: 'Nestlé', NVDA: 'NVIDIA',
+  PLTR: 'Palantir', SAP: 'SAP', SMH: 'VanEck Semiconductor ETF',
+  TSLA: 'Tesla', V: 'Visa', VUSA: 'Vanguard S&P 500 ETF'
+};
+
+function symbolName(symbol) {
+  return SYMBOL_NAMES[symbol?.toUpperCase()] || symbol || 'Unbekannt';
+}
+
 function fmtEur(n) {
   if (n === null || n === undefined) return '-';
   return '€' + Number(n).toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -67,7 +80,7 @@ function renderPortfolio(p, alerts) {
     for (const pos of p.positions) {
       const pnlClass = pos.unrealized_eur >= 0 ? 'pnl-pos' : 'pnl-neg';
       html += `<tr>
-        <td><strong>${pos.symbol}</strong></td>
+        <td><strong>${pos.symbol}</strong><br><span style="color:#8b949e;font-size:12px;">${symbolName(pos.symbol)}</span></td>
         <td>${fmtEur(pos.entry_price)}</td>
         <td>${fmtEur(pos.last_price)}</td>
         <td>${pos.shares}</td>
@@ -124,10 +137,12 @@ function renderRealPositions(p) {
     div.innerHTML = '<div class="no-data">Noch keine echten TR-Positionen eingetragen.</div>';
     return;
   }
-  let html = '<table><tr><th>Symbol</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Datum</th></tr>';
+  let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Datum</th></tr>';
   for (const pos of positions) {
+    const name = symbolName(pos.symbol);
     html += `<tr>
       <td><strong>${pos.symbol}</strong></td>
+      <td>${name}</td>
       <td>${Number(pos.shares).toFixed(4)}</td>
       <td>${fmtEur(pos.entry_price)}</td>
       <td>${fmtEur(pos.invested)}</td>
