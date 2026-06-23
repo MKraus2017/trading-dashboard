@@ -1,58 +1,22 @@
 {
-  "cash": 2004.9207460911996,
+  "cash": 8000.0,
   "positions": [
     {
-      "symbol": "ASML",
-      "shares": 1.127335,
-      "entry_price": 1778.46,
-      "invested": 2004.92,
-      "last_price": 1778.4599609375,
-      "stop_loss": 1725.11,
-      "take_profit": 1858.48,
-      "opened_at": "2026-06-23T20:41:09.691983",
-      "unrealized_pct": 0.0,
-      "unrealized_eur": 0.0
-    },
-    {
-      "symbol": "NESN.SW",
-      "shares": 24.992775,
-      "entry_price": 80.22,
-      "invested": 2004.92,
-      "last_price": 80.22000122070312,
-      "stop_loss": 77.81,
-      "take_profit": 83.84,
-      "opened_at": "2026-06-23T20:41:09.839796",
-      "unrealized_pct": 0.0,
-      "unrealized_eur": 0.0
-    },
-    {
-      "symbol": "JPM",
-      "shares": 6.00024,
-      "entry_price": 334.14,
-      "invested": 2004.92,
-      "last_price": 334.1400146484375,
-      "stop_loss": 324.12,
-      "take_profit": 349.17,
-      "opened_at": "2026-06-23T20:41:10.003381",
-      "unrealized_pct": 0.0,
-      "unrealized_eur": 0.0
-    },
-    {
-      "symbol": "SMH",
-      "shares": 3.223086,
-      "entry_price": 622.05,
-      "invested": 2004.92,
-      "last_price": 622.0499877929688,
-      "stop_loss": 603.39,
-      "take_profit": 650.04,
-      "opened_at": "2026-06-23T20:41:10.244060",
+      "symbol": "ASML.AS",
+      "shares": 1.281394,
+      "entry_price": 1560.8,
+      "invested": 2000.0,
+      "last_price": 1560.8,
+      "stop_loss": 1513.98,
+      "take_profit": 1631.03,
+      "opened_at": "2026-06-23T21:07:13.623534",
       "unrealized_pct": 0.0,
       "unrealized_eur": 0.0
     }
   ],
   "trades": [
     {
-      "time": "2026-06-23T20:36:33.082029",
+      "time": "2026-06-23T21:07:13.623534",
       "symbol": "ASML.AS",
       "action": "BUY",
       "shares": 1.281394,
@@ -60,88 +24,12 @@
       "invested": 2000.0,
       "stop_loss": 1513.98,
       "take_profit": 1631.03
-    },
-    {
-      "time": "2026-06-23T20:36:33.086019",
-      "symbol": "ASML.AS",
-      "action": "SELL",
-      "shares": 1.281394,
-      "price": 1580.0,
-      "proceeds": 2024.6,
-      "invested": 2000.0,
-      "pnl_eur": 24.6,
-      "reason": "manuell",
-      "auto": false
-    },
-    {
-      "time": "2026-06-23T20:41:09.691983",
-      "symbol": "ASML",
-      "action": "BUY",
-      "shares": 1.127335,
-      "price": 1778.46,
-      "invested": 2004.92,
-      "stop_loss": 1725.11,
-      "take_profit": 1858.48
-    },
-    {
-      "time": "2026-06-23T20:41:09.839796",
-      "symbol": "NESN.SW",
-      "action": "BUY",
-      "shares": 24.992775,
-      "price": 80.22,
-      "invested": 2004.92,
-      "stop_loss": 77.81,
-      "take_profit": 83.84
-    },
-    {
-      "time": "2026-06-23T20:41:10.003381",
-      "symbol": "JPM",
-      "action": "BUY",
-      "shares": 6.00024,
-      "price": 334.14,
-      "invested": 2004.92,
-      "stop_loss": 324.12,
-      "take_profit": 349.17
-    },
-    {
-      "time": "2026-06-23T20:41:10.244060",
-      "symbol": "SMH",
-      "action": "BUY",
-      "shares": 3.223086,
-      "price": 622.05,
-      "invested": 2004.92,
-      "stop_loss": 603.39,
-      "take_profit": 650.04
     }
   ],
   "value_history": [
     {
-      "date": "2026-06-23T20:36:33.072697",
+      "date": "2026-06-23T21:07:13.614458",
       "value": 10000.0
-    },
-    {
-      "date": "2026-06-23T20:40:33.912563",
-      "value": 10024.6
-    },
-    {
-      "date": "2026-06-23T20:40:39.341512",
-      "value": 10024.6
-    },
-    {
-      "date": "2026-06-23T20:40:41.529735",
-      "value": 10024.6
-    },
-    {
-      "date": "2026-06-23T20:40:46.783180",
-      "value": 10024.6
-    },
-    {
-      "date": "2026-06-23T20:40:58.511060",
-      "value": 10024.6
-    },
-    {
-      "date": "2026-06-23T20:41:10.263060",
-      "value": 10024.6
     }
   ]
 }

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import config
-from analyzer import db_store, yahoo_client
+from analyzer import db_store, telegram, yahoo_client
 
 
 PORTFOLIO_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "portfolio.json")
@@ -237,6 +237,10 @@ def buy(symbol: str, price: Optional[float] = None, amount_eur: Optional[float] 
         "take_profit": take_profit,
     })
     _save(p)
+    try:
+        telegram.notify_virtual_trade("BUY", symbol, shares, price)
+    except Exception:
+        pass
     return {"ok": True, "position": updated_position, "cash": round(p["cash"], 2)}
 
 
@@ -283,4 +287,8 @@ def sell(symbol: str, price: Optional[float] = None, shares: Optional[float] = N
         pos["invested"] = round(pos["invested"], 2)
 
     _save(p)
+    try:
+        telegram.notify_virtual_trade("SELL", symbol, sell_shares, price, reason="manuell", profit=round(proceeds - cost_basis, 2))
+    except Exception:
+        pass
     return {"ok": True, "cash": round(p["cash"], 2)}

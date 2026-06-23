@@ -2,7 +2,7 @@
 import subprocess
 from typing import Dict
 
-from analyzer import portfolio, signals
+from analyzer import portfolio, signals, telegram
 
 
 def _commit_portfolio() -> dict:
@@ -124,6 +124,14 @@ def run_auto_trading(dry_run: bool = False) -> dict:
 
     # Depot neu bewerten für Rückgabe
     p_final, _ = portfolio.evaluate_portfolio()
+
+    if actions and not dry_run:
+        try:
+            summary_lines = [f"{'🟢' if a['action'] == 'AUTO-BUY' else '🔴'} {a['action']} {a['symbol']}: {a.get('reason', '')}" for a in actions if a['action'] in ('AUTO-BUY', 'AUTO-SELL')]
+            if summary_lines:
+                telegram._send_message("🤖 <b>Automatische Trades ausgeführt</b>\n\n" + "\n".join(summary_lines) + f"\n\nNeuer Depotwert: {telegram.fmt_eur(p_final.get('total_value', 0))}")
+        except Exception:
+            pass
 
     if not dry_run:
         commit_result = _commit_portfolio()
