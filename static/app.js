@@ -201,6 +201,14 @@ function renderRecommendations(data) {
         <div class="suggest-detail"><div class="suggest-detail-label">Take-Profit</div><div class="suggest-detail-value">${s.take_profit ? fmtEur(s.take_profit) : '-'}</div></div>
         <div class="suggest-detail"><div class="suggest-detail-label">Sentiment</div><div class="suggest-detail-value">${s.sentiment > 0.1 ? '🟢' : (s.sentiment < -0.1 ? '🔴' : '⚪')} ${s.sentiment}</div></div>
       </div>
+      ${s.llm_risk && !s.llm_risk.error ? `
+      <div class="llm-risk-box">
+        <div style="font-weight:600;margin-bottom:6px;">🧠 LLM Risiko: ${s.llm_risk.risk_level} (${s.llm_risk.risk_score}/10)</div>
+        <div style="font-size:12px;color:#8b949e;margin-bottom:6px;">${s.llm_risk.summary}</div>
+        ${s.llm_risk.main_risks && s.llm_risk.main_risks.length ? `<div style="font-size:12px;"><strong>Risiken:</strong> ${s.llm_risk.main_risks.join(', ')}</div>` : ''}
+        ${s.llm_risk.catalyst ? `<div style="font-size:12px;margin-top:4px;"><strong>Kurstreiber:</strong> ${s.llm_risk.catalyst}</div>` : ''}
+        ${s.llm_risk.max_position_pct ? `<div style="font-size:12px;margin-top:4px;"><strong>Max. Position:</strong> ${s.llm_risk.max_position_pct}</div>` : ''}
+      </div>` : ''}
       <div class="suggest-reason">${s.begruendung}</div>
       <div class="score-bar"><div class="score-fill" style="width:${s.score}%"></div></div>
       ${s.direction === 'KAUF' ? `<button class="suggest-btn" onclick="buyFromRec('${s.symbol}')">💼 Virtuell kaufen</button>` : ''}

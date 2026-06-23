@@ -1,6 +1,10 @@
 """Zentrale Konfiguration für das Trading-Dashboard."""
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # --- Dashboard ---
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Martin.Kraus2026!")
@@ -9,6 +13,10 @@ FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "change-me-in-production")
 # --- Datenquellen ---
 NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "")
 YAHOO_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# --- LLM Risikoanalyse (optional) ---
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
 # --- Virtuelles Depot ---
 START_CAPITAL = 10_000.00

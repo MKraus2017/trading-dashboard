@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import config
-from analyzer import indicators, news_client, yahoo_client
+from analyzer import indicators, llm_risk, news_client, yahoo_client
 
 
 REC_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "recommendations.json")
@@ -165,6 +165,33 @@ def analyze_symbol(item: dict) -> Optional[dict]:
         stop_loss = None
         take_profit = None
 
+    # 5. LLM Risikobewertung (nur für auffällige Kandidaten, reduzierte Kosten)
+    llm_risk_result = None
+    if config.OPENROUTER_API_KEY and direction == "KAUF" and score >= 65:
+        llm_risk_result = llm_risk.assess_risk(
+            symbol=symbol,
+            name=name,
+            price=latest,
+            entry_low=einstieg_von,
+            entry_high=einstieg_bis,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            indicators={
+                "trend": trend,
+                "rsi": round(last_rsi, 1) if last_rsi is not None else None,
+                "macd": round(last_macd, 4) if last_macd is not None else None,
+                "atr_pct": round(atr_pct, 2) if atr_pct is not None else None,
+            },
+            news=sentiment.get("headlines", []),
+        )
+        if llm_risk_result:
+            # Max. Positionsgröße reduzieren, wenn LLM Risiko hoch sieht
+            risk_val = llm_risk_result.get("risk_score", 5)
+            if risk_val >= 8:
+                score -= 10
+            elif risk_val <= 3:
+                score += 3
+
     his_low_20 = min(closes[-20:]) if len(closes) >= 20 else min(closes)
     his_high_20 = max(closes[-20:]) if len(closes) >= 20 else max(closes)
 
@@ -188,6 +215,7 @@ def analyze_symbol(item: dict) -> Optional[dict]:
         "stop_loss": stop_loss,
         "take_profit": take_profit,
         "risiko": "niedrig" if (atr_pct or 99) < 2 else ("mittel" if (atr_pct or 99) < 4 else "hoch"),
+        "llm_risk": llm_risk_result,
         "begruendung": "; ".join(details),
         "headlines": sentiment.get("headlines", []),
         "timestamp": datetime.utcnow().isoformat(),
