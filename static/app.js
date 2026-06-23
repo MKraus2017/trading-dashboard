@@ -347,10 +347,8 @@ async function runAutopilotDry() {
   const btn = document.getElementById('autopilot-dry-btn');
   btn.disabled = true; btn.textContent = '⏳ Plane...';
   try {
-    const r = await fetch('/api/autopilot', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({dry_run: true})
-    });
+    const r = await fetch('/api/recommendations?dry_run=true', {method: 'POST', headers: {'Content-Type': 'application/json'}});
+    if (!r.ok) throw new Error('Serverantwort: ' + r.status);
     const data = await r.json();
     autopilotPlanData = data;
     renderAutopilotPlan(data);
@@ -367,16 +365,14 @@ async function runAutopilotLive() {
   if (!autopilotPlanData || autopilotPlanData.actions.length === 0) {
     return alert('Kein Plan vorhanden. Bitte zuerst Probelauf starten.');
   }
-  if (!confirm('Soll der Autopilot die geplanten Trades jetzt im virtuellen Depot ausführen?')) return;
+  if (!confirm('Soll der Bot die geplanten Trades jetzt im virtuellen Depot ausführen?')) return;
   showLoading(true);
   showError('');
   const btn = document.getElementById('autopilot-live-btn');
   btn.disabled = true; btn.textContent = '⏳ Führe aus...';
   try {
-    const r = await fetch('/api/autopilot', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({dry_run: false})
-    });
+    const r = await fetch('/api/recommendations?dry_run=false', {method: 'POST', headers: {'Content-Type': 'application/json'}});
+    if (!r.ok) throw new Error('Serverantwort: ' + r.status);
     const data = await r.json();
     renderAutopilotResult(data);
     loadPortfolio();
