@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Bot — Anmelden</title>
+    <title>Trading Bot — Registrieren</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -46,14 +46,15 @@
     <div class="login-box">
         <div class="logo">🤖</div>
         <h1>Trading Bot Dashboard</h1>
-        <p class="subtitle">Virtuelles Depot + Trade Republic Empfehlungen</p>
+        <p class="subtitle">Neues Konto erstellen</p>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form method="POST" action="/login">
+        <form method="POST" action="/register">
             <input type="text" name="username" placeholder="Benutzername" autofocus required>
-            <input type="password" name="password" placeholder="Passwort" required>
-            <button type="submit">Anmelden</button>
+            <input type="password" name="password" placeholder="Passwort (mind. 6 Zeichen)" required>
+            <input type="password" name="confirm_password" placeholder="Passwort wiederholen" required>
+            <button type="submit">Registrieren</button>
         </form>
-        <p class="link">Noch kein Konto? <a href="/register">Registrieren</a></p>
+        <p class="link">Bereits ein Konto? <a href="/login">Anmelden</a></p>
     </div>
 </body>
 </html>

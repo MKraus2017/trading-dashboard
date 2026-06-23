@@ -1,157 +1,205 @@
-"""Flask-Dashboard für Trading-Bot."""
+"""Flask-Dashboard für Trading-Bot (Multi-User)."""
 import json
 import os
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for
+import bcrypt
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 import config
-from analyzer import auto_trader, portfolio, scheduler_tasks, signals
+from analyzer import auto_trader, db_store, portfolio, scheduler_tasks, signals, telegram as telegram_module
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
+
+def _hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+
+def _check_password(pw: str, hashed: str) -> bool:
+    return bcrypt.checkpw(pw.encode(), hashed.encode())
+
+
+def get_current_user_id():
+    return session.get("user_id")
+
+
+def is_logged_in():
+    return bool(get_current_user_id())
+
+
+def ensure_user():
+    """Holt user_id aus Session oder legt Default-User an (für Rückwärtskompatibilität)."""
+    uid = get_current_user_id()
+    if uid:
+        return uid
+    user = db_store.get_user_by_username("default")
+    if not user:
+        user_id = db_store.create_user("default", _hash_password(config.DASHBOARD_PASSWORD))
+        user = db_store.get_user_by_id(user_id)
+    elif not user["password_hash"]:
+        db_store.set_user_password(user["id"], _hash_password(config.DASHBOARD_PASSWORD))
+    return user["id"]
 
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("logged_in"):
-            return redirect(url_for("login"))
+        if not is_logged_in():
+            if request.is_json:
+                return jsonify({"ok": False, "error": "Nicht angemeldet"}), 401
+            return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
 
 
+# --- Auth Routes ---
+
 @app.route("/login", methods=["GET", "POST"])
-def login():
-    error = None
+def login_page():
     if request.method == "POST":
+        username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if password == config.DASHBOARD_PASSWORD:
-            session["logged_in"] = True
-            session.permanent = True
-            app.permanent_session_lifetime = timedelta(days=7)
-            return redirect(url_for("index"))
-        error = "Falsches Passwort"
-    return render_template("login.html", error=error)
+        if not username or not password:
+            return render_template("login.html", error="Bitte Benutzername und Passwort eingeben")
+        user = db_store.get_user_by_username(username)
+        if not user or not _check_password(password, user["password_hash"]):
+            return render_template("login.html", error="Login fehlgeschlagen")
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        return redirect(url_for("index"))
+    return render_template("login.html", error=None)
 
 
-@app.route("/logout")
+@app.route("/register", methods=["GET", "POST"])
+def register_page():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+        if not username or not password:
+            return render_template("register.html", error="Benutzername und Passwort erforderlich")
+        if password != confirm:
+            return render_template("register.html", error="Passwörter stimmen nicht überein")
+        if len(password) < 6:
+            return render_template("register.html", error="Passwort muss mindestens 6 Zeichen haben")
+        user_id = db_store.create_user(username, _hash_password(password))
+        if not user_id:
+            return render_template("register.html", error="Benutzername bereits vergeben")
+        session["user_id"] = user_id
+        session["username"] = username
+        return redirect(url_for("index"))
+    return render_template("register.html", error=None)
+
+
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("login_page"))
 
+
+# --- Main ---
 
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html")
+    return render_template("index.html", username=session.get("username", ""))
 
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok", "time": datetime.utcnow().isoformat()})
+@app.route("/settings")
+@login_required
+def settings_page():
+    return render_template("settings.html", username=session.get("username", ""))
 
+
+# --- API ---
 
 @app.route("/api/portfolio")
 @login_required
 def api_portfolio():
-    p, alerts = portfolio.evaluate_portfolio()
+    uid = get_current_user_id()
+    p, alerts = portfolio.evaluate_portfolio(uid)
     return jsonify({"portfolio": p, "alerts": alerts})
 
 
 @app.route("/api/recommendations", methods=["GET", "POST"])
 @login_required
 def api_recommendations():
-    if request.method == "POST":
-        dry_run = request.args.get("dry_run", "false").lower() == "true"
-        result = auto_trader.run_auto_trading(dry_run=dry_run)
-        return jsonify(result)
-    return jsonify(signals.load_recommendations())
+    uid = get_current_user_id()
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+    if request.method == "GET":
+        return jsonify(signals.generate_recommendations())
+    result = auto_trader.run_auto_trading(uid, dry_run=dry_run)
+    return jsonify(result)
 
 
-@app.route("/api/trade/buy", methods=["POST"])
+@app.route("/api/buy", methods=["POST"])
 @login_required
-def api_trade_buy():
-    data = request.get_json(force=True, silent=True) or {}
-    symbol = data.get("symbol")
-    amount = data.get("amount_eur")
-    price = data.get("price")
+def api_buy():
+    uid = get_current_user_id()
+    body = request.get_json() or {}
+    symbol = body.get("symbol", "").upper().strip()
+    amount = body.get("amount")
     if not symbol:
-        return jsonify({"ok": False, "error": "Symbol fehlt"}), 400
-    try:
-        amount = float(amount) if amount not in (None, "") else None
-    except (ValueError, TypeError):
-        amount = None
-    try:
-        price = float(price) if price not in (None, "") else None
-    except (ValueError, TypeError):
-        price = None
-
-    res = portfolio.buy(symbol, price=price, amount_eur=amount)
+        return jsonify({"ok": False, "error": "Symbol fehlt"})
+    amount = float(amount) if amount else None
+    res = portfolio.buy(uid, symbol, amount_eur=amount)
     return jsonify(res)
 
 
-@app.route("/api/trade/sell", methods=["POST"])
+@app.route("/api/sell", methods=["POST"])
 @login_required
-def api_trade_sell():
-    data = request.get_json(force=True, silent=True) or {}
-    symbol = data.get("symbol")
-    shares = data.get("shares")
-    price = data.get("price")
+def api_sell():
+    uid = get_current_user_id()
+    body = request.get_json() or {}
+    symbol = body.get("symbol", "").upper().strip()
     if not symbol:
-        return jsonify({"ok": False, "error": "Symbol fehlt"}), 400
-    try:
-        shares = float(shares) if shares not in (None, "") else None
-    except (ValueError, TypeError):
-        shares = None
-    try:
-        price = float(price) if price not in (None, "") else None
-    except (ValueError, TypeError):
-        price = None
-
-    res = portfolio.sell(symbol, price=price, shares=shares)
+        return jsonify({"ok": False, "error": "Symbol fehlt"})
+    res = portfolio.sell(uid, symbol)
     return jsonify(res)
 
 
-@app.route("/api/real_trade", methods=["POST"])
+@app.route("/api/reset_portfolio", methods=["POST"])
 @login_required
-def api_real_trade():
-    """Nutzer meldet eine reale Trade-Ausführung auf Trade Republic."""
-    data = request.get_json(force=True, silent=True) or {}
-    symbol = data.get("symbol")
-    action = data.get("action", "").lower()
-    shares = data.get("shares")
-    price = data.get("price")
-    if not symbol or action not in ("buy", "sell"):
-        return jsonify({"ok": False, "error": "Symbol oder Aktion ungültig"}), 400
-    try:
-        shares = float(shares)
-        price = float(price)
-    except (ValueError, TypeError):
-        return jsonify({"ok": False, "error": "shares und price müssen Zahlen sein"}), 400
+def api_reset_portfolio():
+    uid = get_current_user_id()
+    p = portfolio.reset_portfolio(uid)
+    return jsonify(p)
 
-    p = portfolio.get_portfolio()
+
+@app.route("/api/real_position", methods=["POST"])
+@login_required
+def api_real_position():
+    uid = get_current_user_id()
+    body = request.get_json() or {}
+    symbol = body.get("symbol", "").upper().strip()
+    action = body.get("action")
+    shares = float(body.get("shares", 0))
+    price = float(body.get("price", 0))
+    if not symbol or action not in ("buy", "sell") or shares <= 0 or price <= 0:
+        return jsonify({"ok": False, "error": "Ungültige Eingabe"})
+
+    p = portfolio.get_portfolio(uid)
     p.setdefault("real_positions", [])
     p.setdefault("real_trades", [])
 
     if action == "buy":
         existing = next((x for x in p["real_positions"] if x["symbol"] == symbol), None)
+        invested = shares * price
         if existing:
             total_shares = existing["shares"] + shares
-            avg = (existing["shares"] * existing["entry_price"] + shares * price) / total_shares
-            existing["shares"] = total_shares
-            existing["entry_price"] = round(avg, 4)
-            existing["invested"] = round(total_shares * avg, 2)
+            total_invested = existing["invested"] + invested
+            existing["shares"] = round(total_shares, 6)
+            existing["invested"] = round(total_invested, 2)
+            existing["entry_price"] = round(total_invested / total_shares, 4)
         else:
             p["real_positions"].append({
                 "symbol": symbol,
-                "shares": shares,
+                "shares": round(shares, 6),
                 "entry_price": round(price, 4),
-                "invested": round(shares * price, 2),
+                "invested": round(invested, 2),
                 "opened_at": datetime.utcnow().isoformat(),
             })
         p["real_trades"].append({
@@ -159,48 +207,65 @@ def api_real_trade():
             "symbol": symbol,
             "action": "BUY",
             "shares": shares,
-            "price": round(price, 4),
-            "invested": round(shares * price, 2),
+            "price": price,
+            "invested": invested,
         })
-    else:  # sell
-        existing = next((x for x in p["real_positions"] if x["symbol"] == symbol), None)
-        if not existing:
-            return jsonify({"ok": False, "error": f"{symbol} nicht in realen Positionen"}), 400
-        sell_shares = min(shares, existing["shares"])
-        proceeds = sell_shares * price
-        cost = sell_shares * existing["entry_price"]
-        existing["shares"] -= sell_shares
-        existing["invested"] = round(existing["shares"] * existing["entry_price"], 2)
-        if existing["shares"] <= 0:
+    elif action == "sell":
+        pos = next((x for x in p["real_positions"] if x["symbol"] == symbol), None)
+        if not pos:
+            return jsonify({"ok": False, "error": "Position nicht vorhanden"})
+        if shares >= pos["shares"]:
             p["real_positions"] = [x for x in p["real_positions"] if x["symbol"] != symbol]
+        else:
+            ratio = 1 - shares / pos["shares"]
+            pos["shares"] = round(pos["shares"] - shares, 6)
+            pos["invested"] = round(pos["invested"] * ratio, 2)
+            pos["entry_price"] = round(pos["invested"] / pos["shares"], 4)
         p["real_trades"].append({
             "time": datetime.utcnow().isoformat(),
             "symbol": symbol,
             "action": "SELL",
-            "shares": sell_shares,
-            "price": round(price, 4),
-            "proceeds": round(proceeds, 2),
-            "pnl_eur": round(proceeds - cost, 2),
+            "shares": shares,
+            "price": price,
         })
 
-    portfolio._save(p)
+    portfolio._save(uid, p)
     return jsonify({"ok": True, "real_positions": p["real_positions"]})
 
 
-@app.route("/api/reset_portfolio", methods=["POST"])
+@app.route("/api/settings", methods=["GET", "POST"])
 @login_required
-def api_reset_portfolio():
-    p = portfolio.reset_portfolio()
-    return jsonify(p)
+def api_settings():
+    uid = get_current_user_id()
+    if request.method == "GET":
+        return jsonify(db_store.get_settings(uid))
+    body = request.get_json() or {}
+    db_store.save_settings(uid, {
+        "telegram_bot_token": body.get("telegram_bot_token", ""),
+        "telegram_chat_id": body.get("telegram_chat_id", ""),
+        "auto_trade_enabled": body.get("auto_trade_enabled", True),
+        "report_enabled": body.get("report_enabled", True),
+    })
+    return jsonify({"ok": True})
 
+
+@app.route("/api/telegram_test", methods=["POST"])
+@login_required
+def api_telegram_test():
+    uid = get_current_user_id()
+    settings = db_store.get_settings(uid)
+    token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+    chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+    res = telegram._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=token, chat_id=chat_id)
+    return jsonify(res)
+
+
+# --- Scheduler webhooks (external service, e.g. GitHub Actions) ---
 
 def _scheduler_auth():
-    """Prüft den API-Key für externe Cron-Dienste."""
     auth_header = request.headers.get("Authorization", "")
-    expected = os.environ.get("SCHEDULER_API_KEY", "")
-    if not expected:
-        return False
-    return auth_header == f"Bearer {expected}"
+    token = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+    return token == os.environ.get("SCHEDULER_API_KEY", "")
 
 
 @app.route("/api/scheduler/refresh_prices", methods=["POST"])
@@ -221,8 +286,8 @@ def api_scheduler_market_analysis():
 def api_scheduler_llm_analysis():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    auto = request.args.get("auto_trade", "true").lower() == "true"
-    return jsonify(scheduler_tasks.llm_analysis(auto_trade=auto, notify=True))
+    auto_trade = request.args.get("auto_trade", "true").lower() == "true"
+    return jsonify(scheduler_tasks.llm_analysis(auto_trade=auto_trade, notify=True))
 
 
 @app.route("/api/scheduler/daily_summary", methods=["POST"])
@@ -244,6 +309,12 @@ def api_scheduler_real_positions_alert():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
     return jsonify(scheduler_tasks.real_positions_report(only_urgent=True))
+
+
+# --- Startup migration & default user safety ---
+default_user = db_store.get_user_by_username("default")
+if default_user and not default_user["password_hash"]:
+    db_store.set_user_password(default_user["id"], _hash_password(config.DASHBOARD_PASSWORD))
 
 
 if __name__ == "__main__":

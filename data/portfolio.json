@@ -4,8 +4,10 @@
   "trades": [],
   "value_history": [
     {
-      "date": "2026-06-23T22:24:30.948124",
+      "date": "2026-06-23T22:46:12.370913",
       "value": 10000.0
     }
-  ]
+  ],
+  "real_positions": [],
+  "real_trades": []
 }

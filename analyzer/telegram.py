@@ -7,9 +7,9 @@ import requests
 import config
 
 
-def _send_message(text: str) -> dict:
-    token = config.TELEGRAM_BOT_TOKEN
-    chat_id = config.TELEGRAM_CHAT_ID
+def _send_message(text: str, token: str = None, chat_id: str = None) -> dict:
+    token = token or config.TELEGRAM_BOT_TOKEN
+    chat_id = chat_id or config.TELEGRAM_CHAT_ID
     if not token or not chat_id:
         return {"ok": False, "error": "Telegram nicht konfiguriert"}
     url = f"https://api.telegram.org/bot{token}/sendMessage"

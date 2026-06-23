@@ -16,7 +16,10 @@
     <span class="timestamp" id="last-update">Lade...</span>
     <button class="refresh-btn" onclick="loadPortfolio()">⟳ Depot aktualisieren</button>
     <button class="refresh-btn" onclick="generateRecommendations(false)" id="analyze-btn">🔍 Analyse & Auto-Handel</button>
-    <a href="/logout" class="logout-btn">⎋ Logout</a>
+    <a href="/settings" class="refresh-btn">⚙️ Einstellungen</a>
+    <form action="/logout" method="POST" style="display:inline;">
+      <button type="submit" class="logout-btn">⎋ Logout</button>
+    </form>
   </div>
 </div>
 

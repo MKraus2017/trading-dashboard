@@ -33,17 +33,12 @@ def _commit_portfolio() -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def run_auto_trading(dry_run: bool = False) -> dict:
-    """
-    Führt automatisch Kauf-/Verkaufsentscheidungen im virtuellen Depot aus.
-    - Verkauft offene Positionen, wenn Richtung == VERKAUF
-    - Kauft Top-KAUF-Empfehlungen, wenn Cash und Positionslimit es erlauben
-    Rückgabe: Protokoll der ausgeführten Aktionen.
-    """
+def run_auto_trading(user_id: int, dry_run: bool = False) -> dict:
+    """Führt automatisch Kauf-/Verkaufsentscheidungen im virtuellen Depot aus."""
     actions = []
 
     # 1. Depot bewerten (SL/TP/Trailing)
-    p, alerts = portfolio.evaluate_portfolio()
+    p, alerts = portfolio.evaluate_portfolio(user_id)
     for alert in alerts:
         if alert.get("type") in ("sell",):
             actions.append({
@@ -70,7 +65,7 @@ def run_auto_trading(dry_run: bool = False) -> dict:
                     "reason": "Empfehlung VERKAUF (Dry-Run)",
                 })
             else:
-                res = portfolio.sell(symbol)
+                res = portfolio.sell(user_id, symbol)
                 if res.get("ok"):
                     actions.append({
                         "symbol": symbol,
@@ -91,10 +86,9 @@ def run_auto_trading(dry_run: bool = False) -> dict:
 
     for rec in buy_recs:
         symbol = rec["symbol"]
-        # Nicht doppelt kaufen / Positionslimit prüfen
         if symbol in held_symbols:
             continue
-        if len(portfolio.get_portfolio().get("positions", [])) >= 5:
+        if len(portfolio.get_portfolio(user_id).get("positions", [])) >= 5:
             actions.append({"symbol": symbol, "action": "SKIP", "reason": "Max. Positionen erreicht"})
             continue
 
@@ -106,7 +100,7 @@ def run_auto_trading(dry_run: bool = False) -> dict:
             })
             held_symbols.add(symbol)
         else:
-            res = portfolio.buy(symbol)
+            res = portfolio.buy(user_id, symbol)
             if res.get("ok"):
                 actions.append({
                     "symbol": symbol,
@@ -123,7 +117,7 @@ def run_auto_trading(dry_run: bool = False) -> dict:
                 })
 
     # Depot neu bewerten für Rückgabe
-    p_final, _ = portfolio.evaluate_portfolio()
+    p_final, _ = portfolio.evaluate_portfolio(user_id)
 
     if actions and not dry_run:
         try:

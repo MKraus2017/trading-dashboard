@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Bot — Einstellungen</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; }
+.header {
+    background: #161b22; border-bottom: 1px solid #30363d; padding: 20px 32px;
+    display: flex; justify-content: space-between; align-items: center;
+}
+h1 { font-size: 1.3rem; }
+.content { max-width: 720px; margin: 32px auto; padding: 0 24px; }
+.card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    padding: 24px; margin-bottom: 24px;
+}
+.card h2 { font-size: 1.1rem; margin-bottom: 16px; color: #58a6ff; }
+label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: #c9d1d9; }
+input[type="text"], input[type="password"] {
+    width: 100%; padding: 10px 12px; background: #0d1117; border: 1px solid #30363d;
+    border-radius: 8px; color: #e6edf3; margin-bottom: 16px; font-size: 1rem;
+}
+.toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+button.save {
+    background: linear-gradient(135deg, #238636, #2ea043); border: none; color: white;
+    padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;
+}
+button.save:hover { opacity: 0.85; }
+.back { color: #8b949e; text-decoration: none; font-size: 0.9rem; }
+.back:hover { color: #58a6ff; }
+.success { color: #3fb950; margin-top: 12px; }
+.error { color: #f85149; margin-top: 12px; }
+.logout-btn {
+    background: #21262d; border: 1px solid #30363d; color: #f85149;
+    padding: 8px 14px; border-radius: 8px; text-decoration: none; font-size: 0.9rem;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>⚙️ Einstellungen — {{ username }}</h1>
+  <div>
+    <a href="/" class="back">← Zurück zum Dashboard</a>
+    <form action="/logout" method="POST" style="display:inline; margin-left: 12px;">
+      <button type="submit" class="logout-btn">Logout</button>
+    </form>
+  </div>
+</div>
+<div class="content">
+  <div class="card">
+    <h2>Telegram-Benachrichtigungen</h2>
+    <label for="tg-token">Bot Token</label>
+    <input type="password" id="tg-token" placeholder="123456:ABC...">
+    <label for="tg-chat">Chat ID</label>
+    <input type="text" id="tg-chat" placeholder="z.B. 12345678">
+
+    <h2 style="margin-top:24px;">Automation</h2>
+    <div class="toggle-row">
+      <span>Automatischen virtuellen Handel erlauben</span>
+      <input type="checkbox" id="auto-trade" checked>
+    </div>
+    <div class="toggle-row">
+      <span>3h-Reports & Alerts erhalten</span>
+      <input type="checkbox" id="report-enabled" checked>
+    </div>
+
+    <button class="save" onclick="saveSettings()">💾 Speichern</button>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Testnachricht senden</h2>
+    <button class="save" onclick="sendTestMessage()">🧪 Test an Telegram</button>
+    <div id="test-status"></div>
+  </div>
+</div>
+
+<script>
+async function loadSettings() {
+    const r = await fetch('/api/settings');
+    const s = await r.json();
+    document.getElementById('tg-token').value = s.telegram_bot_token || '';
+    document.getElementById('tg-chat').value = s.telegram_chat_id || '';
+    document.getElementById('auto-trade').checked = s.auto_trade_enabled !== false;
+    document.getElementById('report-enabled').checked = s.report_enabled !== false;
+}
+
+async function saveSettings() {
+    const body = {
+        telegram_bot_token: document.getElementById('tg-token').value.trim(),
+        telegram_chat_id: document.getElementById('tg-chat').value.trim(),
+        auto_trade_enabled: document.getElementById('auto-trade').checked,
+        report_enabled: document.getElementById('report-enabled').checked,
+    };
+    const r = await fetch('/api/settings', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    const el = document.getElementById('status');
+    el.className = data.ok ? 'success' : 'error';
+    el.textContent = data.ok ? 'Gespeichert.' : 'Fehler beim Speichern.';
+}
+
+async function sendTestMessage() {
+    const el = document.getElementById('test-status');
+    el.textContent = 'Sende...';
+    const r = await fetch('/api/telegram_test', {method: 'POST'});
+    const data = await r.json();
+    el.className = data.ok ? 'success' : 'error';
+    el.textContent = data.ok ? 'Testnachricht gesendet.' : ('Fehler: ' + (data.error || 'unbekannt'));
+}
+
+loadSettings();
+</script>
+</body>
+</html>
