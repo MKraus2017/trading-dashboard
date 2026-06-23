@@ -1,112 +1,14 @@
 {
-  "cash": 2000.0002602517397,
-  "positions": [
-    {
-      "symbol": "ASML",
-      "shares": 1.12369,
-      "entry_price": 1779.85,
-      "invested": 2000.0,
-      "last_price": 1779.8499755859375,
-      "stop_loss": 1726.45,
-      "take_profit": 1859.95,
-      "opened_at": "2026-06-23T16:53:55.557977",
-      "unrealized_pct": -0.0,
-      "unrealized_eur": -0.0
-    },
-    {
-      "symbol": "SMH",
-      "shares": 3.193715,
-      "entry_price": 626.2299,
-      "invested": 2000.0,
-      "last_price": 626.2299194335938,
-      "stop_loss": 607.44,
-      "take_profit": 654.41,
-      "opened_at": "2026-06-23T16:53:56.331806",
-      "unrealized_pct": -0.0,
-      "unrealized_eur": -0.0
-    },
-    {
-      "symbol": "NESN.SW",
-      "shares": 24.931437,
-      "entry_price": 80.22,
-      "invested": 2000.0,
-      "last_price": 80.22000122070312,
-      "stop_loss": 77.81,
-      "take_profit": 83.84,
-      "opened_at": "2026-06-23T16:53:56.470386",
-      "unrealized_pct": -0.0,
-      "unrealized_eur": -0.0
-    },
-    {
-      "symbol": "JPM",
-      "shares": 5.979761,
-      "entry_price": 334.4615,
-      "invested": 2000.0,
-      "last_price": 334.46148681640625,
-      "stop_loss": 324.43,
-      "take_profit": 349.51,
-      "opened_at": "2026-06-23T16:53:56.712840",
-      "unrealized_pct": -0.0,
-      "unrealized_eur": -0.0
-    }
-  ],
-  "trades": [
-    {
-      "time": "2026-06-23T16:53:55.557977",
-      "symbol": "ASML",
-      "action": "BUY",
-      "shares": 1.12369,
-      "price": 1779.85,
-      "invested": 2000.0,
-      "stop_loss": 1726.45,
-      "take_profit": 1859.95
-    },
-    {
-      "time": "2026-06-23T16:53:56.331806",
-      "symbol": "SMH",
-      "action": "BUY",
-      "shares": 3.193715,
-      "price": 626.2299,
-      "invested": 2000.0,
-      "stop_loss": 607.44,
-      "take_profit": 654.41
-    },
-    {
-      "time": "2026-06-23T16:53:56.470386",
-      "symbol": "NESN.SW",
-      "action": "BUY",
-      "shares": 24.931437,
-      "price": 80.22,
-      "invested": 2000.0,
-      "stop_loss": 77.81,
-      "take_profit": 83.84
-    },
-    {
-      "time": "2026-06-23T16:53:56.712840",
-      "symbol": "JPM",
-      "action": "BUY",
-      "shares": 5.979761,
-      "price": 334.4615,
-      "invested": 2000.0,
-      "stop_loss": 324.43,
-      "take_profit": 349.51
-    }
-  ],
+  "cash": 10000.0,
+  "positions": [],
+  "trades": [],
   "value_history": [
     {
       "date": "2026-06-23T16:00:00Z",
       "value": 10000.0
     },
     {
-      "date": "2026-06-23T16:53:52.329517",
-      "value": 10000.0
-    },
-    {
-      "date": "2026-06-23T16:53:56.732895",
-      "value": 10000.0
-    },
-    {
-      "date": "2026-06-23T16:54:37.896069",
+      "date": "2026-06-23T20:30:08.394535",
       "value": 10000.0
     }
   ],
