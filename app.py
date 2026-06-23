@@ -7,7 +7,7 @@ from functools import wraps
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for
 
 import config
-from analyzer import auto_trader, portfolio, signals
+from analyzer import auto_trader, portfolio, scheduler_tasks, signals
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -154,6 +154,14 @@ def api_real_trade():
                 "invested": round(shares * price, 2),
                 "opened_at": datetime.utcnow().isoformat(),
             })
+        p["real_trades"].append({
+            "time": datetime.utcnow().isoformat(),
+            "symbol": symbol,
+            "action": "BUY",
+            "shares": shares,
+            "price": round(price, 4),
+            "invested": round(shares * price, 2),
+        })
     else:  # sell
         existing = next((x for x in p["real_positions"] if x["symbol"] == symbol), None)
         if not existing:
@@ -175,15 +183,6 @@ def api_real_trade():
             "pnl_eur": round(proceeds - cost, 2),
         })
 
-    p["real_trades"].append({
-        "time": datetime.utcnow().isoformat(),
-        "symbol": symbol,
-        "action": "BUY",
-        "shares": shares,
-        "price": round(price, 4),
-        "invested": round(shares * price, 2),
-    })
-
     portfolio._save(p)
     return jsonify({"ok": True, "real_positions": p["real_positions"]})
 
@@ -195,13 +194,42 @@ def api_reset_portfolio():
     return jsonify(p)
 
 
-@app.route("/api/autopilot", methods=["POST"])
-@login_required
-def api_autopilot():
-    data = request.get_json(force=True, silent=True) or {}
-    dry_run = data.get("dry_run", True)
-    plan = autopilot.run_autopilot(dry_run=dry_run)
-    return jsonify(plan)
+def _scheduler_auth():
+    """Prüft den API-Key für externe Cron-Dienste."""
+    auth_header = request.headers.get("Authorization", "")
+    expected = os.environ.get("SCHEDULER_API_KEY", "")
+    if not expected:
+        return False
+    return auth_header == f"Bearer {expected}"
+
+
+@app.route("/api/scheduler/refresh_prices", methods=["POST"])
+def api_scheduler_refresh_prices():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    return jsonify(scheduler_tasks.refresh_prices())
+
+
+@app.route("/api/scheduler/market_analysis", methods=["POST"])
+def api_scheduler_market_analysis():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    return jsonify(scheduler_tasks.market_analysis(notify=True))
+
+
+@app.route("/api/scheduler/llm_analysis", methods=["POST"])
+def api_scheduler_llm_analysis():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    auto = request.args.get("auto_trade", "true").lower() == "true"
+    return jsonify(scheduler_tasks.llm_analysis(auto_trade=auto, notify=True))
+
+
+@app.route("/api/scheduler/daily_summary", methods=["POST"])
+def api_scheduler_daily_summary():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    return jsonify(scheduler_tasks.daily_summary())
 
 
 if __name__ == "__main__":

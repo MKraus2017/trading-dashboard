@@ -6,12 +6,12 @@
       "shares": 1.281394,
       "entry_price": 1560.8,
       "invested": 2000.0,
-      "last_price": 1560.8,
+      "last_price": 1560.800048828125,
       "stop_loss": 1513.98,
       "take_profit": 1631.03,
       "opened_at": "2026-06-23T21:07:13.623534",
-      "unrealized_pct": 0.0,
-      "unrealized_eur": 0.0
+      "unrealized_pct": -0.0,
+      "unrealized_eur": -0.0
     }
   ],
   "trades": [
@@ -29,6 +29,10 @@
   "value_history": [
     {
       "date": "2026-06-23T21:07:13.614458",
+      "value": 10000.0
+    },
+    {
+      "date": "2026-06-23T21:13:48.914405",
       "value": 10000.0
     }
   ]
