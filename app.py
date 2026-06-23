@@ -232,5 +232,19 @@ def api_scheduler_daily_summary():
     return jsonify(scheduler_tasks.daily_summary())
 
 
+@app.route("/api/scheduler/portfolio_report", methods=["POST"])
+def api_scheduler_portfolio_report():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    return jsonify(scheduler_tasks.portfolio_report(notify=True))
+
+
+@app.route("/api/scheduler/real_positions_alert", methods=["POST"])
+def api_scheduler_real_positions_alert():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    return jsonify(scheduler_tasks.real_positions_report(only_urgent=True))
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

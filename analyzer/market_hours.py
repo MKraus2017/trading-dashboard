@@ -2,12 +2,14 @@
 from datetime import datetime, timedelta, timezone
 
 
-# Handelszeiten für unsere Märkte
+# Handelszeiten für unsere Märkte (UTC)
 # US: Mo-Fr 09:30-16:00 ET (15:30-22:00 UTC)
 # EU (Xetra): Mo-Fr 09:00-17:30 CET (08:00-16:30 UTC)
+# Asia/Tokyo: Mo-Fr 09:00-15:00 JST (00:00-06:00 UTC)
+# Asia/Hong Kong: Mo-Fr 09:30-16:00 HKT (01:30-08:00 UTC)
 TRADING_HOURS = {
     "US": {
-        "weekdays": range(0, 5),  # Monday = 0 ... Friday = 4
+        "weekdays": range(0, 5),
         "start_utc": (15, 30),
         "end_utc": (22, 0),
     },
@@ -15,6 +17,11 @@ TRADING_HOURS = {
         "weekdays": range(0, 5),
         "start_utc": (8, 0),
         "end_utc": (16, 30),
+    },
+    "ASIA": {
+        "weekdays": range(0, 5),
+        "start_utc": (0, 0),
+        "end_utc": (8, 0),
     },
 }
 

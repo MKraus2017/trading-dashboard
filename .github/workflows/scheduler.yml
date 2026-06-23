@@ -5,10 +5,11 @@ on:
     # Refresh prices every 5 minutes (UTC)
     - cron: "*/5 * * * *"
     # Market analysis every 30 minutes during trading hours window
-    # US/EU overlap / trading window. 30 min cadence via every 30 min.
     - cron: "*/30 * * * *"
     # LLM analysis every 2 hours
     - cron: "0 */2 * * *"
+    # Portfolio report every 3 hours German time (CEST = UTC+2): 07,10,13,16,19,22 CEST => 05,08,11,14,17,20 UTC
+    - cron: "0 5,8,11,14,17,20 * * *"
     # Daily summary once per day at 22:15 UTC (after US close)
     - cron: "15 22 * * *"
   workflow_dispatch:
@@ -22,7 +23,7 @@ jobs:
         run: |
           curl -X POST \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/refresh_prices" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Authorization: Bearer *** secrets.SCHEDULER_API_KEY }}" \
             -H "Content-Type: application/json" \
             --fail --silent --show-error
 
@@ -34,7 +35,14 @@ jobs:
         run: |
           curl -X POST \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/market_analysis" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Authorization: Bearer *** secrets.SCHEDULER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error
+      - name: Real positions urgent alert
+        run: |
+          curl -X POST \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/real_positions_alert" \
+            -H "Authorization: Bearer *** secrets.SCHEDULER_API_KEY }}" \
             -H "Content-Type: application/json" \
             --fail --silent --show-error
 
@@ -46,7 +54,19 @@ jobs:
         run: |
           curl -X POST \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/llm_analysis?auto_trade=true" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Authorization: Bearer *** secrets.SCHEDULER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error
+
+  portfolio_report:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 5,8,11,14,17,20 * * *'
+    steps:
+      - name: Portfolio report (every 3h German time)
+        run: |
+          curl -X POST \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/portfolio_report" \
+            -H "Authorization: Bearer *** secrets.SCHEDULER_API_KEY }}" \
             -H "Content-Type: application/json" \
             --fail --silent --show-error
 
@@ -58,6 +78,6 @@ jobs:
         run: |
           curl -X POST \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/daily_summary" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_API_KEY }}" \
+            -H "Authorization: Bearer *** secrets.SCHEDULER_API_KEY }}" \
             -H "Content-Type: application/json" \
             --fail --silent --show-error
