@@ -1,10 +1,130 @@
 {
-  "cash": 10000.0,
-  "positions": [],
-  "trades": [],
+  "cash": 1999.999864491438,
+  "positions": [
+    {
+      "symbol": "ASML",
+      "shares": 1.121667,
+      "entry_price": 1783.0601,
+      "invested": 2000.0,
+      "last_price": 1783.06005859375,
+      "stop_loss": 1729.57,
+      "take_profit": 1863.3,
+      "opened_at": "2026-06-23T16:30:20.353120",
+      "unrealized_pct": -0.0,
+      "unrealized_eur": -0.0
+    },
+    {
+      "symbol": "SMH",
+      "shares": 3.186184,
+      "entry_price": 627.71,
+      "invested": 2000.0,
+      "last_price": 627.7100219726562,
+      "stop_loss": 608.88,
+      "take_profit": 655.96,
+      "opened_at": "2026-06-23T16:30:20.363433",
+      "unrealized_pct": -0.0,
+      "unrealized_eur": -0.0
+    },
+    {
+      "symbol": "NESN.SW",
+      "shares": 24.931436,
+      "entry_price": 80.22,
+      "invested": 2000.0,
+      "last_price": 80.22000122070312,
+      "stop_loss": 77.81,
+      "take_profit": 83.84,
+      "opened_at": "2026-06-23T16:30:20.371956",
+      "unrealized_pct": -0.0,
+      "unrealized_eur": -0.0
+    },
+    {
+      "symbol": "JPM",
+      "shares": 5.970862,
+      "entry_price": 334.96,
+      "invested": 2000.0,
+      "last_price": 334.9599914550781,
+      "stop_loss": 324.91,
+      "take_profit": 350.03,
+      "opened_at": "2026-06-23T16:30:20.379976",
+      "unrealized_pct": -0.0,
+      "unrealized_eur": -0.0
+    },
+    {
+      "symbol": "V",
+      "shares": 1e-06,
+      "entry_price": 330.545,
+      "invested": 0.0,
+      "last_price": 330.5450134277344,
+      "stop_loss": 320.63,
+      "take_profit": 345.42,
+      "opened_at": "2026-06-23T16:30:20.387998",
+      "unrealized_pct": 0.0,
+      "unrealized_eur": 0.0
+    }
+  ],
+  "trades": [
+    {
+      "time": "2026-06-23T16:30:20.353120",
+      "symbol": "ASML",
+      "action": "BUY",
+      "shares": 1.121667,
+      "price": 1783.0601,
+      "invested": 2000.0,
+      "stop_loss": 1729.57,
+      "take_profit": 1863.3
+    },
+    {
+      "time": "2026-06-23T16:30:20.363433",
+      "symbol": "SMH",
+      "action": "BUY",
+      "shares": 3.186184,
+      "price": 627.71,
+      "invested": 2000.0,
+      "stop_loss": 608.88,
+      "take_profit": 655.96
+    },
+    {
+      "time": "2026-06-23T16:30:20.371956",
+      "symbol": "NESN.SW",
+      "action": "BUY",
+      "shares": 24.931436,
+      "price": 80.22,
+      "invested": 2000.0,
+      "stop_loss": 77.81,
+      "take_profit": 83.84
+    },
+    {
+      "time": "2026-06-23T16:30:20.379976",
+      "symbol": "JPM",
+      "action": "BUY",
+      "shares": 5.970862,
+      "price": 334.96,
+      "invested": 2000.0,
+      "stop_loss": 324.91,
+      "take_profit": 350.03
+    },
+    {
+      "time": "2026-06-23T16:30:20.387998",
+      "symbol": "V",
+      "action": "BUY",
+      "shares": 1e-06,
+      "price": 330.545,
+      "invested": 0.0,
+      "stop_loss": 320.63,
+      "take_profit": 345.42
+    }
+  ],
   "value_history": [
     {
       "date": "2026-06-23T16:00:00Z",
+      "value": 10000.0
+    },
+    {
+      "date": "2026-06-23T16:30:20.283691",
+      "value": 10000.0
+    },
+    {
+      "date": "2026-06-23T16:30:20.406066",
       "value": 10000.0
     }
   ],
