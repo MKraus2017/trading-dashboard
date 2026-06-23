@@ -7,7 +7,7 @@ from functools import wraps
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for
 
 import config
-from analyzer import portfolio, signals
+from analyzer import auto_trader, portfolio, signals
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -67,8 +67,9 @@ def api_portfolio():
 @login_required
 def api_recommendations():
     if request.method == "POST":
-        recs = signals.generate_recommendations()
-        return jsonify(recs)
+        dry_run = request.args.get("dry_run", "false").lower() == "true"
+        result = auto_trader.run_auto_trading(dry_run=dry_run)
+        return jsonify(result)
     return jsonify(signals.load_recommendations())
 
 
@@ -192,6 +193,15 @@ def api_real_trade():
 def api_reset_portfolio():
     p = portfolio.reset_portfolio()
     return jsonify(p)
+
+
+@app.route("/api/autopilot", methods=["POST"])
+@login_required
+def api_autopilot():
+    data = request.get_json(force=True, silent=True) or {}
+    dry_run = data.get("dry_run", True)
+    plan = autopilot.run_autopilot(dry_run=dry_run)
+    return jsonify(plan)
 
 
 if __name__ == "__main__":

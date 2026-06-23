@@ -49,8 +49,8 @@ DEFAULT_UNIVERSE = [
     {"symbol": "V", "name": "Visa"},
     {"symbol": "MA", "name": "Mastercard"},
     {"symbol": "LMT", "name": "Lockheed Martin"},
-    {"symbol": "AMSS.DE", "name": "Amundi MSCI Semiconductors ESG UCITS ETF"},
-    {"symbol": "QDVP.DE", "name": "iShares MSCI USA Quality Dividend UCITS ETF"},
+    {"symbol": "SMH", "name": "VanEck Semiconductors UCITS ETF"},
+    {"symbol": "VUSA.AS", "name": "Vanguard S&P 500 UCITS ETF"},
 ]
 
 

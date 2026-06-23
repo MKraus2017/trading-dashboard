@@ -82,8 +82,8 @@ def evaluate_portfolio() -> dict:
         entry = pos["entry_price"]
         shares = pos["shares"]
         current_value = shares * price
-        invested = pos["invested"]
-        unrealized_pct = (current_value - invested) / invested * 100
+        invested = pos["invested"] or (shares * entry)
+        unrealized_pct = ((current_value - invested) / invested * 100) if invested else 0.0
         pos["unrealized_pct"] = round(unrealized_pct, 2)
         pos["unrealized_eur"] = round(current_value - invested, 2)
 
@@ -164,8 +164,8 @@ def buy(symbol: str, price: Optional[float] = None, amount_eur: Optional[float] 
     if amount_eur is None:
         amount_eur = min(max_per_position, available_for_trade)
 
-    if amount_eur <= 0:
-        return {"ok": False, "error": "Nicht genug Cash oder Positionslimit erreicht"}
+    if amount_eur < 100:
+        return {"ok": False, "error": "Kaufbetrag zu niedrig (< €100) oder Reserve überschritten"}
 
     if len(p.get("positions", [])) >= config.MAX_POSITIONS:
         return {"ok": False, "error": "Maximale Anzahl Positionen erreicht"}
@@ -175,20 +175,18 @@ def buy(symbol: str, price: Optional[float] = None, amount_eur: Optional[float] 
     if not price or price <= 0:
         return {"ok": False, "error": f"Kein gültiger Kurs für {symbol}"}
 
+    amount_eur = min(amount_eur, p["cash"])
+    if amount_eur < 100:
+        return {"ok": False, "error": "Nicht genug Cash für Mindestkauf"}
+
     shares = amount_eur / price
-    if shares <= 0:
-        return {"ok": False, "error": "Berechnete Stückzahl ungültig"}
-
     invested = shares * price
-    if invested > p["cash"]:
-        return {"ok": False, "error": "Nicht genügend Cash"}
+    if invested < 100:
+        return {"ok": False, "error": "Investition zu gering"}
 
-    # Stop-Loss 3 % unter Einstieg
     stop_loss = round(price * (1 - config.DEFAULT_STOP_PCT), 2)
-    # Take-Profit mind. 1,5:1
     take_profit = round(price + (price - stop_loss) * config.MIN_RR_RATIO, 2)
 
-    # Bestehende Position aufstocken erlauben
     existing = _current_position(p, symbol)
     if existing:
         old_invested = existing["invested"]
@@ -200,8 +198,9 @@ def buy(symbol: str, price: Optional[float] = None, amount_eur: Optional[float] 
         existing["invested"] = round(old_invested + invested, 2)
         existing["stop_loss"] = round(avg_price * (1 - config.DEFAULT_STOP_PCT), 2)
         existing["take_profit"] = round(avg_price + (avg_price - existing["stop_loss"]) * config.MIN_RR_RATIO, 2)
+        updated_position = existing
     else:
-        p["positions"].append({
+        new_pos = {
             "symbol": symbol,
             "shares": round(shares, 6),
             "entry_price": round(price, 4),
@@ -212,7 +211,9 @@ def buy(symbol: str, price: Optional[float] = None, amount_eur: Optional[float] 
             "opened_at": datetime.utcnow().isoformat(),
             "unrealized_pct": 0.0,
             "unrealized_eur": 0.0,
-        })
+        }
+        p["positions"].append(new_pos)
+        updated_position = new_pos
 
     p["cash"] -= invested
     p["trades"].append({
@@ -226,7 +227,7 @@ def buy(symbol: str, price: Optional[float] = None, amount_eur: Optional[float] 
         "take_profit": take_profit,
     })
     _save(p)
-    return {"ok": True, "position": p["positions"][-1], "cash": round(p["cash"], 2)}
+    return {"ok": True, "position": updated_position, "cash": round(p["cash"], 2)}
 
 
 def sell(symbol: str, price: Optional[float] = None, shares: Optional[float] = None) -> dict:

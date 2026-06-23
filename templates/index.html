@@ -12,7 +12,7 @@
   <div style="display:flex;align-items:center;gap:12px;">
     <span class="timestamp" id="last-update">Lade...</span>
     <button class="refresh-btn" onclick="loadPortfolio()">⟳ Depot aktualisieren</button>
-    <button class="refresh-btn" onclick="generateRecommendations()" id="analyze-btn">🔍 Analyse starten</button>
+    <button class="refresh-btn" onclick="generateRecommendations(false)" id="analyze-btn">🔍 Analyse & Auto-Handel</button>
     <a href="/logout" class="logout-btn">⎋ Logout</a>
   </div>
 </div>
@@ -21,6 +21,7 @@
   <div class="tab active" onclick="showTab('depot')">💼 Virtuelles Depot</div>
   <div class="tab" onclick="showTab('real')">🏦 Reales TR-Depot</div>
   <div class="tab suggest-tab" onclick="showTab('empfehlungen')">💡 Empfehlungen</div>
+  <div class="tab" onclick="showTab('autopilot')">🤖 Autopilot</div>
   <div class="tab" onclick="showTab('historie')">📋 Historie</div>
 </div>
 
@@ -72,13 +73,24 @@
     </div>
   </div>
 
+  <!-- Autopilot Tab -->
+  <div class="panel" id="panel-autopilot">
+    <div class="section-title">🤖 Autopilot</div>
+    <p style="color:#8b949e;margin-bottom:16px;">
+      Der Autopilot erstellt zuerst einen Probelauf-Plan. Erst wenn Du auf „Plan ausführen“ klickst, kauft oder verkauft er wirklich im virtuellen Depot.
+    </p>
+    <button class="refresh-btn" onclick="runAutopilotDry()" id="autopilot-dry-btn">🧪 Probelauf anzeigen</button>
+    <button class="btn-buy" onclick="runAutopilotLive()" id="autopilot-live-btn" style="margin-left:10px;" disabled>✅ Plan ausführen</button>
+    <div id="autopilot-plan" style="margin-top:20px;"></div>
+    <div id="autopilot-result" style="margin-top:20px;"></div>
+  </div>
+
   <!-- Historie Tab -->
   <div class="panel" id="panel-historie">
     <div class="section-title">📋 Virtuelle Trade-Historie</div>
     <div id="trade-history"></div>
   </div>
 </div>
-
 <script src="/static/app.js"></script>
 </body>
 </html>

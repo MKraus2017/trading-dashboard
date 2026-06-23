@@ -2,7 +2,7 @@ let currentPortfolio = null;
 let currentRecs = [];
 
 function showTab(name) {
-  const tabs = ['depot', 'real', 'empfehlungen', 'historie'];
+  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie'];
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
@@ -138,17 +138,23 @@ function renderRealPositions(p) {
   div.innerHTML = html;
 }
 
-async function generateRecommendations() {
+async function generateRecommendations(dryRun = false) {
   showLoading(true);
   showError('');
   const btn = document.getElementById('analyze-btn');
-  btn.disabled = true; btn.textContent = '⏳ Analysiere...';
+  btn.disabled = true; btn.textContent = dryRun ? '⏳ Analysiere (Dry-Run)...' : '⏳ Analysiere & handle...';
   try {
-    const r = await fetch('/api/recommendations', {method: 'POST'});
+    const url = dryRun ? '/api/recommendations?dry_run=true' : '/api/recommendations';
+    const r = await fetch(url, {method: 'POST'});
     const data = await r.json();
-    currentRecs = data.suggestions || [];
-    renderRecommendations(data);
+    currentRecs = (data.recommendations && data.recommendations.suggestions) || [];
+    renderRecommendations(data.recommendations || data);
+    if (!dryRun && data.actions && data.actions.length > 0) {
+      const actionText = data.actions.map(a => `${a.action} ${a.symbol}`).join(', ');
+      alert('🤖 Automatische Trades ausgeführt:\n' + actionText);
+    }
     showTab('empfehlungen');
+    loadPortfolio();
   } catch (e) {
     showError('Fehler bei der Analyse: ' + e.message);
   } finally {
@@ -324,3 +330,96 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPortfolio();
   loadRecommendations();
 });
+
+let autopilotPlanData = null;
+
+async function runAutopilotDry() {
+  showLoading(true);
+  showError('');
+  const btn = document.getElementById('autopilot-dry-btn');
+  btn.disabled = true; btn.textContent = '⏳ Plane...';
+  try {
+    const r = await fetch('/api/autopilot', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dry_run: true})
+    });
+    const data = await r.json();
+    autopilotPlanData = data;
+    renderAutopilotPlan(data);
+    document.getElementById('autopilot-live-btn').disabled = false;
+  } catch (e) {
+    showError('Autopilot-Fehler: ' + e.message);
+  } finally {
+    showLoading(false);
+    btn.disabled = false; btn.textContent = '🧪 Probelauf anzeigen';
+  }
+}
+
+async function runAutopilotLive() {
+  if (!autopilotPlanData || autopilotPlanData.actions.length === 0) {
+    return alert('Kein Plan vorhanden. Bitte zuerst Probelauf starten.');
+  }
+  if (!confirm('Soll der Autopilot die geplanten Trades jetzt im virtuellen Depot ausführen?')) return;
+  showLoading(true);
+  showError('');
+  const btn = document.getElementById('autopilot-live-btn');
+  btn.disabled = true; btn.textContent = '⏳ Führe aus...';
+  try {
+    const r = await fetch('/api/autopilot', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dry_run: false})
+    });
+    const data = await r.json();
+    renderAutopilotResult(data);
+    loadPortfolio();
+  } catch (e) {
+    showError('Fehler beim Ausführen: ' + e.message);
+  } finally {
+    showLoading(false);
+    btn.textContent = '✅ Plan ausführen';
+  }
+}
+
+function renderAutopilotPlan(data) {
+  const div = document.getElementById('autopilot-plan');
+  const resDiv = document.getElementById('autopilot-result');
+  resDiv.innerHTML = '';
+  if (!data.actions || data.actions.length === 0) {
+    div.innerHTML = '<div class="no-data">Keine Aktionen geplant. Mögliche Gründe: keine klaren Signale, Cash-Reserve zu hoch oder max. Positionen erreicht.</div>';
+    return;
+  }
+  let html = '<div class="section-title">Geplante Aktionen</div><table><tr><th>Aktion</th><th>Symbol</th><th>Menge/€</th><th>Kurs</th><th>SL</th><th>TP</th><th>Grund</th></tr>';
+  for (const a of data.actions) {
+    const badge = a.action === 'BUY' ? '<span class="badge buy">KAUF</span>' : '<span class="badge sell">VERKAUF</span>';
+    html += `<tr>
+      <td>${badge}</td>
+      <td><strong>${a.symbol}</strong></td>
+      <td>${a.action === 'BUY' ? fmtEur(a.amount_eur) : Number(a.shares).toFixed(4)}</td>
+      <td>${fmtEur(a.expected_price)}</td>
+      <td>${a.stop_loss ? fmtEur(a.stop_loss) : '-'}</td>
+      <td>${a.take_profit ? fmtEur(a.take_profit) : '-'}</td>
+      <td>${a.reason}</td>
+    </tr>`;
+  }
+  html += '</table>';
+
+  if (data.skipped && data.skipped.length > 0) {
+    html += '<div class="section-title">Übersprungen</div><table><tr><th>Symbol</th><th>Grund</th></tr>';
+    for (const s of data.skipped) {
+      html += `<tr><td>${s.symbol}</td><td>${s.reason}</td></tr>`;
+    }
+    html += '</table>';
+  }
+
+  div.innerHTML = html;
+}
+
+function renderAutopilotResult(data) {
+  const div = document.getElementById('autopilot-result');
+  const after = data.portfolio_after || {};
+  div.innerHTML = `
+    <div class="alert-box">✅ Autopilot ausgeführt. Offene Positionen: ${after.positions_count}, Cash: ${fmtEur(after.cash)}, Depotwert: ${fmtEur(after.total_value)}, Rendite: ${fmtPct(after.total_return_pct)}</div>
+  `;
+  renderAutopilotPlan(data);
+}
+
