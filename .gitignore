@@ -1,6 +1,11 @@
 __pycache__/
 *.pyc
-.env
+*.pyo
+*.egg-info/
 .venv/
 venv/
+.env
 *.log
+/tmp/
+data/prices_cache.json
+data/news_cache.json

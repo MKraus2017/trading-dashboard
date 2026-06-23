@@ -1,0 +1,13 @@
+{
+  "cash": 10000.0,
+  "positions": [],
+  "trades": [],
+  "value_history": [
+    {
+      "date": "2026-06-23T16:00:00Z",
+      "value": 10000.0
+    }
+  ],
+  "real_positions": [],
+  "real_trades": []
+}

@@ -1,0 +1,91 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+
+.header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .timestamp { color: #8b949e; font-size: 13px; }
+.refresh-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.refresh-btn:hover { background: #30363d; }
+.logout-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; text-decoration: none; }
+.logout-btn:hover { border-color: #f85149; color: #f85149; }
+
+.tabs { display: flex; gap: 4px; padding: 16px 24px 0; background: #161b22; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+.tab { padding: 8px 20px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 14px; color: #8b949e; border: 1px solid transparent; }
+.tab.active { background: #0d1117; color: #e6edf3; border-color: #30363d; border-bottom-color: #0d1117; }
+.tab:hover:not(.active) { color: #e6edf3; }
+.tab.suggest-tab { color: #58a6ff; }
+.tab.suggest-tab.active { color: #58a6ff; }
+
+.content { padding: 24px; max-width: 1400px; margin: 0 auto; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+.card-label { color: #8b949e; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.card-value { font-size: 24px; font-weight: 600; }
+.card-value.green { color: #3fb950; }
+.card-value.red { color: #f85149; }
+.card-value.neutral { color: #e6edf3; }
+
+.section-title { font-size: 16px; font-weight: 600; margin: 24px 0 12px; color: #e6edf3; border-bottom: 1px solid #30363d; padding-bottom: 8px; }
+
+.loading { text-align: center; padding: 60px; color: #8b949e; }
+.error { background: #2d1117; border: 1px solid #f85149; border-radius: 8px; padding: 16px; color: #f85149; margin: 16px 0; }
+.no-data { color: #8b949e; font-style: italic; font-size: 14px; padding: 20px; text-align: center; }
+
+/* Tabellen */
+table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+th { background: #21262d; color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; }
+td { padding: 10px 14px; font-size: 13px; border-top: 1px solid #21262d; }
+tr:hover td { background: #1c2129; }
+.pnl-pos { color: #3fb950; }
+.pnl-neg { color: #f85149; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.badge.buy { background: #1a3a2a; color: #3fb950; }
+.badge.sell { background: #3a1a1a; color: #f85149; }
+.badge.hold { background: #2d2a1a; color: #f0883e; }
+.badge.low { background: #0e2d1a; color: #3fb950; }
+.badge.medium { background: #2d2a1a; color: #f0883e; }
+.badge.high { background: #3a1a1a; color: #f85149; }
+
+/* Empfehlungskarten */
+.suggest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-top: 16px; }
+.suggest-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px; position: relative; transition: border-color 0.2s; border-left: 3px solid #58a6ff; }
+.suggest-card:hover { border-color: #58a6ff; }
+.suggest-card.buy { border-left-color: #3fb950; }
+.suggest-card.sell { border-left-color: #f85149; }
+.suggest-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.suggest-name { font-size: 18px; font-weight: 700; }
+.suggest-direction { font-size: 20px; font-weight: 800; margin: 6px 0; }
+.suggest-direction.buy { color: #3fb950; }
+.suggest-direction.sell { color: #f85149; }
+.suggest-direction.hold { color: #8b949e; }
+.suggest-details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; font-size: 12px; }
+.suggest-detail { background: #0d1117; border-radius: 4px; padding: 6px 8px; }
+.suggest-detail-label { color: #8b949e; font-size: 11px; }
+.suggest-detail-value { color: #e6edf3; font-weight: 600; margin-top: 2px; }
+.suggest-reason { font-size: 12px; color: #8b949e; margin-top: 8px; font-style: italic; }
+.suggest-btn { margin-top: 12px; width: 100%; padding: 8px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; background: #21262d; color: #e6edf3; transition: background 0.2s; }
+.suggest-btn:hover { background: #30363d; }
+.score-bar { height: 4px; background: #21262d; border-radius: 2px; margin-top: 10px; }
+.score-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #f0883e, #58a6ff); }
+.suggest-loading { text-align: center; padding: 60px; color: #8b949e; font-size: 14px; }
+
+/* Formulare */
+.quick-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+.quick-form input, .quick-form select { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 12px; font-size: 14px; outline: none; }
+.quick-form input:focus { border-color: #58a6ff; }
+.btn-buy { padding: 8px 16px; background: #1a3a2a; border: 1px solid #3fb950; color: #3fb950; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.btn-buy:hover { background: #3fb950; color: #0d1117; }
+.btn-sell { padding: 8px 16px; background: #3a1a1a; border: 1px solid #f85149; color: #f85149; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.btn-sell:hover { background: #f85149; color: #0d1117; }
+
+.alert-box { background: #2d1f0e; border: 1px solid #f0883e; color: #f0883e; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+
+@media (max-width: 700px) {
+  .header { flex-direction: column; align-items: flex-start; }
+  .tabs { padding: 12px 12px 0; }
+  .content { padding: 12px; }
+  .suggest-grid { grid-template-columns: 1fr; }
+}
