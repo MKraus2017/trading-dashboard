@@ -137,7 +137,8 @@ def fetch_yahoo(ticker: str, interval: str = "1d", range_: str = "6mo", retries:
             volumes = [volumes[i] if volumes[i] is not None else 0 for i in valid_idx]
             timestamps = [datetime.utcfromtimestamp(timestamps[i]).isoformat() for i in valid_idx]
 
-            latest = closes[-1]
+            latest_from_meta = meta.get("regularMarketPrice")
+            latest = latest_from_meta if latest_from_meta else closes[-1]
             previous = closes[-2] if len(closes) >= 2 else latest
             change_pct = ((latest - previous) / previous * 100) if previous else 0.0
 
@@ -170,5 +171,5 @@ def fetch_yahoo(ticker: str, interval: str = "1d", range_: str = "6mo", retries:
 
 
 def fetch_latest_price(ticker: str) -> Optional[float]:
-    data = fetch_yahoo(ticker, interval="1d", range_="5d")
+    data = fetch_yahoo(ticker, interval="1d", range_="1d")
     return data["latest"] if data else None

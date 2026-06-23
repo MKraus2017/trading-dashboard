@@ -21,16 +21,16 @@ function showError(msg) {
 }
 
 const SYMBOL_NAMES = {
-  AAPL: 'Apple', AMD: 'AMD', AMZN: 'Amazon', ASML: 'ASML Holding',
+  AAPL: 'Apple', AMD: 'AMD', AMZN: 'Amazon', 'ASML.AS': 'ASML Holding',
   AVGO: 'Broadcom', GOOGL: 'Alphabet', JPM: 'JPMorgan Chase',
   LMT: 'Lockheed Martin', MA: 'Mastercard', META: 'Meta Platforms',
-  MSFT: 'Microsoft', NESR: 'Nestlé', NESN: 'Nestlé', NVDA: 'NVIDIA',
-  PLTR: 'Palantir', SAP: 'SAP', SMH: 'VanEck Semiconductor ETF',
-  TSLA: 'Tesla', V: 'Visa', VUSA: 'Vanguard S&P 500 ETF'
+  MSFT: 'Microsoft', 'NESR.DE': 'Nestlé', NESN: 'Nestlé', NVDA: 'NVIDIA',
+  PLTR: 'Palantir', 'SAP.DE': 'SAP', SMH: 'VanEck Semiconductor ETF',
+  TSLA: 'Tesla', V: 'Visa', 'VUSA.AS': 'Vanguard S&P 500 ETF'
 };
 
 function symbolName(symbol) {
-  return SYMBOL_NAMES[symbol?.toUpperCase()] || symbol || 'Unbekannt';
+  return SYMBOL_NAMES[symbol] || symbol || 'Unbekannt';
 }
 
 function fmtEur(n) {
