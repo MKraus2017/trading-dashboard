@@ -5,13 +5,18 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import config
-from analyzer import yahoo_client
+from analyzer import db_store, yahoo_client
 
 
 PORTFOLIO_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "portfolio.json")
 
 
 def _load() -> dict:
+    # Primär: SQLite (persistiert auf Render)
+    p = db_store.load_portfolio()
+    if p:
+        return p
+    # Fallback: JSON-Datei
     try:
         with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -20,10 +25,14 @@ def _load() -> dict:
 
 
 def _save(p: dict):
-    os.makedirs(os.path.dirname(PORTFOLIO_FILE), exist_ok=True)
-    with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
-        json.dump(p, f, indent=2, default=str)
-
+    db_store.save_portfolio(p)
+    # Zusätzlich JSON für lokale Entwicklung / Git
+    try:
+        os.makedirs(os.path.dirname(PORTFOLIO_FILE), exist_ok=True)
+        with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+            json.dump(p, f, indent=2, default=str)
+    except Exception:
+        pass
 
 def _default_portfolio():
     return {
@@ -40,6 +49,7 @@ def get_portfolio() -> dict:
 
 def reset_portfolio():
     p = _default_portfolio()
+    db_store.reset_portfolio()
     _save(p)
     return p
 

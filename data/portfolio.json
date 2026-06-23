@@ -1,17 +1,34 @@
 {
-  "cash": 10000.0,
+  "cash": 10024.60252,
   "positions": [],
-  "trades": [],
-  "value_history": [
+  "trades": [
     {
-      "date": "2026-06-23T16:00:00Z",
-      "value": 10000.0
+      "time": "2026-06-23T20:36:33.082029",
+      "symbol": "ASML.AS",
+      "action": "BUY",
+      "shares": 1.281394,
+      "price": 1560.8,
+      "invested": 2000.0,
+      "stop_loss": 1513.98,
+      "take_profit": 1631.03
     },
     {
-      "date": "2026-06-23T20:30:08.394535",
-      "value": 10000.0
+      "time": "2026-06-23T20:36:33.086019",
+      "symbol": "ASML.AS",
+      "action": "SELL",
+      "shares": 1.281394,
+      "price": 1580.0,
+      "proceeds": 2024.6,
+      "invested": 2000.0,
+      "pnl_eur": 24.6,
+      "reason": "manuell",
+      "auto": false
     }
   ],
-  "real_positions": [],
-  "real_trades": []
+  "value_history": [
+    {
+      "date": "2026-06-23T20:36:33.072697",
+      "value": 10000.0
+    }
+  ]
 }

@@ -2,20 +2,19 @@ services:
   - type: web
     name: trading-dashboard
     runtime: python
+    plan: free
     buildCommand: "pip install --no-cache-dir -r requirements.txt"
     startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT"
-    plan: free
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
+      - key: DASHBOARD_PASSWORD
+        generateValue: false
       - key: FLASK_SECRET_KEY
         generateValue: true
-      - key: DASHBOARD_PASSWORD
+      - key: OPENROUTER_API_KEY
         sync: false
-      - key: NEWSAPI_KEY
-        sync: false
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
-        sync: false
-    autoDeploy: true
+      - key: RENDER_DISK_PATH
+        value: /data
+    disk:
+      name: trading-data
+      mountPath: /data
+      sizeGB: 0.5
