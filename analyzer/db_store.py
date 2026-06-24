@@ -128,16 +128,26 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         """)
-        # Telegram-Creds werden bewusst nicht hier gespeichert (Render Env vars).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 user_id INTEGER PRIMARY KEY,
+                telegram_bot_token TEXT,
+                telegram_chat_id TEXT,
                 auto_trade_enabled INTEGER DEFAULT 1,
                 report_enabled INTEGER DEFAULT 1,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         """)
+        # Migration: Telegram-Credential-Spalten nachträglich hinzufügen
+        try:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_bot_token TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_chat_id TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 
 def _now() -> str:
@@ -270,18 +280,22 @@ def save_portfolio(user_id: int, p: dict):
 
 
 def save_settings(user_id: int, settings: dict):
-    """Speichert Settings ohne Telegram-Credentials (kommen aus Env/Config)."""
+    """Speichert alle Settings inkl. Telegram-Credentials (DB-Backup bleibt persistenter)."""
     if not user_id:
         return
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO settings (user_id, auto_trade_enabled, report_enabled, updated_at)
-               VALUES (?, ?, ?, ?)
+            """INSERT INTO settings (user_id, telegram_bot_token, telegram_chat_id, auto_trade_enabled, report_enabled, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
+                 telegram_bot_token=excluded.telegram_bot_token,
+                 telegram_chat_id=excluded.telegram_chat_id,
                  auto_trade_enabled=excluded.auto_trade_enabled,
                  report_enabled=excluded.report_enabled,
                  updated_at=excluded.updated_at""",
             (user_id,
+             settings.get("telegram_bot_token", ""),
+             settings.get("telegram_chat_id", ""),
              1 if settings.get("auto_trade_enabled", True) else 0,
              1 if settings.get("report_enabled", True) else 0,
              _now())
@@ -304,10 +318,12 @@ def delete_user(user_id: int):
 # --- Settings ---
 
 def get_settings(user_id: int) -> dict:
-    """Holt Settings. Telegram kommt bevorzugt aus Env-Vars (sicher gegen Datenverlust)."""
+    """Holt Settings. Telegram hat Priorität: DB > Env > config."""
+    env_token = os.environ.get("TELEGRAM_BOT_TOKEN") or config.TELEGRAM_BOT_TOKEN
+    env_chat = os.environ.get("TELEGRAM_CHAT_ID") or config.TELEGRAM_CHAT_ID
     defaults = {
-        "telegram_bot_token": os.environ.get("TELEGRAM_BOT_TOKEN") or config.TELEGRAM_BOT_TOKEN,
-        "telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID") or config.TELEGRAM_CHAT_ID,
+        "telegram_bot_token": env_token,
+        "telegram_chat_id": env_chat,
         "auto_trade_enabled": True,
         "report_enabled": True,
     }
@@ -317,8 +333,8 @@ def get_settings(user_id: int) -> dict:
         row = conn.execute("SELECT * FROM settings WHERE user_id = ?", (user_id,)).fetchone()
         if row:
             return {
-                "telegram_bot_token": defaults["telegram_bot_token"],
-                "telegram_chat_id": defaults["telegram_chat_id"],
+                "telegram_bot_token": row["telegram_bot_token"] or env_token,
+                "telegram_chat_id": row["telegram_chat_id"] or env_chat,
                 "auto_trade_enabled": bool(row["auto_trade_enabled"]),
                 "report_enabled": bool(row["report_enabled"]),
             }

@@ -213,12 +213,23 @@ async function loadRecommendations() {
 
 function renderRecommendations(data) {
   const container = document.getElementById('recommendations-container');
-  if (!data.suggestions || data.suggestions.length === 0) {
-    container.innerHTML = '<div class="suggest-loading">Keine klaren Handlungsempfehlungen aktuell. Marktlage ist neutral.</div>';
+  // Nur Verkaufs-Empfehlungen anzeigen, wenn Position im realen Depot existiert (kein Leerverkauf möglich)
+  const heldSymbols = new Set([
+    ...(currentPortfolio && currentPortfolio.positions ? currentPortfolio.positions.map(p => p.symbol) : []),
+    ...(currentPortfolio && currentPortfolio.real_positions ? currentPortfolio.real_positions.map(p => p.symbol) : [])
+  ]);
+  const suggestions = (data.suggestions || []).filter(s => {
+    if (s.direction === 'VERKAUF') {
+      return heldSymbols.has(s.symbol);
+    }
+    return true;
+  });
+  if (suggestions.length === 0) {
+    container.innerHTML = '<div class="suggest-loading">Keine klaren Handlungsempfehlungen aktuell. Verkaufsempfehlungen werden nur angezeigt, wenn die Position im Depot existiert.</div>';
     return;
   }
   let html = '<div class="suggest-grid">';
-  for (const s of data.suggestions) {
+  for (const s of suggestions) {
     const cls = s.direction === 'KAUF' ? 'buy' : (s.direction === 'VERKAUF' ? 'sell' : 'hold');
     html += `
     <div class="suggest-card ${cls}">
@@ -464,4 +475,3 @@ function renderAutopilotResult(data) {
   `;
   renderAutopilotPlan(data);
 }
-
