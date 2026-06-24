@@ -18,6 +18,9 @@ DB_PATH = os.path.join(DB_DIR, "trading.db")
 # Backup-DB im Git-Repository (für Persistenz über Deploys hinweg).
 REPO_BACKUP_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "backup", "trading.db")
 
+# Zusätzliche lokale Timestamped-Backups auf der Render-Disk (mehrere Generationen).
+LOCAL_BACKUP_DIR = os.path.join(DB_DIR, "backups")
+
 _RESTORE_DONE = False
 
 
@@ -76,7 +79,7 @@ def restore_db_backup():
     """Stellt die DB aus dem Git-Backup wieder her, falls lokale DB leer/fehlend.
 
     Wichtig: Diese Funktion darf niemals eine bereits befüllte lokale DB
-    überschreiben, selbst wenn das Git-Backup neuere Daten behauptet.
+    überschreiben. Wir prüfen zusätzlich, ob die lokale DB wirklich leer ist.
     """
     global _RESTORE_DONE
     if _RESTORE_DONE:
@@ -84,27 +87,97 @@ def restore_db_backup():
     _RESTORE_DONE = True
 
     local_exists = os.path.exists(DB_PATH)
-    local_usable = local_exists and _db_size(DB_PATH) > 0 and _db_has_users(DB_PATH)
+    local_size = _db_size(DB_PATH)
+    local_usable = local_exists and local_size > 0 and _db_has_users(DB_PATH)
+
     backup_path = _backup_db_path()
     backup_exists = os.path.exists(backup_path)
 
-    print(f"[DB] Working DB: {DB_PATH} (exists={local_exists}, usable={local_usable})")
-    print(f"[DB] Backup DB: {backup_path} (exists={backup_exists})")
+    print("=" * 60)
+    print(f"[DB] Startup DB check")
+    print(f"[DB] Working DB: {DB_PATH}")
+    print(f"[DB]   exists={local_exists}, size={local_size} bytes, usable={local_usable}")
+    print(f"[DB] Backup DB: {backup_path}")
+    print(f"[DB]   exists={backup_exists}")
 
     if local_exists and local_usable:
         local_users = _count_users(DB_PATH)
-        if backup_exists and _db_has_users(backup_path):
-            backup_users = _count_users(backup_path)
-            print(f"[DB] Local users: {local_users}, backup users: {backup_users} -> keep local")
+        local_portfolios = _count_portfolios(DB_PATH)
+        print(f"[DB] Local users: {local_users}, portfolios: {local_portfolios}")
+        print(f"[DB] Local DB is usable -> SKIP restore, keep local data")
+        print("=" * 60)
         return
 
+    # Auch wenn local_exists aber leer/unbrauchbar: suche ältere Timestamped-Backups
+    if not local_usable:
+        ts_backup = _newest_timestamped_backup()
+        if ts_backup:
+            print(f"[DB] Found newer timestamped local backup -> restore from {ts_backup}")
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            _copy_file(ts_backup, DB_PATH)
+            print(f"[DB] Restore from timestamped backup complete")
+            print("=" * 60)
+            return
+
     if backup_exists and _db_has_users(backup_path):
-        print(f"[DB] Local DB empty -> restoring from backup")
+        print(f"[DB] Local DB empty/unusable -> restoring from repo backup")
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         _copy_file(backup_path, DB_PATH)
-        print("[DB] Restore complete")
+        print("[DB] Restore from repo backup complete")
     else:
         print("[DB] No usable backup found, starting fresh")
+    print("=" * 60)
+
+
+def _count_portfolios(path: str) -> int:
+    try:
+        with sqlite3.connect(path) as conn:
+            cur = conn.execute("SELECT COUNT(*) FROM portfolios")
+            return cur.fetchone()[0]
+    except Exception:
+        return 0
+
+
+def _timestamped_backup_path() -> str:
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(LOCAL_BACKUP_DIR, f"trading_{ts}.db")
+
+
+def _newest_timestamped_backup() -> Optional[str]:
+    try:
+        if not os.path.isdir(LOCAL_BACKUP_DIR):
+            return None
+        files = [
+            os.path.join(LOCAL_BACKUP_DIR, f)
+            for f in os.listdir(LOCAL_BACKUP_DIR)
+            if f.startswith("trading_") and f.endswith(".db")
+        ]
+        files = [f for f in files if os.path.isfile(f) and _db_has_users(f)]
+        if not files:
+            return None
+        return max(files, key=os.path.getmtime)
+    except Exception:
+        return None
+
+
+def _rotate_timestamped_backups(keep: int = 10):
+    try:
+        if not os.path.isdir(LOCAL_BACKUP_DIR):
+            return
+        files = [
+            os.path.join(LOCAL_BACKUP_DIR, f)
+            for f in os.listdir(LOCAL_BACKUP_DIR)
+            if f.startswith("trading_") and f.endswith(".db")
+        ]
+        files = [f for f in files if os.path.isfile(f)]
+        files.sort(key=os.path.getmtime, reverse=True)
+        for old in files[keep:]:
+            try:
+                os.remove(old)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def get_conn():
@@ -161,19 +234,27 @@ def _now() -> str:
 # --- Backups ---
 
 def _backup_async():
-    """Kopiert DB ins Git-Repo und committet asynchron."""
+    """Kopiert DB ins Git-Repo, lokale Timestamped-Backups und committet asynchron."""
     try:
         if not os.path.exists(DB_PATH):
             return
+
+        # 1) Repository-Backup
         backup_path = _backup_db_path()
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         _copy_file(DB_PATH, backup_path)
+
+        # 2) Lokale Timestamped-Backups auf der Render-Disk
+        os.makedirs(LOCAL_BACKUP_DIR, exist_ok=True)
+        ts_path = _timestamped_backup_path()
+        _copy_file(DB_PATH, ts_path)
+        _rotate_timestamped_backups(keep=20)
 
         root = _repo_root()
         if not root:
             return
         rel = os.path.relpath(backup_path, root)
-        # Git-Author sicherstellen (Render-Container haben oft keine globale config)
+        # Git-Author sicherstellen
         subprocess.run(["git", "config", "user.email", "bot@trading-dashboard.local"], capture_output=True, cwd=root, timeout=10)
         subprocess.run(["git", "config", "user.name", "Trading Dashboard Bot"], capture_output=True, cwd=root, timeout=10)
         subprocess.run(["git", "add", rel], capture_output=True, cwd=root, timeout=10)
