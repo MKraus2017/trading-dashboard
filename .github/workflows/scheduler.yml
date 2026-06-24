@@ -13,82 +13,84 @@ jobs:
   refresh_prices:
     runs-on: ubuntu-latest
     if: github.event.schedule == '*/5 * * * *'
-    env:
-      SCHED: ${{ secrets.SCHEDULER_API_KEY }}
     steps:
       - name: Refresh prices
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
             --max-time 25 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/refresh_prices" \
-            -H "Authorization: Bearer ${SCHED}" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
   market_analysis:
     runs-on: ubuntu-latest
     if: github.event.schedule == '*/30 * * * *'
-    env:
-      SCHED: ${{ secrets.SCHEDULER_API_KEY }}
     steps:
       - name: Market analysis
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
             --max-time 80 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/market_analysis" \
-            -H "Authorization: Bearer ${SCHED}" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Real positions urgent alert
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
             --max-time 80 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/real_positions_alert" \
-            -H "Authorization: Bearer ${SCHED}" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
   llm_analysis:
     runs-on: ubuntu-latest
     if: github.event.schedule == '0 */2 * * *'
-    env:
-      SCHED: ${{ secrets.SCHEDULER_API_KEY }}
     steps:
       - name: LLM analysis + auto-trade
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
             --max-time 120 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/llm_analysis?auto_trade=true" \
-            -H "Authorization: Bearer ${SCHED}" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
   portfolio_report:
     runs-on: ubuntu-latest
     if: github.event.schedule == '0 5,8,11,14,17,20 * * *'
-    env:
-      SCHED: ${{ secrets.SCHEDULER_API_KEY }}
     steps:
       - name: Portfolio report
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
             --max-time 80 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/portfolio_report" \
-            -H "Authorization: Bearer ${SCHED}" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
   daily_summary:
     runs-on: ubuntu-latest
     if: github.event.schedule == '15 22 * * *'
-    env:
-      SCHED: ${{ secrets.SCHEDULER_API_KEY }}
     steps:
       - name: Daily summary
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
             --max-time 80 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/daily_summary" \
-            -H "Authorization: Bearer ${SCHED}" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
