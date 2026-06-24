@@ -48,11 +48,11 @@ DEFAULT_UNIVERSE = [
     {"symbol": "AMD", "name": "AMD"},
     {"symbol": "PLTR", "name": "Palantir"},
     {"symbol": "AVGO", "name": "Broadcom"},
-    # Europa ( EUR-Notierungen für TR)
-    {"symbol": "ASML.AS", "name": "ASML Holding"},
-    {"symbol": "SAP.DE", "name": "SAP SE"},
-    {"symbol": "NESR.DE", "name": "Nestlé"},
-    # Diversifikation / Finanz / ETFs
+    # Europa (EUR-Notierungen für TR)
+    {"symbol": "ASML", "name": "ASML Holding"},
+    {"symbol": "SAP", "name": "SAP SE"},
+    {"symbol": "NESN.SW", "name": "Nestlé"},
+
     {"symbol": "JPM", "name": "JPMorgan Chase"},
     {"symbol": "V", "name": "Visa"},
     {"symbol": "MA", "name": "Mastercard"},
