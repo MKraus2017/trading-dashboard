@@ -30,6 +30,8 @@
   <div class="tab" onclick="showTab('autopilot')">🤖 Autopilot</div>
   <div class="tab" onclick="showTab('historie-v')">📋 Historie-V</div>
   <div class="tab" onclick="showTab('historie-r')">📈 Historie-R</div>
+  <div class="tab" onclick="showTab('vergleich')">📊 Vergleich</div>
+  <div class="tab" onclick="showTab('verbesserungen')">🚀 Verbesserungen</div>
 </div>
 
 <div class="content">
@@ -97,21 +99,39 @@
   </div>
 
   <!-- Historie-V Tab (virtuelles Depot) -->
-  <div class="panel" id="panel-historie-v">
-    <div class="section-title">📋 Historie — Virtuelles Depot</div>
-    <div id="trade-history"></div>
-  </div>
+    <div class="panel" id="panel-historie-v">
+      <div class="section-title">📋 Historie — Virtuelles Depot</div>
+      <div id="trade-history"></div>
+    </div>
 
-  <!-- Historie-R Tab (reales TR-Depot) -->
-  <div class="panel" id="panel-historie-r">
-    <div class="section-title">📈 Gewinn- & Verlustübersicht — Reales TR-Depot</div>
-    <div id="real-guv" class="summary-grid" style="margin-bottom:16px;"></div>
-    <div class="section-title">🏦 Offene echte Positionen</div>
-    <div id="real-historie-positions"></div>
-    <div class="section-title" style="margin-top:24px;">📝 Echte Trades</div>
-    <div id="real-trade-history"></div>
+    <!-- Historie-R Tab (reales TR-Depot) -->
+    <div class="panel" id="panel-historie-r">
+      <div class="section-title">📈 Gewinn- & Verlustübersicht — Reales TR-Depot</div>
+      <div id="real-guv" class="summary-grid" style="margin-bottom:16px;"></div>
+      <div class="section-title">🏦 Offene echte Positionen</div>
+      <div id="real-historie-positions"></div>
+      <div class="section-title" style="margin-top:24px;">📝 Echte Trades</div>
+      <div id="real-trade-history"></div>
+    </div>
+
+    <!-- Vergleich Tab -->
+    <div class="panel" id="panel-vergleich">
+      <div class="section-title">📊 Virtuell vs. Reales Depot</div>
+      <div id="comparison-summary" class="summary-grid" style="margin-bottom:16px;"></div>
+      <div class="section-title">📋 Symbol-Übersicht</div>
+      <div id="comparison-by-symbol"></div>
+    </div>
+
+    <!-- Verbesserungen Tab -->
+    <div class="panel" id="panel-verbesserungen">
+      <div class="section-title">🚀 Backtesting & Strategie-Verbesserungen</div>
+      <div id="improvements-summary" class="summary-grid" style="margin-bottom:16px;"></div>
+      <div class="section-title">💡 Handlungsempfehlungen</div>
+      <div id="improvements-list"></div>
+      <div class="section-title" style="margin-top:24px;">📈 Abgeschlossene virtuelle Trades</div>
+      <div id="backtest-details"></div>
+    </div>
   </div>
-</div>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

@@ -124,6 +124,9 @@ def api_portfolio():
     # Preise für echte Positionen anreichern
     p = portfolio.enrich_real_positions(p)
     p = _calc_real_guv(p)
+    # Vergleichs- & Backtest-Daten anreichern
+    p["comparison"] = portfolio.calculate_comparison(p)
+    p["backtest"] = portfolio.run_backtest(p)
     return jsonify({"portfolio": p, "alerts": alerts})
 
 

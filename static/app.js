@@ -3,7 +3,7 @@ let currentRecs = [];
 let universeData = [];
 
 function showTab(name) {
-  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r'];
+  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen'];
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
@@ -195,6 +195,8 @@ function renderPortfolio(p, alerts) {
     summary.insertAdjacentHTML('afterend', alertHtml);
   }
 
+  renderComparison(p);
+  renderImprovements(p);
   renderRealPositions(p);
 }
 
@@ -612,4 +614,129 @@ function renderAutopilotResult(data) {
     <div class="alert-box">✅ Autopilot ausgeführt. Offene Positionen: ${after.positions_count}, Cash: ${fmtEur(after.cash)}, Depotwert: ${fmtEur(after.total_value)}, Rendite: ${fmtPct(after.total_return_pct)}</div>
   `;
   renderAutopilotPlan(data);
+}
+
+function renderComparison(p) {
+  const comp = p.comparison || {};
+  const v = comp.virtual || {};
+  const r = comp.real || {};
+  const diff = comp.diff || {};
+  const summaryDiv = document.getElementById('comparison-summary');
+  if (summaryDiv) {
+    summaryDiv.innerHTML = `
+      <div class="card"><div class="card-label">V-Investiert</div><div class="card-value neutral">${fmtEur(v.invested)}</div></div>
+      <div class="card"><div class="card-label">V-Wert</div><div class="card-value ${(v.total_return || 0) >= 0 ? 'green' : 'red'}">${fmtEur(v.current_value)} (${fmtEur(v.total_return)})</div></div>
+      <div class="card"><div class="card-label">R-Investiert</div><div class="card-value neutral">${fmtEur(r.invested)}</div></div>
+      <div class="card"><div class="card-label">R-Wert</div><div class="card-value ${(r.total_return || 0) >= 0 ? 'green' : 'red'}">${fmtEur(r.current_value)} (${fmtEur(r.total_return)})</div></div>
+      <div class="card"><div class="card-label">V vs. R Differenz</div><div class="card-value ${(diff.total_return || 0) >= 0 ? (diff.total_return > 0 ? 'green' : 'neutral') : 'red'}">${fmtEur(diff.total_return)}</div></div>
+    `;
+  }
+
+  const bySymbolDiv = document.getElementById('comparison-by-symbol');
+  const virtSymbols = new Set(v.trades ? [] : []);
+  const realSymbolMap = {};
+  for (const pos of (p.real_positions || [])) realSymbolMap[pos.symbol] = pos;
+
+  const rows = [];
+  for (const pos of (p.positions || [])) {
+    const realPos = realSymbolMap[pos.symbol];
+    rows.push({
+      symbol: pos.symbol,
+      virt_invested: pos.invested || 0,
+      virt_value: (pos.shares || 0) * (pos.last_price || pos.entry_price || 0),
+      real_invested: realPos ? (realPos.invested || 0) : 0,
+      real_value: realPos ? (realPos.current_value || 0) : 0,
+      real_only: false
+    });
+  }
+  for (const pos of (p.real_positions || [])) {
+    const existing = rows.find(x => x.symbol === pos.symbol);
+    if (existing) {
+      existing.real_invested = pos.invested || 0;
+      existing.real_value = pos.current_value || 0;
+      continue;
+    }
+    rows.push({
+      symbol: pos.symbol,
+      virt_invested: 0,
+      virt_value: 0,
+      real_invested: pos.invested || 0,
+      real_value: pos.current_value || 0,
+      real_only: true
+    });
+  }
+
+  if (!bySymbolDiv) return;
+  if (rows.length === 0) {
+    bySymbolDiv.innerHTML = '<div class="no-data">Keine Daten für Vergleich vorhanden.</div>';
+    return;
+  }
+  let html = '<table><tr><th>Symbol</th><th>Name</th><th>V-Invest.</th><th>V-Wert</th><th>R-Invest.</th><th>R-Wert</th><th>V vs. R</th></tr>';
+  for (const row of rows) {
+    const diffVal = (row.virt_value - row.virt_invested) - (row.real_value - row.real_invested);
+    const diffClass = diffVal > 0 ? 'green' : (diffVal < 0 ? 'red' : 'neutral');
+    html += `<tr>
+      <td><strong>${row.symbol}</strong></td>
+      <td>${symbolName(row.symbol)}</td>
+      <td>${fmtEur(row.virt_invested)}</td>
+      <td>${fmtEur(row.virt_value)}</td>
+      <td>${fmtEur(row.real_invested)}</td>
+      <td>${fmtEur(row.real_value)}</td>
+      <td class="${diffClass}">${fmtEur(diffVal)}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  bySymbolDiv.innerHTML = html;
+}
+
+function renderImprovements(p) {
+  const bt = p.backtest || {};
+  const summaryDiv = document.getElementById('improvements-summary');
+  if (summaryDiv) {
+    summaryDiv.innerHTML = `
+      <div class="card"><div class="card-label">Abgeschlossene V-Trades</div><div class="card-value neutral">${bt.completed_trades || 0}</div></div>
+      <div class="card"><div class="card-label">Strategie-P&L</div><div class="card-value ${(bt.strategy_pnl || 0) >= 0 ? 'green' : 'red'}">${fmtEur(bt.strategy_pnl)}</div></div>
+      <div class="card"><div class="card-label">Buy-&-Hold-P&L</div><div class="card-value ${(bt.buyhold_pnl || 0) >= 0 ? 'green' : 'red'}">${fmtEur(bt.buyhold_pnl)}</div></div>
+      <div class="card"><div class="card-label">Alpha vs. B&H</div><div class="card-value ${(bt.alpha || 0) >= 0 ? 'green' : 'red'}">${fmtEur(bt.alpha)}</div></div>
+      <div class="card"><div class="card-label">Win-Rate</div><div class="card-value neutral">${(bt.win_rate || 0).toFixed(1)}%</div></div>
+    `;
+  }
+
+  const listDiv = document.getElementById('improvements-list');
+  if (listDiv) {
+    const items = bt.improvements || [];
+    if (items.length === 0) {
+      listDiv.innerHTML = '<div class="no-data">Noch keine Verbesserungsvorschläge verfügbar.</div>';
+    } else {
+      let html = '';
+      for (const item of items) {
+        html += `<div class="alert-box">${item}</div>`;
+      }
+      listDiv.innerHTML = html;
+    }
+  }
+
+  const detailsDiv = document.getElementById('backtest-details');
+  if (detailsDiv) {
+    const details = bt.details || [];
+    if (details.length === 0) {
+      detailsDiv.innerHTML = '<div class="no-data">Noch keine abgeschlossenen virtuellen Trades für Backtesting.</div>';
+    } else {
+      let html = '<table><tr><th>Symbol</th><th>Kauf</th><th>Verkauf</th><th>Stück</th><th>Tage</th><th>Strategie-P&L</th><th>B&H-P&L</th></tr>';
+      for (const d of details) {
+        const cls = (d.strategy_pnl || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+        html += `<tr>
+          <td><strong>${d.symbol}</strong></td>
+          <td>${fmtEur(d.buy_price)}</td>
+          <td>${fmtEur(d.sell_price)}</td>
+          <td>${Number(d.shares).toFixed(4)}</td>
+          <td>${d.days_held}</td>
+          <td class="${cls}">${fmtEur(d.strategy_pnl)}</td>
+          <td>${fmtEur(d.buyhold_pnl)}</td>
+        </tr>`;
+      }
+      html += '</table>';
+      detailsDiv.innerHTML = html;
+    }
+  }
 }

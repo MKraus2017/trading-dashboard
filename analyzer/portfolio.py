@@ -304,3 +304,139 @@ def sell(user_id: int, symbol: str, price: Optional[float] = None, shares: Optio
         except Exception:
             pass
     return {"ok": True, "cash": round(p["cash"], 2)}
+
+
+# --- Vergleich & Backtest Hilfsfunktionen ---
+
+def calculate_comparison(p: dict) -> dict:
+    """Berechnet Kennzahlen für virtuell vs. reales Depot."""
+    virt_positions = p.get("positions", [])
+    real_positions = p.get("real_positions", [])
+    virt_trades = [t for t in p.get("trades", []) if t.get("action") in ("BUY", "SELL")]
+    real_trades = [t for t in p.get("real_trades", []) if t.get("action") in ("BUY", "SELL")]
+
+    virt_invested = sum(pos.get("invested", 0) for pos in virt_positions)
+    real_invested = sum(pos.get("invested", 0) for pos in real_positions)
+    virt_value = sum(pos.get("shares", 0) * pos.get("last_price", pos.get("entry_price", 0)) for pos in virt_positions)
+    real_value = sum(pos.get("current_value", 0) for pos in real_positions)
+
+    virt_closed_sells = [t for t in virt_trades if t.get("action") == "SELL"]
+    real_closed_sells = [t for t in real_trades if t.get("action") == "SELL"]
+    virt_realized = sum(t.get("pnl_eur", (t.get("proceeds", 0) - t.get("invested", 0))) for t in virt_closed_sells)
+    real_realized = sum((t.get("shares", 0) * t.get("price", 0)) - (t.get("invested", 0)) for t in real_closed_sells)
+
+    virt_unrealized = virt_value - virt_invested
+    real_unrealized = real_value - real_invested
+
+    return {
+        "virtual": {
+            "open_positions": len(virt_positions),
+            "invested": round(virt_invested, 2),
+            "current_value": round(virt_value, 2),
+            "unrealized": round(virt_unrealized, 2),
+            "realized": round(virt_realized, 2),
+            "total_return": round(virt_unrealized + virt_realized, 2),
+            "trades_count": len(virt_trades),
+        },
+        "real": {
+            "open_positions": len(real_positions),
+            "invested": round(real_invested, 2),
+            "current_value": round(real_value, 2),
+            "unrealized": round(real_unrealized, 2),
+            "realized": round(real_realized, 2),
+            "total_return": round(real_unrealized + real_realized, 2),
+            "trades_count": len(real_trades),
+        },
+        "diff": {
+            "total_return": round((virt_unrealized + virt_realized) - (real_unrealized + real_realized), 2),
+        },
+    }
+
+
+def run_backtest(p: dict) -> dict:
+    """Einfaches internes Backtesting: Wie hätte die aktuelle Strategie historisch performt?
+
+    Wir vergleichen alle abgeschlossenen virtuellen Trades mit einem simplen
+    Buy-&-Hold-Gegenwert über die gleiche Haltedauer.
+    """
+    trades = p.get("trades", [])
+    buy_events = [t for t in trades if t.get("action") == "BUY"]
+    sell_events = [t for t in trades if t.get("action") == "SELL"]
+
+    completed_pairs = []
+    strategy_pnl = 0.0
+    buy_hold_pnl = 0.0
+
+    for sell in sell_events:
+        symbol = sell.get("symbol")
+        matching_buys = [b for b in buy_events if b.get("symbol") == symbol and b.get("time", "") < sell.get("time", "")]
+        if not matching_buys:
+            continue
+        buy = matching_buys[-1]
+        sell_price = sell.get("price", 0)
+        buy_price = buy.get("price", 0)
+        shares = min(sell.get("shares", 0), buy.get("shares", 0))
+        if shares <= 0 or buy_price <= 0:
+            continue
+
+        period_return_pct = ((sell_price - buy_price) / buy_price) * 100
+        # Approximation Buy-and-Hold über gleiche Haltedauer: was hätte ein S&P500-ETF gemacht?
+        # Wir nehmen einen angenommenen Markt-Return von 8 % p.a. / 252 Handelstage pro Tag.
+        try:
+            from datetime import datetime
+            days_held = max(1, (datetime.fromisoformat(sell["time"]) - datetime.fromisoformat(buy["time"])).days)
+        except Exception:
+            days_held = 30
+        market_daily_return = 0.08 / 252
+        market_period_return_pct = market_daily_return * days_held * 100
+
+        pair_pnl = shares * (sell_price - buy_price)
+        pair_buy_hold = shares * buy_price * market_period_return_pct / 100
+        strategy_pnl += pair_pnl
+        buy_hold_pnl += pair_buy_hold
+
+        completed_pairs.append({
+            "symbol": symbol,
+            "buy_price": round(buy_price, 4),
+            "sell_price": round(sell_price, 4),
+            "shares": round(shares, 4),
+            "days_held": days_held,
+            "strategy_pnl": round(pair_pnl, 2),
+            "buyhold_pnl": round(pair_buy_hold, 2),
+        })
+
+    alpha = round(strategy_pnl - buy_hold_pnl, 2)
+
+    # Verbesserungs-Vorschläge generieren
+    improvements = []
+    win_trades = [x for x in completed_pairs if x["strategy_pnl"] > 0]
+    loss_trades = [x for x in completed_pairs if x["strategy_pnl"] <= 0]
+    win_rate = round(len(win_trades) / len(completed_pairs) * 100, 1) if completed_pairs else 0.0
+
+    if win_rate < 50 and completed_pairs:
+        improvements.append(f"Win-Rate nur {win_rate} % – Stop-Loss enger oder Filter für Einstieg verschärfen.")
+    if len(loss_trades) > len(win_trades):
+        avg_loss = sum(t["strategy_pnl"] for t in loss_trades) / max(len(loss_trades), 1)
+        improvements.append(f"Durchschnittsverlust {fmtEur(avg_loss)} pro Trade – Risiko pro Trade reduzieren.")
+    if alpha < 0:
+        improvements.append(f"Strategie lag {fmtEur(abs(alpha))} hinter Buy-&-Hold zurück – Haltezeiten / Take-Profit anpassen.")
+    if not any(t.get("trailing_stop") for t in p.get("positions", [])) and completed_pairs:
+        improvements.append("Trailing-Stop wurde noch nicht genutzt – bei Gewinnen von >25 % aktivieren.")
+    if not improvements and completed_pairs:
+        improvements.append("Strategie performt gut. Fokus auf Disziplin und Einhaltung der Regeln.")
+    if not completed_pairs:
+        improvements.append("Noch nicht genug abgeschlossene virtuelle Trades für Backtesting. Mindestens einen Kauf und Verkauf durchführen.")
+
+    return {
+        "completed_trades": len(completed_pairs),
+        "strategy_pnl": round(strategy_pnl, 2),
+        "buyhold_pnl": round(buy_hold_pnl, 2),
+        "alpha": alpha,
+        "win_rate": win_rate,
+        "details": completed_pairs,
+        "improvements": improvements,
+    }
+
+
+def fmtEur(n) -> str:
+    return f"€{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
