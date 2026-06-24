@@ -62,6 +62,8 @@ async function loadPortfolio() {
 }
 
 function renderPortfolio(p, alerts) {
+  const positions = p.positions || [];
+  const realPositions = p.real_positions || [];
   const summary = document.getElementById('depot-summary');
   const total = p.total_value || 0;
   const invested = total - p.cash;
@@ -71,15 +73,15 @@ function renderPortfolio(p, alerts) {
     <div class="card"><div class="card-label">Cash</div><div class="card-value neutral">${fmtEur(p.cash)}</div></div>
     <div class="card"><div class="card-label">Investiert</div><div class="card-value neutral">${fmtEur(invested)}</div></div>
     <div class="card"><div class="card-label">Gesamtrendite</div><div class="card-value ${returnPct >= 0 ? 'green' : 'red'}">${fmtPct(returnPct)}</div></div>
-    <div class="card"><div class="card-label">Offene Positionen</div><div class="card-value neutral">${p.positions.length}</div></div>
+    <div class="card"><div class="card-label">Offene Positionen</div><div class="card-value neutral">${positions.length}</div></div>
   `;
 
   const posDiv = document.getElementById('depot-positions');
-  if (p.positions.length === 0) {
+  if (positions.length === 0) {
     posDiv.innerHTML = '<div class="no-data">Keine offenen Positionen. Starte eine Analyse und kaufe virtuell.</div>';
   } else {
     let html = '<table><tr><th>Symbol</th><th>Einstieg</th><th>Aktuell</th><th>Stück</th><th>Investiert</th><th>Gewinn</th><th>SL</th><th>TP</th><th></th></tr>';
-    for (const pos of p.positions) {
+    for (const pos of positions) {
       const pnlClass = pos.unrealized_eur >= 0 ? 'pnl-pos' : 'pnl-neg';
       html += `<tr>
         <td><strong>${pos.symbol}</strong><br><span style="color:#8b949e;font-size:12px;">${symbolName(pos.symbol)}</span></td>
@@ -137,11 +139,11 @@ function renderPortfolio(p, alerts) {
   // Offene echte Positionen in Historie-R
   const realHistPositionsDiv = document.getElementById('real-historie-positions');
   if (realHistPositionsDiv) {
-    if (!positions.length) {
+    if (!realPositions.length) {
       realHistPositionsDiv.innerHTML = '<div class="no-data">Keine offenen echten Positionen.</div>';
     } else {
       let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th></tr>';
-      for (const pos of positions) {
+      for (const pos of realPositions) {
         const pnlClass = (pos.unrealized_eur || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
         html += `<tr>
           <td><strong>${pos.symbol}</strong></td>
