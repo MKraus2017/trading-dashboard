@@ -333,7 +333,7 @@ async function reportRealTrade() {
   showLoading(true);
   showError('');
   try {
-    const r = await fetch('/api/real_trade', {
+    const r = await fetch('/api/real_position', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({symbol, action, shares, price})
     });
