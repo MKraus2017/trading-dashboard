@@ -252,11 +252,14 @@ def api_price():
 def api_settings():
     uid = get_current_user_id()
     if request.method == "GET":
-        return jsonify(db_store.get_settings(uid))
+        s = db_store.get_settings(uid)
+        # Lese Telegram-Creds bevorzugt aus Env (persistenter)
+        s["telegram_bot_token_source"] = "Env" if os.environ.get("TELEGRAM_BOT_TOKEN") else "config"
+        s["telegram_chat_id_source"] = "Env" if os.environ.get("TELEGRAM_CHAT_ID") else "config"
+        return jsonify(s)
     body = request.get_json() or {}
+    # Telegram-Creds werden nicht mehr in DB gespeichert (sicherer & persistenter via Env)
     db_store.save_settings(uid, {
-        "telegram_bot_token": body.get("telegram_bot_token", ""),
-        "telegram_chat_id": body.get("telegram_chat_id", ""),
         "auto_trade_enabled": body.get("auto_trade_enabled", True),
         "report_enabled": body.get("report_enabled", True),
     })

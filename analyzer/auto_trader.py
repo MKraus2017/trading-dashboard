@@ -6,29 +6,11 @@ from analyzer import portfolio, signals, telegram
 
 
 def _commit_portfolio() -> dict:
-    """Versucht, portfolio.json nach einem Trade zu committen + pushen (Render-Persistenz)."""
+    """Löst das SQLite-Backup aus, falls möglich."""
     try:
-        repo = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5
-        )
-        if repo.returncode != 0:
-            return {"ok": False, "error": "Kein Git-Repo"}
-        subprocess.run(
-            ["git", "add", "data/portfolio.json", "data/recommendations.json"],
-            capture_output=True, timeout=10
-        )
-        res = subprocess.run(
-            ["git", "commit", "-m", "Auto-Trade Update"],
-            capture_output=True, text=True, timeout=10
-        )
-        if res.returncode == 0:
-            subprocess.run(
-                ["git", "push"],
-                capture_output=True, timeout=30
-            )
-            return {"ok": True}
-        return {"ok": False, "error": res.stderr[:200]}
+        from analyzer import db_store
+        db_store.trigger_backup()
+        return {"ok": True, "note": "SQLite backup triggered"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

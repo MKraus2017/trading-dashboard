@@ -1,0 +1,2 @@
+# DB-Backup (persistiert über Deploys)
+# Lösche diese Datei nicht – sie hält das data/backup/-Verzeichnis im Git-Repo.

@@ -5,5 +5,8 @@ __pycache__/
 *.pyd
 .venv/
 .venv*/
-# DB wird per App nach jeder Änderung gepusht (Persistenz)
-# data/*.db
+data/*.db
+data/*.json
+!data/backup/
+!data/backup/*.db
+!data/backup/.gitkeep

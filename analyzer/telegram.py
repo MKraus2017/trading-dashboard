@@ -7,9 +7,15 @@ import requests
 import config
 
 
+def _telegram_creds(token: str = None, chat_id: str = None) -> tuple:
+    """Token/Chat-ID kommen bevorzugt aus Umgebungsvariablen (sicher gegen Datenverlust)."""
+    t = token or os.environ.get("TELEGRAM_BOT_TOKEN") or config.TELEGRAM_BOT_TOKEN
+    c = chat_id or os.environ.get("TELEGRAM_CHAT_ID") or config.TELEGRAM_CHAT_ID
+    return t, c
+
+
 def _send_message(text: str, token: str = None, chat_id: str = None) -> dict:
-    token = token or config.TELEGRAM_BOT_TOKEN
-    chat_id = chat_id or config.TELEGRAM_CHAT_ID
+    token, chat_id = _telegram_creds(token, chat_id)
     if not token or not chat_id:
         return {"ok": False, "error": "Telegram nicht konfiguriert"}
     url = f"https://api.telegram.org/bot{token}/sendMessage"

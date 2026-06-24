@@ -21,8 +21,11 @@ h1 { font-size: 1.3rem; }
 label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: #c9d1d9; }
 input[type="text"], input[type="password"] {
     width: 100%; padding: 10px 12px; background: #0d1117; border: 1px solid #30363d;
-    border-radius: 8px; color: #e6edf3; margin-bottom: 16px; font-size: 1rem;
+    border-radius: 8px; color: #e6edf3; margin-bottom: 6px; font-size: 1rem;
 }
+input[readonly] { color: #8b949e; background: #0d1117; }
+.hint { font-size: 0.8rem; color: #8b949e; margin-bottom: 16px; }
+.env-badge { display: inline-block; background: #238636; color: #fff; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
 .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 button.save {
     background: linear-gradient(135deg, #238636, #2ea043); border: none; color: white;
@@ -52,10 +55,12 @@ button.save:hover { opacity: 0.85; }
 <div class="content">
   <div class="card">
     <h2>Telegram-Benachrichtigungen</h2>
-    <label for="tg-token">Bot Token</label>
-    <input type="password" id="tg-token" placeholder="123456:ABC...">
-    <label for="tg-chat">Chat ID</label>
-    <input type="text" id="tg-chat" placeholder="z.B. 12345678">
+    <label for="tg-token">Bot Token <span id="token-badge" class="env-badge" style="display:none">Env</span></label>
+    <input type="password" id="tg-token" readonly>
+    <div class="hint">Bot Token wird über Render-Umgebungsvariable gesetzt und bleibt bei Deploys erhalten.</div>
+    <label for="tg-chat">Chat ID <span id="chat-badge" class="env-badge" style="display:none">Env</span></label>
+    <input type="text" id="tg-chat" readonly>
+    <div class="hint">Chat ID wird ebenfalls über Render-Umgebungsvariable gesetzt.</div>
 
     <h2 style="margin-top:24px;">Automation</h2>
     <div class="toggle-row">
@@ -82,16 +87,16 @@ button.save:hover { opacity: 0.85; }
 async function loadSettings() {
     const r = await fetch('/api/settings');
     const s = await r.json();
-    document.getElementById('tg-token').value = s.telegram_bot_token || '';
-    document.getElementById('tg-chat').value = s.telegram_chat_id || '';
+    document.getElementById('tg-token').value = s.telegram_bot_token ? '******** (' + s.telegram_bot_token_source + ')' : '(nicht konfiguriert)';
+    document.getElementById('tg-chat').value = s.telegram_chat_id || '(nicht konfiguriert)';
+    if (s.telegram_bot_token_source === 'Env') document.getElementById('token-badge').style.display = 'inline-block';
+    if (s.telegram_chat_id_source === 'Env') document.getElementById('chat-badge').style.display = 'inline-block';
     document.getElementById('auto-trade').checked = s.auto_trade_enabled !== false;
     document.getElementById('report-enabled').checked = s.report_enabled !== false;
 }
 
 async function saveSettings() {
     const body = {
-        telegram_bot_token: document.getElementById('tg-token').value.trim(),
-        telegram_chat_id: document.getElementById('tg-chat').value.trim(),
         auto_trade_enabled: document.getElementById('auto-trade').checked,
         report_enabled: document.getElementById('report-enabled').checked,
     };
