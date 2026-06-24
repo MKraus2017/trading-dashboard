@@ -9,7 +9,8 @@ services:
       - key: DASHBOARD_PASSWORD
         generateValue: false
       - key: FLASK_SECRET_KEY
-        generateValue: true
+        generateValue: false
+        value: ""  # Setze hier einen festen Wert via Render-Dashboard, damit Sessions nach Deploys gültig bleiben
       - key: OPENROUTER_API_KEY
         sync: false
       - key: TELEGRAM_BOT_TOKEN

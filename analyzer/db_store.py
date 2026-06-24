@@ -73,7 +73,11 @@ def _count_users(path: str) -> int:
 
 
 def restore_db_backup():
-    """Stellt die DB aus dem Git-Backup wieder her, falls lokale DB leer/fehlend."""
+    """Stellt die DB aus dem Git-Backup wieder her, falls lokale DB leer/fehlend.
+
+    Wichtig: Diese Funktion darf niemals eine bereits befüllte lokale DB
+    überschreiben, selbst wenn das Git-Backup neuere Daten behauptet.
+    """
     global _RESTORE_DONE
     if _RESTORE_DONE:
         return
@@ -87,11 +91,11 @@ def restore_db_backup():
     print(f"[DB] Working DB: {DB_PATH} (exists={local_exists}, usable={local_usable})")
     print(f"[DB] Backup DB: {backup_path} (exists={backup_exists})")
 
-    if local_usable:
+    if local_exists and local_usable:
         local_users = _count_users(DB_PATH)
         if backup_exists and _db_has_users(backup_path):
             backup_users = _count_users(backup_path)
-            print(f"[DB] Local users: {local_users}, backup users: {backup_users}")
+            print(f"[DB] Local users: {local_users}, backup users: {backup_users} -> keep local")
         return
 
     if backup_exists and _db_has_users(backup_path):
@@ -169,15 +173,27 @@ def _backup_async():
         if not root:
             return
         rel = os.path.relpath(backup_path, root)
-        # Für Sicherheit: niemals Plaintext-Tokens committen.
+        # Git-Author sicherstellen (Render-Container haben oft keine globale config)
+        subprocess.run(["git", "config", "user.email", "bot@trading-dashboard.local"], capture_output=True, cwd=root, timeout=10)
+        subprocess.run(["git", "config", "user.name", "Trading Dashboard Bot"], capture_output=True, cwd=root, timeout=10)
         subprocess.run(["git", "add", rel], capture_output=True, cwd=root, timeout=10)
         subprocess.run(
             ["git", "commit", "-m", f"Auto-DB-Backup {_now()}"],
             capture_output=True, cwd=root, timeout=10
         )
-        subprocess.run(["git", "push"], capture_output=True, cwd=root, timeout=30)
+        push_res = subprocess.run(["git", "push"], capture_output=True, cwd=root, timeout=30)
+        if push_res.returncode != 0:
+            print(f"[DB Backup] Push warning: {push_res.stderr.decode('utf-8', errors='ignore')[:200]}")
     except Exception as e:
         print(f"[DB Backup] Warning: {e}")
+
+
+def backup_db(synchronous=False):
+    """Backup mit optionaler Synchronität (wartet auf Fertigstellung)."""
+    if synchronous:
+        _backup_async()
+    else:
+        trigger_backup()
 
 
 def trigger_backup():
@@ -276,11 +292,13 @@ def save_portfolio(user_id: int, p: dict):
             "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
             (user_id, json.dumps(p, default=str), _now())
         )
-    trigger_backup()
+    # Wichtig: Backup synchron ausführen, damit Daten bei einem sofortigen
+    # Neustart/Deploy nicht verloren gehen.
+    backup_db(synchronous=True)
 
 
 def save_settings(user_id: int, settings: dict):
-    """Speichert alle Settings inkl. Telegram-Credentials (DB-Backup bleibt persistenter)."""
+    """Speichert alle Settings inkl. Telegram-Credentials."""
     if not user_id:
         return
     with get_conn() as conn:
@@ -300,7 +318,7 @@ def save_settings(user_id: int, settings: dict):
              1 if settings.get("report_enabled", True) else 0,
              _now())
         )
-    trigger_backup()
+    backup_db(synchronous=True)
 
 
 def reset_portfolio(user_id: int):
@@ -312,7 +330,7 @@ def reset_portfolio(user_id: int):
 def delete_user(user_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    trigger_backup()
+    backup_db(synchronous=True)
 
 
 # --- Settings ---
@@ -361,10 +379,13 @@ def migrate_legacy_portfolio():
             "INSERT OR IGNORE INTO portfolios (user_id, data, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP)",
             (json.dumps(data, default=str),)
         )
-    trigger_backup()
+    backup_db(synchronous=True)
 
 
 # Beim Import: Restore aus Backup, dann initialisieren
 restore_db_backup()
 init_db()
 migrate_legacy_portfolio()
+# Direkt nach dem Start nochmal ein Backup anstoßen, um sicherzustellen,
+# dass die aktuelle lokale DB im Git-Repo gespiegelt ist.
+backup_db(synchronous=True)

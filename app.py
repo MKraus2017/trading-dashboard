@@ -362,9 +362,15 @@ def api_scheduler_real_positions_alert():
 
 
 # --- Startup migration & default user safety ---
+# Stelle sicher, dass Restore VOR dem potenziellen Anlegen eines Default-Users läuft.
+# (restore_db_backup() wurde bereits beim Import von db_store ausgeführt.)
 default_user = db_store.get_user_by_username("default")
 if default_user and not default_user["password_hash"]:
     db_store.set_user_password(default_user["id"], _hash_password(config.DASHBOARD_PASSWORD))
+
+# Direkt nach dem App-Start: lokale DB in Git-Backup spiegeln, falls der Container
+# Schreibrechte auf das Repo hat (primäre Persistenz bleibt Render Disk).
+db_store.backup_db(synchronous=True)
 
 
 if __name__ == "__main__":
