@@ -138,6 +138,12 @@ def save_portfolio(user_id: int, p: dict):
             "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
             (user_id, json.dumps(p, default=str), _now())
         )
+    # Git-Backup der SQLite-DB für Persistenz auf Render
+    try:
+        from analyzer import db_backup
+        db_backup.commit_db_backup(DB_PATH)
+    except Exception:
+        pass
 
 
 def reset_portfolio(user_id: int):

@@ -25,9 +25,12 @@ def _load(user_id: int) -> dict:
     p = db_store.load_portfolio(user_id)
     if p:
         # stelle sicher, dass neue Felder existieren
-        for key in ("real_positions", "real_trades"):
+        for key in ("real_positions", "real_trades", "value_history"):
             if key not in p:
-                p[key] = []
+                p[key] = [] if key != "value_history" else [{"date": datetime.utcnow().isoformat(), "value": config.START_CAPITAL}]
+        for pos in p.get("real_positions", []):
+            if "opened_at" not in pos:
+                pos["opened_at"] = datetime.utcnow().isoformat()
         return p
     return _default_portfolio()
 
@@ -133,10 +136,27 @@ def evaluate_portfolio(user_id: int) -> dict:
     if len(p["value_history"]) > 365:
         p["value_history"] = p["value_history"][-365:]
 
-    _save(user_id, p)
     p["total_value"] = round(total, 2)
     p["total_return_pct"] = round((total - config.START_CAPITAL) / config.START_CAPITAL * 100, 2)
+    _save(user_id, p)
     return p, alerts
+
+
+def enrich_real_positions(p: dict) -> dict:
+    """Holt aktuelle Kurse für echte Positionen und berechnet P&L."""
+    for pos in p.get("real_positions", []):
+        price = yahoo_client.fetch_latest_price(pos["symbol"])
+        if price:
+            pos["last_price"] = round(price, 4)
+            pos["current_value"] = round(pos["shares"] * price, 2)
+            pos["unrealized_eur"] = round(pos["current_value"] - pos.get("invested", 0), 2)
+            pos["unrealized_pct"] = round(pos["unrealized_eur"] / pos.get("invested", 1) * 100, 2) if pos.get("invested") else 0.0
+        else:
+            pos["last_price"] = pos.get("entry_price")
+            pos["current_value"] = pos.get("invested", 0)
+            pos["unrealized_eur"] = 0.0
+            pos["unrealized_pct"] = 0.0
+    return p
 
 
 def _sell_position_logic(portfolio: dict, pos: dict, price: float, reason: str, auto: bool):

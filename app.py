@@ -8,7 +8,7 @@ import bcrypt
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 import config
-from analyzer import auto_trader, db_store, portfolio, scheduler_tasks, signals, telegram as telegram_module
+from analyzer import auto_trader, db_store, portfolio, scheduler_tasks, signals, telegram as telegram_module, yahoo_client
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -121,6 +121,8 @@ def settings_page():
 def api_portfolio():
     uid = get_current_user_id()
     p, alerts = portfolio.evaluate_portfolio(uid)
+    # Preise für echte Positionen anreichern
+    p = portfolio.enrich_real_positions(p)
     return jsonify({"portfolio": p, "alerts": alerts})
 
 
@@ -214,6 +216,7 @@ def api_real_position():
         pos = next((x for x in p["real_positions"] if x["symbol"] == symbol), None)
         if not pos:
             return jsonify({"ok": False, "error": "Position nicht vorhanden"})
+        close_time = datetime.utcnow().isoformat()
         if shares >= pos["shares"]:
             p["real_positions"] = [x for x in p["real_positions"] if x["symbol"] != symbol]
         else:
@@ -222,7 +225,8 @@ def api_real_position():
             pos["invested"] = round(pos["invested"] * ratio, 2)
             pos["entry_price"] = round(pos["invested"] / pos["shares"], 4)
         p["real_trades"].append({
-            "time": datetime.utcnow().isoformat(),
+            "time": close_time,
+            "closed_at": close_time,
             "symbol": symbol,
             "action": "SELL",
             "shares": shares,
@@ -231,6 +235,16 @@ def api_real_position():
 
     portfolio._save(uid, p)
     return jsonify({"ok": True, "real_positions": p["real_positions"]})
+
+
+@app.route("/api/price")
+@login_required
+def api_price():
+    symbol = request.args.get("symbol", "").upper().strip()
+    if not symbol:
+        return jsonify({"ok": False, "error": "Symbol fehlt"})
+    price = yahoo_client.fetch_latest_price(symbol)
+    return jsonify({"ok": bool(price), "symbol": symbol, "price": price})
 
 
 @app.route("/api/settings", methods=["GET", "POST"])

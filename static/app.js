@@ -137,20 +137,42 @@ function renderRealPositions(p) {
     div.innerHTML = '<div class="no-data">Noch keine echten TR-Positionen eingetragen.</div>';
     return;
   }
-  let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Datum</th></tr>';
+  let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th><th>Gekauft</th><th>Verkauft</th></tr>';
   for (const pos of positions) {
     const name = symbolName(pos.symbol);
+    const pnlClass = pos.unrealized_eur >= 0 ? 'pnl-pos' : 'pnl-neg';
+    const closedAt = pos.closed_at ? new Date(pos.closed_at).toLocaleString('de-DE') : '-';
     html += `<tr>
       <td><strong>${pos.symbol}</strong></td>
       <td>${name}</td>
       <td>${Number(pos.shares).toFixed(4)}</td>
       <td>${fmtEur(pos.entry_price)}</td>
       <td>${fmtEur(pos.invested)}</td>
+      <td>${pos.last_price ? fmtEur(pos.last_price) : '-'}</td>
+      <td>${pos.current_value ? fmtEur(pos.current_value) : '-'}</td>
+      <td class="${pnlClass}">${pos.unrealized_eur ? fmtEur(pos.unrealized_eur) : '-'} (${pos.unrealized_pct ? fmtPct(pos.unrealized_pct) : '-'})</td>
       <td>${new Date(pos.opened_at).toLocaleString('de-DE')}</td>
+      <td>${closedAt}</td>
     </tr>`;
   }
   html += '</table>';
   div.innerHTML = html;
+}
+
+function buyRealFromRec(symbol, preis) {
+  showTab('real');
+  document.getElementById('real-symbol').value = symbol;
+  document.getElementById('real-action').value = 'buy';
+  document.getElementById('real-price').value = preis ? Number(preis).toFixed(2) : '';
+  document.getElementById('real-shares').value = '';
+  document.getElementById('real-shares').focus();
+  if (!preis) {
+    fetch(`/api/price?symbol=${encodeURIComponent(symbol)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok && d.price) document.getElementById('real-price').value = Number(d.price).toFixed(2);
+      });
+  }
 }
 
 async function generateRecommendations(dryRun = false) {
@@ -227,6 +249,7 @@ function renderRecommendations(data) {
       <div class="suggest-reason">${s.begruendung}</div>
       <div class="score-bar"><div class="score-fill" style="width:${s.score}%"></div></div>
       ${s.direction === 'KAUF' ? `<button class="suggest-btn" onclick="buyFromRec('${s.symbol}')">💼 Virtuell kaufen</button>` : ''}
+      ${s.direction === 'KAUF' ? `<button class="suggest-btn" onclick="buyRealFromRec('${s.symbol}', ${s.preis})" style="background:#28a745;margin-top:6px;">🏦 In reales TR Depot kaufen</button>` : ''}
       ${s.direction === 'VERKAUF' ? `<button class="suggest-btn" onclick="sellFromRec('${s.symbol}')">💼 Virtuell verkaufen</button>` : ''}
     </div>`;
   }

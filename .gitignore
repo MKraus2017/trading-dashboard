@@ -5,4 +5,5 @@ __pycache__/
 *.pyd
 .venv/
 .venv*/
-data/*.db
+# DB wird per App nach jeder Änderung gepusht (Persistenz)
+# data/*.db
