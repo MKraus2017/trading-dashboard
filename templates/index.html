@@ -7,7 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Trading Bot Dashboard</title>
-<link rel="stylesheet" href="/static/style.css?v=4">
+<link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
 <div class="header">
@@ -28,7 +28,8 @@
   <div class="tab" onclick="showTab('real')">🏦 Reales TR-Depot</div>
   <div class="tab suggest-tab" onclick="showTab('empfehlungen')">💡 Empfehlungen</div>
   <div class="tab" onclick="showTab('autopilot')">🤖 Autopilot</div>
-  <div class="tab" onclick="showTab('historie')">📋 Historie</div>
+  <div class="tab" onclick="showTab('historie-v')">📋 Historie-V</div>
+  <div class="tab" onclick="showTab('historie-r')">📈 Historie-R</div>
 </div>
 
 <div class="content">
@@ -77,7 +78,7 @@
   <!-- Empfehlungen Tab -->
   <div class="panel" id="panel-empfehlungen">
     <div class="section-title">💡 Max. 5 beste Trade-Empfehlungen</div>
-    <p style="color:#8b949e;margin-bottom:16px;">Die Empfehlungen enthalten Einstiegs-/Ausstiegsbereiche, Stop-Loss und Take-Profit. Klicke auf „Virtuell kaufen“, um sie ins virtuelle Depot zu übernehmen.</p>
+    <p style="color:#8b949e;margin-bottom:16px;">Empfehlungen enthalten Einstiegs-/Ausstiegsbereiche, Stop-Loss und Take-Profit. Klicke auf „Virtuell kaufen“, um sie ins virtuelle Depot zu übernehmen.</p>
     <div id="recommendations-container">
       <div class="suggest-loading">⏳ Noch keine Analyse gestartet. Klicke oben auf „Analyse starten“.</div>
     </div>
@@ -95,12 +96,22 @@
     <div id="autopilot-result" style="margin-top:20px;"></div>
   </div>
 
-  <!-- Historie Tab -->
-  <div class="panel" id="panel-historie">
-    <div class="section-title">📋 Virtuelle Trade-Historie</div>
+  <!-- Historie-V Tab (virtuelles Depot) -->
+  <div class="panel" id="panel-historie-v">
+    <div class="section-title">📋 Historie — Virtuelles Depot</div>
     <div id="trade-history"></div>
   </div>
+
+  <!-- Historie-R Tab (reales TR-Depot) -->
+  <div class="panel" id="panel-historie-r">
+    <div class="section-title">📈 Gewinn- & Verlustübersicht — Reales TR-Depot</div>
+    <div id="real-guv" class="summary-grid" style="margin-bottom:16px;"></div>
+    <div class="section-title">🏦 Offene echte Positionen</div>
+    <div id="real-historie-positions"></div>
+    <div class="section-title" style="margin-top:24px;">📝 Echte Trades</div>
+    <div id="real-trade-history"></div>
+  </div>
 </div>
-<script src="/static/app.js?v=4"></script>
+<script src="/static/app.js?v=5"></script>
 </body>
 </html>

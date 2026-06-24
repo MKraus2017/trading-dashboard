@@ -3,7 +3,7 @@ let currentRecs = [];
 let universeData = [];
 
 function showTab(name) {
-  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie'];
+  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r'];
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
@@ -97,7 +97,7 @@ function renderPortfolio(p, alerts) {
     posDiv.innerHTML = html;
   }
 
-  // Historie
+  // Historie-V
   const histDiv = document.getElementById('trade-history');
   const trades = (p.trades || []).slice().reverse();
   if (trades.length === 0) {
@@ -118,6 +118,70 @@ function renderPortfolio(p, alerts) {
     }
     html += '</table>';
     histDiv.innerHTML = html;
+  }
+
+  // Historie-R GuV
+  const realGuV = p.real_guv || {};
+  const guvDiv = document.getElementById('real-guv');
+  if (guvDiv) {
+    const totalClass = (realGuV.total_return || 0) >= 0 ? 'green' : 'red';
+    guvDiv.innerHTML = `
+      <div class="card"><div class="card-label">Investiert</div><div class="card-value neutral">${fmtEur(realGuV.invested)}</div></div>
+      <div class="card"><div class="card-label">Aktueller Wert</div><div class="card-value neutral">${fmtEur(realGuV.current_value)}</div></div>
+      <div class="card"><div class="card-label">Unrealisiert</div><div class="card-value ${(realGuV.unrealized || 0) >= 0 ? 'green' : 'red'}">${fmtEur(realGuV.unrealized)} (${fmtPct(realGuV.unrealized_pct)})</div></div>
+      <div class="card"><div class="card-label">Realisiert</div><div class="card-value ${(realGuV.realized || 0) >= 0 ? 'green' : 'red'}">${fmtEur(realGuV.realized)}</div></div>
+      <div class="card"><div class="card-label">Gesamtrendite</div><div class="card-value ${totalClass}">${fmtEur(realGuV.total_return)} (${fmtPct(realGuV.total_return_pct)})</div></div>
+    `;
+  }
+
+  // Offene echte Positionen in Historie-R
+  const realHistPositionsDiv = document.getElementById('real-historie-positions');
+  if (realHistPositionsDiv) {
+    if (!positions.length) {
+      realHistPositionsDiv.innerHTML = '<div class="no-data">Keine offenen echten Positionen.</div>';
+    } else {
+      let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th></tr>';
+      for (const pos of positions) {
+        const pnlClass = (pos.unrealized_eur || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+        html += `<tr>
+          <td><strong>${pos.symbol}</strong></td>
+          <td>${symbolName(pos.symbol)}</td>
+          <td>${Number(pos.shares).toFixed(4)}</td>
+          <td>${fmtEur(pos.entry_price)}</td>
+          <td>${fmtEur(pos.invested)}</td>
+          <td>${pos.last_price ? fmtEur(pos.last_price) : '-'}</td>
+          <td>${pos.current_value ? fmtEur(pos.current_value) : '-'}</td>
+          <td class="${pnlClass}">${pos.unrealized_eur ? fmtEur(pos.unrealized_eur) : '-'} (${pos.unrealized_pct ? fmtPct(pos.unrealized_pct) : '-'})</td>
+        </tr>`;
+      }
+      html += '</table>';
+      realHistPositionsDiv.innerHTML = html;
+    }
+  }
+
+  // Echte Trades in Historie-R
+  const realHistTradesDiv = document.getElementById('real-trade-history');
+  if (realHistTradesDiv) {
+    const realTrades = (p.real_trades || []).slice().reverse();
+    if (!realTrades.length) {
+      realHistTradesDiv.innerHTML = '<div class="no-data">Noch keine echten TR-Trades eingetragen.</div>';
+    } else {
+      let html = '<table><tr><th>Zeit</th><th>Aktion</th><th>Symbol</th><th>Stück</th><th>Kurs</th><th>Betrag</th></tr>';
+      for (const t of realTrades) {
+        const badge = t.action === 'BUY' ? '<span class="badge buy">KAUF</span>' : '<span class="badge sell">VERKAUF</span>';
+        const amount = t.action === 'BUY' ? (t.invested || t.shares * t.price) : (t.shares * t.price);
+        html += `<tr>
+          <td>${new Date(t.time).toLocaleString('de-DE')}</td>
+          <td>${badge}</td>
+          <td>${t.symbol}</td>
+          <td>${Number(t.shares).toFixed(4)}</td>
+          <td>${fmtEur(t.price)}</td>
+          <td>${fmtEur(amount)}</td>
+        </tr>`;
+      }
+      html += '</table>';
+      realHistTradesDiv.innerHTML = html;
+    }
   }
 
   // Alerts
