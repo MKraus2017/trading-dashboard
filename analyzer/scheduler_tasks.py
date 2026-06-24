@@ -74,14 +74,16 @@ def market_analysis(notify: bool = True) -> dict:
             try:
                 token, chat_id = _user_telegram_cfg(user_id)
                 if not chat_id:
+                    print(f"[market_analysis] user_id={user_id}: no chat_id configured")
                     continue
                 if recs.get("suggestions"):
                     lines = [f"• {s['symbol']} ({s['direction']}) Score {s['score']}/100 @ {s['preis']:.2f}" for s in recs["suggestions"]]
-                    telegram._send_message("📈 <b>Marktanalyse (30 Min)</b>\n\n" + "\n".join(lines), token=token, chat_id=chat_id)
+                    res = telegram._send_message("📈 <b>Marktanalyse (30 Min)</b>\n\n" + "\n".join(lines), token=token, chat_id=chat_id)
                 else:
-                    telegram._send_message("📈 <b>Marktanalyse (30 Min)</b>\n\nKeine klaren Handlungsempfehlungen.", token=token, chat_id=chat_id)
-            except Exception:
-                pass
+                    res = telegram._send_message("📈 <b>Marktanalyse (30 Min)</b>\n\nKeine klaren Handlungsempfehlungen.", token=token, chat_id=chat_id)
+                print(f"[market_analysis] user_id={user_id}: {res}")
+            except Exception as e:
+                print(f"[market_analysis] user_id={user_id} error: {e}")
 
     return {
         "task": "market_analysis",
@@ -143,11 +145,13 @@ def daily_summary() -> dict:
         try:
             token, chat_id = _user_telegram_cfg(user_id)
             if not chat_id:
+                print(f"[daily_summary] user_id={user_id}: no chat_id configured")
                 continue
             p, _ = portfolio.evaluate_portfolio(user_id)
-            telegram.notify_daily_summary(p, token=token, chat_id=chat_id)
-        except Exception:
-            pass
+            res = telegram.notify_daily_summary(p, token=token, chat_id=chat_id)
+            print(f"[daily_summary] user_id={user_id}: {res}")
+        except Exception as e:
+            print(f"[daily_summary] user_id={user_id} error: {e}")
     return {"task": "daily_summary", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
@@ -271,6 +275,9 @@ def portfolio_report(notify: bool = True) -> dict:
         markets.append("🇺🇸 USA")
     market_str = ", ".join(markets) if markets else "🌙 Keine Börsen geöffnet"
 
+    # Empfehlungen einmal generieren und allen Nutzern mitteilen
+    top_recs = signals.generate_recommendations().get("suggestions", [])[:5]
+
     for user_id in _get_active_users():
         settings = db_store.get_settings(user_id)
         token, chat_id = _user_telegram_cfg(user_id)
@@ -311,6 +318,19 @@ def portfolio_report(notify: bool = True) -> dict:
                     lines.append(f"{emoji} {pos['symbol']} @ {telegram.fmt_eur(current)} ({pnl_pct:+.2f}%) → <b>{rec}</b>")
             else:
                 lines.append("Keine realen Positionen.")
+
+            lines.append("\n<b>KAUFEMPFEHLUNGEN</b>")
+            if top_recs:
+                buy_recs = [r for r in top_recs if r["direction"] == "KAUF"]
+                if buy_recs:
+                    for s in buy_recs:
+                        lines.append(f"🟢 {s['symbol']} ({s['name']}) @ {telegram.fmt_eur(s['preis'])} — Score {s['score']}/100")
+                        if s.get("stop_loss") and s.get("take_profit"):
+                            lines.append(f"   SL: {telegram.fmt_eur(s['stop_loss'])} | TP: {telegram.fmt_eur(s['take_profit'])}")
+                else:
+                    lines.append("Aktuell keine Kaufempfehlungen.")
+            else:
+                lines.append("Keine Empfehlungen verfügbar.")
 
             telegram._send_message("\n".join(lines), token=token, chat_id=chat_id)
         except Exception:

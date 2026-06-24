@@ -72,7 +72,7 @@ def notify_real_trade(action: str, symbol: str, shares: float, price: float, inv
     return _send_message(text)
 
 
-def notify_daily_summary(portfolio: dict):
+def notify_daily_summary(portfolio: dict, token: str = None, chat_id: str = None):
     """Tägliche Zusammenfassung des Depots."""
     total = portfolio.get("total_value", 0)
     cash = portfolio.get("cash", 0)
@@ -80,7 +80,6 @@ def notify_daily_summary(portfolio: dict):
     positions = portfolio.get("positions", [])
     pos_texts = []
     for pos in positions[:5]:
-        pnl = pos.get("unrealized_eur", 0)
         pnl_pct = pos.get("unrealized_pct", 0)
         pos_texts.append(
             f"• {pos['symbol']}: {fmt_eur(pos['last_price'])} ({fmt_pct(pnl_pct)})"
@@ -94,7 +93,7 @@ def notify_daily_summary(portfolio: dict):
         f"{emoji} Gesamtrendite: {fmt_pct(return_pct)}\n\n"
         f"<b>Offene Positionen:</b>\n{positions_block}"
     )
-    return _send_message(text)
+    return _send_message(text, token=token, chat_id=chat_id)
 
 
 def test_message() -> dict:
