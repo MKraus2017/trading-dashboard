@@ -78,6 +78,16 @@ tr:hover td { background: #1c2129; }
 .quick-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
 .quick-form input, .quick-form select { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 12px; font-size: 14px; outline: none; }
 .quick-form input:focus { border-color: #58a6ff; }
+.quick-form input { min-width: 120px; }
+.symbol-select-wrapper { position: relative; flex: 2; min-width: 220px; }
+.symbol-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; max-height: 320px; overflow-y: auto;
+  background: #0d1117; border: 1px solid #30363d; border-radius: 6px; z-index: 100; margin-top: 4px;
+}
+.symbol-group { padding: 6px 12px; font-size: 11px; color: #f0883e; text-transform: uppercase; letter-spacing: 0.5px; background: #161b22; border-bottom: 1px solid #30363d; }
+.symbol-option { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #21262d; font-size: 13px; }
+.symbol-option:hover { background: #21262d; }
+.symbol-option strong { color: #e6edf3; }
 .btn-buy { padding: 8px 16px; background: #1a3a2a; border: 1px solid #3fb950; color: #3fb950; border-radius: 6px; font-weight: 600; cursor: pointer; }
 .btn-buy:hover { background: #3fb950; color: #0d1117; }
 .btn-sell { padding: 8px 16px; background: #3a1a1a; border: 1px solid #f85149; color: #f85149; border-radius: 6px; font-weight: 600; cursor: pointer; }

@@ -7,7 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Trading Bot Dashboard</title>
-<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
 <div class="header">
@@ -55,11 +55,15 @@
   <!-- Reales TR-Depot -->
   <div class="panel" id="panel-real">
     <div class="section-title">🏦 Deine echten Trade Republic Positionen</div>
-    <p style="color:#8b949e;margin-bottom:16px;">Hier trägst Du manuell ein, wenn Du meine Empfehlung auf Trade Republic umgesetzt hast. So weiß ich, auf welche Real-Positionen ich besonders achten muss.</p>
+    <p style="color:#8b949e;margin-bottom:16px;">Wähle eine Aktie aus der Liste. Vorgeschlagene Kaufempfehlungen stehen immer ganz oben.</p>
     <div id="real-positions"></div>
 
     <div class="quick-form" style="margin-top:24px;">
-      <input type="text" id="real-symbol" placeholder="Symbol" style="text-transform:uppercase;">
+      <div class="symbol-select-wrapper">
+        <input type="text" id="real-symbol-search" placeholder="🔍 Symbol suchen..." autocomplete="off" oninput="filterSymbolSelect()" onfocus="renderSymbolSelect()">
+        <div id="real-symbol-dropdown" class="symbol-dropdown" style="display:none;"></div>
+        <input type="hidden" id="real-symbol" value="">
+      </div>
       <select id="real-action">
         <option value="buy">Gekauft</option>
         <option value="sell">Verkauft</option>
@@ -97,6 +101,6 @@
     <div id="trade-history"></div>
   </div>
 </div>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>

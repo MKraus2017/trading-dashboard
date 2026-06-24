@@ -1,5 +1,6 @@
 let currentPortfolio = null;
 let currentRecs = [];
+let universeData = [];
 
 function showTab(name) {
   const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie'];
@@ -8,6 +9,7 @@ function showTab(name) {
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'real') renderSymbolSelect();
 }
 
 function showLoading(on) {
@@ -161,7 +163,7 @@ function renderRealPositions(p) {
 
 function buyRealFromRec(symbol, preis) {
   showTab('real');
-  document.getElementById('real-symbol').value = symbol;
+  setRealSymbol(symbol);
   document.getElementById('real-action').value = 'buy';
   document.getElementById('real-price').value = preis ? Number(preis).toFixed(2) : '';
   document.getElementById('real-shares').value = '';
@@ -206,6 +208,16 @@ async function loadRecommendations() {
     const data = await r.json();
     currentRecs = data.suggestions || [];
     renderRecommendations(data);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function loadUniverse() {
+  try {
+    const r = await fetch('/api/universe');
+    const data = await r.json();
+    universeData = data.universe || [];
   } catch (e) {
     console.error(e);
   }
@@ -374,6 +386,7 @@ async function reportRealTrade() {
     const res = await r.json();
     if (res.ok) {
       alert('✅ Echtgeld-Trade gespeichert. Ich werde diese Position besonders im Blick behalten.');
+      setRealSymbol('');
       loadPortfolio();
     } else {
       showError(res.error || 'Fehler');
@@ -382,10 +395,69 @@ async function reportRealTrade() {
   finally { showLoading(false); }
 }
 
+function setRealSymbol(symbol) {
+  document.getElementById('real-symbol').value = symbol;
+  const search = document.getElementById('real-symbol-search');
+  const item = universeData.find(u => u.symbol === symbol);
+  search.value = symbol ? (item ? `${item.name} (${symbol})` : symbol) : '';
+  document.getElementById('real-symbol-dropdown').style.display = 'none';
+}
+
+function renderSymbolSelect() {
+  const dropdown = document.getElementById('real-symbol-dropdown');
+  const search = document.getElementById('real-symbol-search');
+  if (!dropdown || !search) return;
+  filterSymbolSelect();
+}
+
+function filterSymbolSelect() {
+  const dropdown = document.getElementById('real-symbol-dropdown');
+  const search = document.getElementById('real-symbol-search');
+  const term = search.value.trim().toLowerCase();
+  if (!universeData.length) return;
+
+  // Empfohlene Kauf-Symbole immer ganz oben
+  const recBuySymbols = new Set(
+    (currentRecs || []).filter(r => r.direction === 'KAUF').map(r => r.symbol)
+  );
+  const sorted = [...universeData].sort((a, b) => {
+    const aRec = recBuySymbols.has(a.symbol);
+    const bRec = recBuySymbols.has(b.symbol);
+    if (aRec && !bRec) return -1;
+    if (bRec && !aRec) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const filtered = sorted.filter(
+    u => u.symbol.toLowerCase().includes(term) || u.name.toLowerCase().includes(term)
+  );
+
+  if (!term && !filtered.length) {
+    dropdown.style.display = 'none';
+    return;
+  }
+
+  let html = '';
+  let lastGroup = null;
+  for (const u of filtered.slice(0, 100)) {
+    const group = recBuySymbols.has(u.symbol) ? '⭐ Empfohlen' : 'Alle Aktien';
+    if (group !== lastGroup) {
+      html += `<div class="symbol-group">${group}</div>`;
+      lastGroup = group;
+    }
+    html += `<div class="symbol-option" onclick="setRealSymbol('${u.symbol}')">
+      <strong>${u.symbol}</strong> <span style="color:#8b949e">— ${u.name}</span>
+    </div>`;
+  }
+  dropdown.innerHTML = html;
+  dropdown.style.display = filtered.length ? 'block' : 'none';
+}
+
 // Initiales Laden
 document.addEventListener('DOMContentLoaded', () => {
   loadPortfolio();
   loadRecommendations();
+  loadUniverse();
 });
 
 let autopilotPlanData = null;

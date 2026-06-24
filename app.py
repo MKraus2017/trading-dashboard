@@ -237,6 +237,13 @@ def api_real_position():
     return jsonify({"ok": True, "real_positions": p["real_positions"]})
 
 
+@app.route("/api/universe")
+@login_required
+def api_universe():
+    from config import get_universe
+    return jsonify({"universe": get_universe()})
+
+
 @app.route("/api/price")
 @login_required
 def api_price():
