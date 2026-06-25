@@ -79,6 +79,8 @@ button.save:hover { opacity: 0.85; }
     <h2>Testnachricht senden</h2>
     <button class="save" onclick="sendTestMessage()">🧪 Test an Telegram</button>
     <div id="test-status"></div>
+    <button class="save" style="margin-top: 12px; background: linear-gradient(135deg, #1f6feb, #388bfd);" onclick="loadTelegramStatus()">🔍 Telegram-Status prüfen</button>
+    <pre id="tg-status" style="margin-top:12px; background:#0d1117; padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem;"></pre>
   </div>
 </div>
 
@@ -121,6 +123,19 @@ async function sendTestMessage() {
     el.textContent = data.ok ? 'Testnachricht gesendet.' : ('Fehler: ' + (data.error || 'unbekannt'));
 }
 
+async function loadTelegramStatus() {
+    const el = document.getElementById('tg-status');
+    el.textContent = 'Prüfe...';
+    try {
+        const r = await fetch('/api/telegram_status');
+        const data = await r.json();
+        el.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        el.textContent = 'Fehler: ' + e.message;
+    }
+}
+
+loadTelegramStatus();
 loadSettings();
 </script>
 </body>
