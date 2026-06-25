@@ -17,7 +17,9 @@ def _telegram_creds(token: str = None, chat_id: str = None) -> tuple:
 def _send_message(text: str, token: str = None, chat_id: str = None) -> dict:
     token, chat_id = _telegram_creds(token, chat_id)
     if not token or not chat_id:
-        return {"ok": False, "error": "Telegram nicht konfiguriert"}
+        msg = "Telegram nicht konfiguriert (Token oder Chat-ID fehlt)"
+        print(f"[Telegram] {msg}")
+        return {"ok": False, "error": msg}
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
         payload = {
@@ -26,9 +28,16 @@ def _send_message(text: str, token: str = None, chat_id: str = None) -> dict:
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
+        print(f"[Telegram] POST {url} to chat_id={chat_id}")
         r = requests.post(url, json=payload, timeout=15)
-        return r.json()
+        try:
+            response = r.json()
+        except Exception as e:
+            response = {"ok": False, "error": f"JSON parse failed: {e}", "status_code": r.status_code, "text": r.text[:200]}
+        print(f"[Telegram] Response status={r.status_code} body={response}")
+        return response
     except Exception as e:
+        print(f"[Telegram] Exception: {e}")
         return {"ok": False, "error": str(e)}
 
 
