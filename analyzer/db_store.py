@@ -381,9 +381,24 @@ def save_portfolio(user_id: int, p: dict):
 
 
 def save_settings(user_id: int, settings: dict):
-    """Speichert alle Settings inkl. Telegram-Credentials."""
+    """Speichert alle Settings inkl. Telegram-Credentials. Validiert vorab."""
     if not user_id:
         return
+
+    token = settings.get("telegram_bot_token", "").strip()
+    chat_id = settings.get("telegram_chat_id", "").strip()
+
+    # Validierung: Token darf nur aus dem Bot-Token-Format bestehen
+    if token and not re.match(r"^\\d+:[A-Za-z0-9_-]{30,}$", token):
+        raise ValueError(
+            "Ungültiger Telegram-Bot-Token. Erwarte Format wie '123456789:ABC...'. "
+            "Der Username (@...) ist nicht der Token."
+        )
+
+    # Validierung: Chat-ID darf numerisch oder mit '-' beginnend sein
+    if chat_id and not re.match(r"^-?\\d+$", chat_id):
+        raise ValueError("Telegram Chat-ID muss eine Zahl sein (z. B. 12345678).")
+
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO settings (user_id, telegram_bot_token, telegram_chat_id, auto_trade_enabled, report_enabled, updated_at)
@@ -395,8 +410,8 @@ def save_settings(user_id: int, settings: dict):
                  report_enabled=excluded.report_enabled,
                  updated_at=excluded.updated_at""",
             (user_id,
-             settings.get("telegram_bot_token", ""),
-             settings.get("telegram_chat_id", ""),
+             token,
+             chat_id,
              1 if settings.get("auto_trade_enabled", True) else 0,
              1 if settings.get("report_enabled", True) else 0,
              _now())

@@ -293,13 +293,16 @@ def api_settings():
         s["telegram_chat_id_source"] = "Env" if os.environ.get("TELEGRAM_CHAT_ID") else ("DB" if s.get("telegram_chat_id") else "config")
         return jsonify(s)
     body = request.get_json() or {}
-    db_store.save_settings(uid, {
-        "telegram_bot_token": body.get("telegram_bot_token", ""),
-        "telegram_chat_id": body.get("telegram_chat_id", ""),
-        "auto_trade_enabled": body.get("auto_trade_enabled", True),
-        "report_enabled": body.get("report_enabled", True),
-    })
-    return jsonify({"ok": True})
+    try:
+        db_store.save_settings(uid, {
+            "telegram_bot_token": body.get("telegram_bot_token", ""),
+            "telegram_chat_id": body.get("telegram_chat_id", ""),
+            "auto_trade_enabled": body.get("auto_trade_enabled", True),
+            "report_enabled": body.get("report_enabled", True),
+        })
+        return jsonify({"ok": True})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 @app.route("/api/telegram_test", methods=["POST"])
