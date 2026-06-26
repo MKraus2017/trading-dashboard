@@ -3,7 +3,7 @@ import json
 import os
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional
 
 import config
 from analyzer import db_store, telegram, yahoo_client
