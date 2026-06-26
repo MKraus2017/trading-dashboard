@@ -8,7 +8,7 @@ import bcrypt
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 import config
-from analyzer import auto_trader, db_store, portfolio, scheduler_tasks, signals, telegram as telegram_module, yahoo_client
+from analyzer import auto_trader, db_store, portfolio, scheduler_tasks, signals, yahoo_client, telegram as telegram_client
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -309,7 +309,7 @@ def api_telegram_test():
     settings = db_store.get_settings(uid)
     token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
     chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
-    res = telegram._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=token, chat_id=chat_id)
+    res = telegram_client._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=token, chat_id=chat_id)
     return jsonify(res)
 
 
@@ -342,12 +342,19 @@ def api_telegram_status():
             result["test_result"] = {"ok": False, "error": "Token oder Chat-ID fehlen"}
             return jsonify(result)
 
-        test_res = telegram._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=active_token, chat_id=active_chat)
+        test_res = telegram_client._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=active_token, chat_id=active_chat)
         result["test_result"] = test_res
         return jsonify(result)
     except Exception as e:
         import traceback
         return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Globaler Fehler-Handler: jeden unerwarteten Fehler als JSON zurückgeben."""
+    import traceback
+    return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
 
 
 # --- Scheduler webhooks (external service, e.g. GitHub Actions) ---
