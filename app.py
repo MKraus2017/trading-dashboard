@@ -405,6 +405,74 @@ def api_db_backup():
     return send_file(db_path, as_attachment=True, download_name="trading_backup.db")
 
 
+@app.route("/api/db_restore_upload", methods=["POST"])
+@login_required
+def api_db_restore_upload():
+    """Empfängt eine SQLite-DB-Datei und spielt sie als neue Arbeits-DB ein."""
+    from flask import request
+    import sqlite3
+
+    if "db_file" not in request.files:
+        return jsonify({"ok": False, "error": "Keine Datei hochgeladen"}), 400
+
+    file = request.files["db_file"]
+    if file.filename == "":
+        return jsonify({"ok": False, "error": "Leerer Dateiname"}), 400
+
+    if not file.filename.endswith(".db"):
+        return jsonify({"ok": False, "error": "Nur .db Dateien erlaubt"}), 400
+
+    temp_path = os.path.join(tempfile.gettempdir(), f"restore_upload_{int(time.time())}.db")
+
+    try:
+        file.save(temp_path)
+
+        # Validate SQLite and required tables
+        with sqlite3.connect(temp_path) as conn:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "users" not in tables or "portfolios" not in tables:
+                return jsonify({"ok": False, "error": "Ungültige DB: Tabellen users/portfolios fehlen"}), 400
+            user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            portfolio_count = conn.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]
+
+        # Backup current DB before replacing
+        current_db = db_store.DB_PATH
+        if os.path.exists(current_db):
+            backup_name = f"trading_pre_restore_{int(time.time())}.db"
+            backup_dir = os.path.join(os.path.dirname(current_db), "backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            shutil.copy2(current_db, os.path.join(backup_dir, backup_name))
+
+        # Replace current working DB
+        os.makedirs(os.path.dirname(current_db), exist_ok=True)
+        shutil.copy2(temp_path, current_db)
+
+        # Also update repo backup so Git has the new state
+        try:
+            repo_backup = db_store._backup_db_path()
+            os.makedirs(os.path.dirname(repo_backup), exist_ok=True)
+            shutil.copy2(current_db, repo_backup)
+            db_store.trigger_backup()
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": True,
+            "message": "DB erfolgreich wiederhergestellt",
+            "users": user_count,
+            "portfolios": portfolio_count,
+        })
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
+
+
 # --- Scheduler webhooks (external service, e.g. GitHub Actions) ---
 
 def _scheduler_auth():

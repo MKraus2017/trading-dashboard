@@ -88,6 +88,13 @@ button.save:hover { opacity: 0.85; }
     <button class="save" style="background: linear-gradient(135deg, #1f6feb, #388bfd); margin-right: 8px;" onclick="loadDbStatus()">📊 DB-Status prüfen</button>
     <a id="db-download-link" href="/api/db_backup" download style="display:none;"></a>
     <button class="save" style="background: linear-gradient(135deg, #8957e5, #a371f7);" onclick="downloadDb()">💾 DB herunterladen</button>
+
+    <h3 style="margin-top:24px; margin-bottom:8px; font-size:1rem; color:#c9d1d9;">DB wiederherstellen</h3>
+    <input type="file" id="db-file-input" accept=".db" style="margin-bottom:8px; color:#c9d1d9;">
+    <br>
+    <button class="save" style="background: linear-gradient(135deg, #da3633, #f85149);" onclick="uploadDbRestore()">⬆️ DB wiederherstellen</button>
+    <div id="db-restore-status" style="margin-top:8px;"></div>
+
     <pre id="db-status" style="margin-top:12px; background:#0d1117; padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem;"></pre>
   </div>
 </div>
@@ -157,6 +164,49 @@ async function loadDbStatus() {
 
 function downloadDb() {
     document.getElementById('db-download-link').click();
+}
+
+async function uploadDbRestore() {
+    const input = document.getElementById('db-file-input');
+    const statusEl = document.getElementById('db-restore-status');
+    statusEl.className = '';
+    statusEl.textContent = '';
+
+    if (!input.files || !input.files[0]) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Bitte wähle eine .db Datei aus.';
+        return;
+    }
+
+    const file = input.files[0];
+    if (!file.name.endsWith('.db')) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Nur .db Dateien erlaubt.';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('db_file', file);
+
+    statusEl.textContent = 'Wird hochgeladen...';
+    try {
+        const r = await fetch('/api/db_restore_upload', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await r.json();
+        if (data.ok) {
+            statusEl.className = 'success';
+            statusEl.textContent = `DB wiederhergestellt: ${data.users} Benutzer, ${data.portfolios} Portfolios. Seite wird neu geladen...`;
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            statusEl.className = 'error';
+            statusEl.textContent = 'Fehler: ' + (data.error || 'Unbekannter Fehler');
+        }
+    } catch (e) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Fehler: ' + e.message;
+    }
 }
 
 loadTelegramStatus();
