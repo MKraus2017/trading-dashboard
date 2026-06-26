@@ -1,11 +1,12 @@
 """Persistente Speicherung von Usern, Portfolio und Einstellungen in SQLite."""
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import config
@@ -389,14 +390,15 @@ def save_settings(user_id: int, settings: dict):
     chat_id = settings.get("telegram_chat_id", "").strip()
 
     # Validierung: Token darf nur aus dem Bot-Token-Format bestehen
-    if token and not re.match(r"^\\d+:[A-Za-z0-9_-]{30,}$", token):
+    # Telegram liefert Token als "ZIFFERN:ALPHA_NUM_UNDERSCORE_HYPHEN" (z. B. 123456789:ABC...)
+    if token and not re.match(r"^\d+:[A-Za-z0-9_-]{30,}$", token):
         raise ValueError(
             "Ungültiger Telegram-Bot-Token. Erwarte Format wie '123456789:ABC...'. "
             "Der Username (@...) ist nicht der Token."
         )
 
     # Validierung: Chat-ID darf numerisch oder mit '-' beginnend sein
-    if chat_id and not re.match(r"^-?\\d+$", chat_id):
+    if chat_id and not re.match(r"^-?\d+$", chat_id):
         raise ValueError("Telegram Chat-ID muss eine Zahl sein (z. B. 12345678).")
 
     with get_conn() as conn:
