@@ -431,15 +431,19 @@ def get_settings(user_id: int) -> dict:
     }
     if not user_id:
         return defaults
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM settings WHERE user_id = ?", (user_id,)).fetchone()
-        if row:
-            return {
-                "telegram_bot_token": row["telegram_bot_token"] or env_token,
-                "telegram_chat_id": row["telegram_chat_id"] or env_chat,
-                "auto_trade_enabled": bool(row["auto_trade_enabled"]),
-                "report_enabled": bool(row["report_enabled"]),
-            }
+    try:
+        with get_conn() as conn:
+            row = conn.execute("SELECT * FROM settings WHERE user_id = ?", (user_id,)).fetchone()
+            if row:
+                return {
+                    "telegram_bot_token": row["telegram_bot_token"] or env_token,
+                    "telegram_chat_id": row["telegram_chat_id"] or env_chat,
+                    "auto_trade_enabled": bool(row["auto_trade_enabled"]),
+                    "report_enabled": bool(row["report_enabled"]),
+                }
+    except Exception as e:
+        print(f"[get_settings] Error: {e}")
+        # Falls Settings-Table nicht existiert, Defaults zurückgeben
     return defaults
 
 

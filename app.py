@@ -317,33 +317,37 @@ def api_telegram_test():
 @login_required
 def api_telegram_status():
     """Liefert Diagnose-Informationen zur Telegram-Konfiguration und führt einen echten API-Test aus."""
-    uid = get_current_user_id()
-    settings = db_store.get_settings(uid)
-    env_token = os.environ.get("TELEGRAM_BOT_TOKEN") or config.TELEGRAM_BOT_TOKEN
-    env_chat = os.environ.get("TELEGRAM_CHAT_ID") or config.TELEGRAM_CHAT_ID
-    db_token = settings.get("telegram_bot_token", "")
-    db_chat = settings.get("telegram_chat_id", "")
+    try:
+        uid = get_current_user_id()
+        settings = db_store.get_settings(uid)
+        env_token = os.environ.get("TELEGRAM_BOT_TOKEN") or config.TELEGRAM_BOT_TOKEN
+        env_chat = os.environ.get("TELEGRAM_CHAT_ID") or config.TELEGRAM_CHAT_ID
+        db_token = settings.get("telegram_bot_token", "")
+        db_chat = settings.get("telegram_chat_id", "")
 
-    active_token = db_token or env_token
-    active_chat = db_chat or env_chat
-    token_source = "DB" if db_token else ("Env" if env_token else "None")
-    chat_source = "DB" if db_chat else ("Env" if env_chat else "None")
+        active_token = db_token or env_token
+        active_chat = db_chat or env_chat
+        token_source = "DB" if db_token else ("Env" if env_token else "None")
+        chat_source = "DB" if db_chat else ("Env" if env_chat else "None")
 
-    result = {
-        "token_source": token_source,
-        "token_length": len(active_token),
-        "token_prefix": active_token[:15] + "..." if len(active_token) > 15 else active_token,
-        "chat_id": active_chat,
-        "chat_id_source": chat_source,
-    }
+        result = {
+            "token_source": token_source,
+            "token_length": len(active_token),
+            "token_prefix": active_token[:10] + "..." if len(active_token) > 10 else active_token,
+            "chat_id": str(active_chat),
+            "chat_id_source": chat_source,
+        }
 
-    if not active_token or not active_chat:
-        result["test_result"] = {"ok": False, "error": "Token oder Chat-ID fehlen"}
+        if not active_token or not active_chat:
+            result["test_result"] = {"ok": False, "error": "Token oder Chat-ID fehlen"}
+            return jsonify(result)
+
+        test_res = telegram._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=active_token, chat_id=active_chat)
+        result["test_result"] = test_res
         return jsonify(result)
-
-    test_res = telegram._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=active_token, chat_id=active_chat)
-    result["test_result"] = test_res
-    return jsonify(result)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
 
 
 # --- Scheduler webhooks (external service, e.g. GitHub Actions) ---
