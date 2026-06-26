@@ -360,7 +360,7 @@ async function buyFromRec(symbol) {
   showLoading(true);
   showError('');
   try {
-    const r = await fetch('/api/trade/buy', {
+    const r = await fetch('/api/buy', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({symbol: symbol})
     });
@@ -382,7 +382,7 @@ async function sellFromRec(symbol) {
   showLoading(true);
   showError('');
   try {
-    const r = await fetch('/api/trade/sell', {
+    const r = await fetch('/api/sell', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({symbol: symbol})
     });
@@ -407,7 +407,7 @@ async function quickBuy(symbolOverride) {
   showLoading(true);
   showError('');
   try {
-    const r = await fetch('/api/trade/buy', {
+    const r = await fetch('/api/buy', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({symbol, amount_eur: amount || null})
     });
@@ -425,7 +425,7 @@ async function quickSell(symbolOverride) {
   showLoading(true);
   showError('');
   try {
-    const r = await fetch('/api/trade/sell', {
+    const r = await fetch('/api/sell', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({symbol})
     });
