@@ -108,6 +108,7 @@ def fetch_yahoo(ticker: str, interval: str = "1d", range_: str = "6mo", retries:
 
     for attempt in range(retries + 1):
         try:
+            print(f"[Yahoo] Fetching {ticker} (attempt {attempt+1}/{retries+1})")
             resp = requests.get(url, params=params, headers=headers, timeout=12)
             resp.raise_for_status()
             payload = resp.json()

@@ -1,8 +1,9 @@
 """Virtuelles Depot: Kaufen, Verkaufen, SL/TP, Bewertung (Multi-User)."""
 import json
 import os
+import time
 from datetime import datetime
-from typing import Dict, Optional
+
 
 import config
 from analyzer import db_store, telegram, yahoo_client
@@ -72,10 +73,16 @@ def _total_value(portfolio: dict, prices: Dict[str, float]) -> float:
 
 
 def evaluate_portfolio(user_id: int) -> dict:
+    started = time.time()
+    print(f"[Portfolio] evaluate_portfolio started for user {user_id}")
     p = _load(user_id)
     prices = {}
-    for pos in p.get("positions", []):
+    positions = p.get("positions", [])
+    print(f"[Portfolio] {len(positions)} open virtual positions")
+    for pos in positions:
+        t0 = time.time()
         price = yahoo_client.fetch_latest_price(pos["symbol"])
+        print(f"[Portfolio] price fetch {pos['symbol']} took {round(time.time()-t0,2)}s -> {price}")
         if price:
             prices[pos["symbol"]] = price
 
@@ -139,6 +146,7 @@ def evaluate_portfolio(user_id: int) -> dict:
     p["total_value"] = round(total, 2)
     p["total_return_pct"] = round((total - config.START_CAPITAL) / config.START_CAPITAL * 100, 2)
     _save(user_id, p)
+    print(f"[Portfolio] evaluate_portfolio finished in {round(time.time()-started,2)}s")
     return p, alerts
 
 
