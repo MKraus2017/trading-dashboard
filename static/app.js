@@ -76,6 +76,14 @@ function renderPortfolio(p, alerts) {
     <div class="card"><div class="card-label">Offene Positionen</div><div class="card-value neutral">${positions.length}</div></div>
   `;
 
+  const diag = p._diag || {};
+  const statsLine = diag.eval_time_seconds !== undefined
+    ? `Auswertung: ${diag.eval_time_seconds}s · Fetches: ${(diag.yahoo_fetches && diag.yahoo_fetches.fetches) || 0} · Cache-Hits: ${(diag.yahoo_fetches && diag.yahoo_fetches.cache_hits) || 0} · Fehler: ${(diag.yahoo_fetches && diag.yahoo_fetches.errors) || 0}`
+    : '';
+  if (statsLine) {
+    summary.innerHTML += `<div class="card" style="grid-column:1/-1; padding:8px 12px; font-size:0.8rem; color:#8b949e;">${statsLine}</div>`;
+  }
+
   const posDiv = document.getElementById('depot-positions');
   if (positions.length === 0) {
     posDiv.innerHTML = '<div class="no-data">Keine offenen Positionen. Starte eine Analyse und kaufe virtuell.</div>';

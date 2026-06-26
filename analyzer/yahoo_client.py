@@ -13,6 +13,12 @@ import config
 CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "prices_cache.json")
 CACHE_TTL_SECONDS = 15 * 60  # 15 Minuten
 
+_fetch_stats = {"fetches": 0, "cache_hits": 0, "errors": 0}
+
+
+def get_fetch_stats() -> dict:
+    return _fetch_stats.copy()
+
 
 def _load_cache():
     try:
@@ -100,6 +106,7 @@ def fetch_yahoo(ticker: str, interval: str = "1d", range_: str = "6mo", retries:
     cache_key = f"{ticker}_{interval}_{range_}"
     cached = cache.get(cache_key)
     if cached and _is_cache_valid(cached):
+        _fetch_stats["cache_hits"] += 1
         return cached.get("data")
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
@@ -109,6 +116,7 @@ def fetch_yahoo(ticker: str, interval: str = "1d", range_: str = "6mo", retries:
     for attempt in range(retries + 1):
         try:
             print(f"[Yahoo] Fetching {ticker} (attempt {attempt+1}/{retries+1})")
+            _fetch_stats["fetches"] += 1
             resp = requests.get(url, params=params, headers=headers, timeout=12)
             resp.raise_for_status()
             payload = resp.json()
@@ -165,6 +173,7 @@ def fetch_yahoo(ticker: str, interval: str = "1d", range_: str = "6mo", retries:
             return data
         except Exception as e:
             if attempt == retries:
+                _fetch_stats["errors"] += 1
                 print(f"[Yahoo] Fehler bei {ticker}: {e}")
                 return None
             time.sleep(1)

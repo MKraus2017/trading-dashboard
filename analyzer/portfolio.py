@@ -74,15 +74,15 @@ def _total_value(portfolio: dict, prices: Dict[str, float]) -> float:
 
 def evaluate_portfolio(user_id: int) -> dict:
     started = time.time()
-    print(f"[Portfolio] evaluate_portfolio started for user {user_id}")
+    print(f"[Portfolio] evaluate_portfolio started for user {user_id}", flush=True)
     p = _load(user_id)
     prices = {}
     positions = p.get("positions", [])
-    print(f"[Portfolio] {len(positions)} open virtual positions")
+    print(f"[Portfolio] {len(positions)} open virtual positions", flush=True)
     for pos in positions:
         t0 = time.time()
         price = yahoo_client.fetch_latest_price(pos["symbol"])
-        print(f"[Portfolio] price fetch {pos['symbol']} took {round(time.time()-t0,2)}s -> {price}")
+        print(f"[Portfolio] price fetch {pos['symbol']} took {round(time.time()-t0,2)}s -> {price}", flush=True)
         if price:
             prices[pos["symbol"]] = price
 
@@ -146,7 +146,14 @@ def evaluate_portfolio(user_id: int) -> dict:
     p["total_value"] = round(total, 2)
     p["total_return_pct"] = round((total - config.START_CAPITAL) / config.START_CAPITAL * 100, 2)
     _save(user_id, p)
-    print(f"[Portfolio] evaluate_portfolio finished in {round(time.time()-started,2)}s")
+    elapsed = round(time.time()-started, 2)
+    print(f"[Portfolio] evaluate_portfolio finished in {elapsed}s", flush=True)
+    p["_diag"] = {
+        "eval_time_seconds": elapsed,
+        "yahoo_fetches": yahoo_client.get_fetch_stats(),
+        "open_positions_count": len(positions),
+        "fetched_prices": prices,
+    }
     return p, alerts
 
 
