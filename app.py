@@ -360,6 +360,51 @@ def handle_exception(e):
     return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
 
 
+@app.route("/api/db_status", methods=["GET"])
+@login_required
+def api_db_status():
+    """Zeigt Diagnose-Informationen zur Datenbank und den Backups an."""
+    uid = get_current_user_id()
+    p = db_store.load_portfolio(uid) or {}
+    real_positions = len(p.get("real_positions", []))
+    real_trades = len(p.get("real_trades", []))
+    virtual_positions = len(p.get("positions", []))
+    virtual_trades = len(p.get("trades", []))
+
+    db_path = db_store.DB_PATH
+    backup_path = db_store._backup_db_path()
+
+    status = {
+        "db_path": db_path,
+        "db_exists": os.path.exists(db_path),
+        "db_size_bytes": db_store._db_size(db_path),
+        "db_mtime": db_store._db_mtime(db_path),
+        "repo_backup_path": backup_path,
+        "repo_backup_exists": os.path.exists(backup_path),
+        "repo_backup_size_bytes": db_store._db_size(backup_path),
+        "repo_backup_mtime": db_store._db_mtime(backup_path),
+        "users": db_store._count_users(db_path),
+        "portfolios": db_store._count_portfolios(db_path),
+        "real_positions": real_positions,
+        "real_trades": real_trades,
+        "virtual_positions": virtual_positions,
+        "virtual_trades": virtual_trades,
+        "newest_known": db_store._newest_existing(db_path, backup_path, db_store._newest_timestamped_backup() or ""),
+    }
+    return jsonify(status)
+
+
+@app.route("/api/db_backup", methods=["GET"])
+@login_required
+def api_db_backup():
+    """Liefert die aktuelle SQLite-DB als Download."""
+    db_path = db_store.DB_PATH
+    if not os.path.exists(db_path):
+        return jsonify({"ok": False, "error": "Keine Datenbank vorhanden"}), 404
+    from flask import send_file
+    return send_file(db_path, as_attachment=True, download_name="trading_backup.db")
+
+
 # --- Scheduler webhooks (external service, e.g. GitHub Actions) ---
 
 def _scheduler_auth():

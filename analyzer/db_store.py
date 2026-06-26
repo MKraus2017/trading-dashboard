@@ -12,12 +12,8 @@ from typing import Dict, List, Optional
 import config
 
 
-# Lokale Arbeits-DB. Auf Render sollte RENDER_DISK_PATH gesetzt sein (z.B. /data).
 DB_DIR = os.environ.get("RENDER_DISK_PATH", os.path.join(os.path.dirname(__file__), "..", "data"))
 DB_PATH = os.path.join(DB_DIR, "trading.db")
-
-# Backup-DB im Git-Repository (für Persistenz über Deploys hinweg).
-REPO_BACKUP_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "backup", "trading.db")
 
 # Zusätzliche lokale Timestamped-Backups auf der Render-Disk (mehrere Generationen).
 LOCAL_BACKUP_DIR = os.path.join(DB_DIR, "backups")
@@ -43,12 +39,31 @@ def _backup_db_path() -> str:
     root = _repo_root()
     if root:
         return os.path.join(root, "data", "backup", "trading.db")
-    return REPO_BACKUP_PATH
+    return os.path.join(os.path.dirname(__file__), "..", "data", "backup", "trading.db")
+
+
+REPO_BACKUP_PATH = _backup_db_path()
 
 
 def _copy_file(src: str, dst: str):
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def _db_mtime(path: str) -> float:
+    """Liefert Modifikationszeit der DB-Datei."""
+    try:
+        return os.path.getmtime(path)
+    except Exception:
+        return 0.0
+
+
+def _newest_existing(*paths: str) -> Optional[str]:
+    """Gibt den Pfad der neuesten existierenden und validen DB zurück."""
+    valid = [(p, _db_mtime(p)) for p in paths if os.path.exists(p) and _db_size(p) > 0 and _db_has_users(p)]
+    if not valid:
+        return None
+    return max(valid, key=lambda x: x[1])[0]
 
 
 def _db_size(path: str) -> int:
@@ -77,54 +92,47 @@ def _count_users(path: str) -> int:
 
 
 def restore_db_backup():
-    """Stellt die DB aus dem Git-Backup wieder her, falls lokale DB leer/fehlend.
+    """Stellt die aktuellste bekannte DB aus Backups wieder her.
 
-    Wichtig: Diese Funktion darf niemals eine bereits befüllte lokale DB
-    überschreiben. Wir prüfen zusätzlich, ob die lokale DB wirklich leer ist.
+    Reihenfolge der Auswahl (neueste validierte DB gewinnt):
+    1. Lokale Arbeits-DB auf RENDER_DISK_PATH
+    2. Lokale Timestamped-Backups auf der Render-Disk
+    3. Git-Repo-Backup
+
+    Wichtig: Diese Funktion darf niemals eine neuere lokale DB
+    überschreiben. Sie wird nur einmal beim Import ausgeführt.
     """
     global _RESTORE_DONE
     if _RESTORE_DONE:
         return
     _RESTORE_DONE = True
 
-    local_exists = os.path.exists(DB_PATH)
-    local_size = _db_size(DB_PATH)
-    local_usable = local_exists and local_size > 0 and _db_has_users(DB_PATH)
-
     backup_path = _backup_db_path()
-    backup_exists = os.path.exists(backup_path)
+    ts_backup = _newest_timestamped_backup()
+    candidates = [DB_PATH, backup_path]
+    if ts_backup:
+        candidates.append(ts_backup)
+
+    newest = _newest_existing(*candidates)
 
     print("=" * 60)
-    print(f"[DB] Startup DB check")
-    print(f"[DB] Working DB: {DB_PATH}")
-    print(f"[DB]   exists={local_exists}, size={local_size} bytes, usable={local_usable}")
-    print(f"[DB] Backup DB: {backup_path}")
-    print(f"[DB]   exists={backup_exists}")
+    print("[DB] Startup DB restore check")
+    print(f"[DB] Candidates:")
+    for c in candidates:
+        print(f"[DB]   {c}: exists={os.path.exists(c)}, size={_db_size(c)} bytes, mtime={_db_mtime(c)}")
 
-    if local_exists and local_usable:
+    if newest == DB_PATH:
         local_users = _count_users(DB_PATH)
         local_portfolios = _count_portfolios(DB_PATH)
-        print(f"[DB] Local users: {local_users}, portfolios: {local_portfolios}")
-        print(f"[DB] Local DB is usable -> SKIP restore, keep local data")
+        print(f"[DB] Local DB is newest -> KEEP (users={local_users}, portfolios={local_portfolios})")
         print("=" * 60)
         return
 
-    # Auch wenn local_exists aber leer/unbrauchbar: suche ältere Timestamped-Backups
-    if not local_usable:
-        ts_backup = _newest_timestamped_backup()
-        if ts_backup:
-            print(f"[DB] Found newer timestamped local backup -> restore from {ts_backup}")
-            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-            _copy_file(ts_backup, DB_PATH)
-            print(f"[DB] Restore from timestamped backup complete")
-            print("=" * 60)
-            return
-
-    if backup_exists and _db_has_users(backup_path):
-        print(f"[DB] Local DB empty/unusable -> restoring from repo backup")
+    if newest:
+        print(f"[DB] Restoring newest DB from {newest}")
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        _copy_file(backup_path, DB_PATH)
-        print("[DB] Restore from repo backup complete")
+        _copy_file(newest, DB_PATH)
+        print("[DB] Restore complete")
     else:
         print("[DB] No usable backup found, starting fresh")
     print("=" * 60)
@@ -242,9 +250,10 @@ def _backup_async():
     """
     try:
         if not os.path.exists(DB_PATH):
+            print("[DB Backup] No local DB to backup")
             return
 
-        # 1) Repository-Backup
+        # 1) Synchrones Dateisystem-Backup ins Repo – das geht schnell, egal ob Git funktioniert
         backup_path = _backup_db_path()
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         _copy_file(DB_PATH, backup_path)
