@@ -234,7 +234,11 @@ def _now() -> str:
 # --- Backups ---
 
 def _backup_async():
-    """Kopiert DB ins Git-Repo, lokale Timestamped-Backups und committet asynchron."""
+    """Kopiert DB ins Git-Repo, lokale Timestamped-Backups und committet asynchron.
+
+    Wichtig: Diese Funktion darf niemals lange blockieren. Alle Git-Operationen
+    haben kurze Timeouts, damit der Webserver nicht hängt.
+    """
     try:
         if not os.path.exists(DB_PATH):
             return
@@ -255,30 +259,29 @@ def _backup_async():
             return
         rel = os.path.relpath(backup_path, root)
         # Git-Author sicherstellen
-        subprocess.run(["git", "config", "user.email", "bot@trading-dashboard.local"], capture_output=True, cwd=root, timeout=10)
-        subprocess.run(["git", "config", "user.name", "Trading Dashboard Bot"], capture_output=True, cwd=root, timeout=10)
-        subprocess.run(["git", "add", rel], capture_output=True, cwd=root, timeout=10)
+        subprocess.run(["git", "config", "user.email", "bot@trading-dashboard.local"], capture_output=True, cwd=root, timeout=3)
+        subprocess.run(["git", "config", "user.name", "Trading Dashboard Bot"], capture_output=True, cwd=root, timeout=3)
+        subprocess.run(["git", "add", rel], capture_output=True, cwd=root, timeout=3)
         subprocess.run(
             ["git", "commit", "-m", f"Auto-DB-Backup {_now()}"],
-            capture_output=True, cwd=root, timeout=10
+            capture_output=True, cwd=root, timeout=3
         )
-        push_res = subprocess.run(["git", "push"], capture_output=True, cwd=root, timeout=30)
+        push_res = subprocess.run(["git", "push"], capture_output=True, cwd=root, timeout=5)
         if push_res.returncode != 0:
             print(f"[DB Backup] Push warning: {push_res.stderr.decode('utf-8', errors='ignore')[:200]}")
+    except subprocess.TimeoutExpired as e:
+        print(f"[DB Backup] Timeout: {e}")
     except Exception as e:
         print(f"[DB Backup] Warning: {e}")
 
 
 def backup_db(synchronous=False):
-    """Backup mit optionaler Synchronität (wartet auf Fertigstellung)."""
-    if synchronous:
-        _backup_async()
-    else:
-        trigger_backup()
+    """Backup. Synchron ist veraltet; wir führen es immer asynchron aus, um den Webserver nicht zu blockieren."""
+    trigger_backup()
 
 
 def trigger_backup():
-    """Startet Backup in separatem Thread."""
+    """Startet Backup in separatem Daemon-Thread."""
     try:
         t = threading.Thread(target=_backup_async, daemon=True)
         t.start()
@@ -373,9 +376,8 @@ def save_portfolio(user_id: int, p: dict):
             "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
             (user_id, json.dumps(p, default=str), _now())
         )
-    # Wichtig: Backup synchron ausführen, damit Daten bei einem sofortigen
-    # Neustart/Deploy nicht verloren gehen.
-    backup_db(synchronous=True)
+    # Kopie der DB sofort ins Git-Repo/auf Disk, aber asynchron, damit der Request nicht blockiert.
+    backup_db()
 
 
 def save_settings(user_id: int, settings: dict):
@@ -399,7 +401,8 @@ def save_settings(user_id: int, settings: dict):
              1 if settings.get("report_enabled", True) else 0,
              _now())
         )
-    backup_db(synchronous=True)
+    # Backup sofort anstoßen, aber niemals synchron -> Webserver bleibt responsiv
+    backup_db()
 
 
 def reset_portfolio(user_id: int):
@@ -411,7 +414,7 @@ def reset_portfolio(user_id: int):
 def delete_user(user_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    backup_db(synchronous=True)
+    backup_db()
 
 
 # --- Settings ---
@@ -460,7 +463,7 @@ def migrate_legacy_portfolio():
             "INSERT OR IGNORE INTO portfolios (user_id, data, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP)",
             (json.dumps(data, default=str),)
         )
-    backup_db(synchronous=True)
+    backup_db()
 
 
 # Beim Import: Restore aus Backup, dann initialisieren
