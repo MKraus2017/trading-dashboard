@@ -82,6 +82,14 @@ button.save:hover { opacity: 0.85; }
     <button class="save" style="margin-top: 12px; background: linear-gradient(135deg, #1f6feb, #388bfd);" onclick="loadTelegramStatus()">🔍 Telegram-Status prüfen</button>
     <pre id="tg-status" style="margin-top:12px; background:#0d1117; padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem;"></pre>
   </div>
+
+  <div class="card">
+    <h2>Datenbank-Backup</h2>
+    <button class="save" style="background: linear-gradient(135deg, #1f6feb, #388bfd); margin-right: 8px;" onclick="loadDbStatus()">📊 DB-Status prüfen</button>
+    <a id="db-download-link" href="/api/db_backup" download style="display:none;"></a>
+    <button class="save" style="background: linear-gradient(135deg, #8957e5, #a371f7);" onclick="downloadDb()">💾 DB herunterladen</button>
+    <pre id="db-status" style="margin-top:12px; background:#0d1117; padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem;"></pre>
+  </div>
 </div>
 
 <script>
@@ -135,8 +143,25 @@ async function loadTelegramStatus() {
     }
 }
 
+async function loadDbStatus() {
+    const el = document.getElementById('db-status');
+    el.textContent = 'Prüfe...';
+    try {
+        const r = await fetch('/api/db_status');
+        const data = await r.json();
+        el.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        el.textContent = 'Fehler: ' + e.message;
+    }
+}
+
+function downloadDb() {
+    document.getElementById('db-download-link').click();
+}
+
 loadTelegramStatus();
 loadSettings();
+loadDbStatus();
 </script>
 </body>
 </html>
