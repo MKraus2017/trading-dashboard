@@ -243,14 +243,10 @@ def _now() -> str:
 # --- Backups ---
 
 def _backup_async():
-    """Kopiert DB ins Git-Repo, lokale Timestamped-Backups und committet asynchron.
-
-    Wichtig: Diese Funktion darf niemals lange blockieren. Alle Git-Operationen
-    haben kurze Timeouts, damit der Webserver nicht hängt.
-    """
+    """Kopiert DB ins Repo-Backup, erstellt lokale Timestamp-Backups und versucht Git-Push."""
     try:
         if not os.path.exists(DB_PATH):
-            print("[DB Backup] No local DB to backup")
+            print(f"[DB Backup] No local DB to backup: {DB_PATH}")
             return
 
         # 1) Synchrones Dateisystem-Backup ins Repo – das geht schnell, egal ob Git funktioniert
@@ -278,7 +274,8 @@ def _backup_async():
         )
         push_res = subprocess.run(["git", "push"], capture_output=True, cwd=root, timeout=5)
         if push_res.returncode != 0:
-            print(f"[DB Backup] Push warning: {push_res.stderr.decode('utf-8', errors='ignore')[:200]}")
+            err = push_res.stderr.decode('utf-8', errors='ignore')[:200]
+            print(f"[DB Backup] Push warning (non-critical): {err}")
     except subprocess.TimeoutExpired as e:
         print(f"[DB Backup] Timeout: {e}")
     except Exception as e:
@@ -286,8 +283,11 @@ def _backup_async():
 
 
 def backup_db(synchronous=False):
-    """Backup. Synchron ist veraltet; wir führen es immer asynchron aus, um den Webserver nicht zu blockieren."""
-    trigger_backup()
+    """Backup. Synchronous=True bedeutet nur, dass wir direkt ausführen (für Startup)."""
+    try:
+        _backup_async()
+    except Exception as e:
+        print(f"[DB Backup] Backup skipped at startup: {e}")
 
 
 def trigger_backup():
@@ -297,7 +297,6 @@ def trigger_backup():
         t.start()
     except Exception as e:
         print(f"[DB Backup] Could not start thread: {e}")
-
 
 # --- Users ---
 
