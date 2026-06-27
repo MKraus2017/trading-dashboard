@@ -481,7 +481,17 @@ def api_db_restore_upload():
 def _scheduler_auth():
     auth_header = request.headers.get("Authorization", "")
     token = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
-    return token == os.environ.get("SCHEDULER_API_KEY", "")
+    expected = os.environ.get("SCHEDULER_API_KEY", "")
+    if not expected:
+        print("[Scheduler Auth] SCHEDULER_API_KEY not set on server")
+        return False
+    if not token:
+        print("[Scheduler Auth] Missing Authorization header")
+        return False
+    if token != expected:
+        print(f"[Scheduler Auth] Invalid token received (len={len(token)}), expected len={len(expected)}")
+        return False
+    return True
 
 
 @app.route("/api/scheduler/refresh_prices", methods=["POST"])
@@ -537,6 +547,11 @@ if default_user and not default_user["password_hash"]:
 # Direkt nach dem App-Start: lokale DB in Git-Backup spiegeln, falls der Container
 # Schreibrechte auf das Repo hat (primäre Persistenz bleibt Render Disk).
 db_store.backup_db(synchronous=True)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"ok": True, "status": "running"})
 
 
 if __name__ == "__main__":
