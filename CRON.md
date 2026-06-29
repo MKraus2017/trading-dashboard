@@ -17,8 +17,9 @@ Alle Endpunkte erwarten den Header: `Authorization: Bearer <SCHEDULER_API_KEY>`
 | Marktanalyse (ohne KI) | alle 30 Min in Handelszeiten | `POST /api/scheduler/market_analysis` |
 | LLM-Analyse + Auto-Trade | alle 2 Std in Handelszeiten | `POST /api/scheduler/llm_analysis?auto_trade=true` |
 | Tägliche Zusammenfassung | einmal täglich | `POST /api/scheduler/daily_summary` |
+| Morgen-Report (Kaufempfehlungen) | täglich um 7 Uhr CET | `POST /api/scheduler/morning_report` |
 
-## Render-Service wachhalten
+
 
 Zusätzlich sollte ein Ping-Endpunkt alle 10 Minuten aufgerufen werden, damit der kostenlose Plan nicht einschläft:
 `GET https://trading-dashboard-6n5w.onrender.com/health`

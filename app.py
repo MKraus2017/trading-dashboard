@@ -537,6 +537,13 @@ def api_scheduler_real_positions_alert():
     return jsonify(scheduler_tasks.real_positions_report(only_urgent=True))
 
 
+@app.route("/api/scheduler/morning_report", methods=["POST"])
+def api_scheduler_morning_report():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    return jsonify(scheduler_tasks.morning_report(notify=True))
+
+
 # --- Startup migration & default user safety ---
 # Stelle sicher, dass Restore VOR dem potenziellen Anlegen eines Default-Users läuft.
 # (restore_db_backup() wurde bereits beim Import von db_store ausgeführt.)

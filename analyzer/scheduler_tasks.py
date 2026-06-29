@@ -337,3 +337,49 @@ def portfolio_report(notify: bool = True) -> dict:
             pass
 
     return {"task": "portfolio_report", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+def morning_report(notify: bool = True) -> dict:
+    """Morgendlicher 7-Uhr Report mit Kaufempfehlungen für den Handelstag."""
+    now_cet = _now_cet()
+    if now_cet.hour != 7:
+        return {"task": "morning_report", "skipped": True, "reason": "Nicht 7 Uhr CET"}
+
+    recs = signals.generate_recommendations().get("suggestions", [])
+    buy_recs = [r for r in recs if r["direction"] == "KAUF"][:5]
+
+    if notify:
+        for user_id in _get_active_users():
+            settings = db_store.get_settings(user_id)
+            token, chat_id = _user_telegram_cfg(user_id)
+            if not chat_id or not settings.get("report_enabled", True):
+                continue
+            try:
+                lines = [
+                    f"🌅 <b>Guten Morgen!Handelstag Report ({now_cet.strftime('%d.%m.%Y')})</b>",
+                    "",
+                    "<b>TOP KAUFEMPFEHLUNGEN</b>",
+                ]
+                if buy_recs:
+                    for s in buy_recs:
+                        lines.append(
+                            f"🟢 <b>{s['symbol']}</b> ({s['name']}) @ {telegram.fmt_eur(s['preis'])} — Score {s['score']}/100"
+                        )
+                        lines.append(f"   Einstieg: {telegram.fmt_eur(s['einstieg_von'])} – {telegram.fmt_eur(s['einstieg_bis'])}")
+                        if s.get("stop_loss"):
+                            lines.append(f"   SL: {telegram.fmt_eur(s['stop_loss'])}")
+                        if s.get("take_profit"):
+                            lines.append(f"   TP: {telegram.fmt_eur(s['take_profit'])}")
+                        lines.append(f"   Begründung: {s['begruendung'][:120]}...")
+                else:
+                    lines.append("Aktuell keine klaren Kaufempfehlungen.")
+
+                telegram._send_message("\n".join(lines), token=token, chat_id=chat_id)
+            except Exception as e:
+                print(f"[morning_report] user_id={user_id} error: {e}")
+
+    return {
+        "task": "morning_report",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "buy_recommendations": len(buy_recs),
+    }
