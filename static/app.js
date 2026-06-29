@@ -457,7 +457,11 @@ async function sendRecsToTelegram() {
     if (data.ok) {
       alert(`✅ Empfehlungen gesendet:\n${data.buy_count} Kauf- / ${data.sell_count} Verkaufsempfehlungen`);
     } else {
-      showError(data.error || 'Senden fehlgeschlagen');
+      const details = data.telegram_response || {};
+      const httpErr = details.status_code ? `HTTP ${details.status_code}: ` : '';
+      const msg = details.error || details.description || data.error || 'Unbekannter Fehler';
+      showError('Telegram-Fehler: ' + httpErr + msg);
+      console.error('Telegram send failed:', data);
     }
   } catch (e) {
     showError('Fehler: ' + e.message);
