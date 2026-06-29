@@ -530,6 +530,43 @@ def api_scheduler_portfolio_report():
     return jsonify(scheduler_tasks.portfolio_report(notify=True))
 
 
+@app.route("/api/send_recommendations_telegram", methods=["POST"])
+@login_required
+def api_send_recommendations_telegram():
+    """Generiert aktuelle Empfehlungen und sendet sie an Telegram."""
+    uid = get_current_user_id()
+    settings = db_store.get_settings(uid)
+    token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+    chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+    if not chat_id:
+        return jsonify({"ok": False, "error": "Telegram Chat-ID nicht konfiguriert"}), 400
+
+    recs = signals.generate_recommendations().get("suggestions", [])
+    buy_recs = [r for r in recs if r["direction"] == "KAUF"][:5]
+    sell_recs = [r for r in recs if r["direction"] == "VERKAUF"][:5]
+
+    lines = [f"💡 <b>Manuelle Empfehlungen</b> ({datetime.now().strftime('%d.%m.%Y %H:%M')})", ""]
+    lines.append("<b>KAUFEMPFEHLUNGEN</b>")
+    if buy_recs:
+        for s in buy_recs:
+            lines.append(f"🟢 <b>{s['symbol']}</b> ({s['name']}) @ {telegram_client.fmt_eur(s['preis'])} — Score {s['score']}/100")
+            if s.get("stop_loss") and s.get("take_profit"):
+                lines.append(f"   SL: {telegram_client.fmt_eur(s['stop_loss'])} | TP: {telegram_client.fmt_eur(s['take_profit'])}")
+    else:
+        lines.append("Aktuell keine Kaufempfehlungen.")
+
+    lines.append("")
+    lines.append("<b>VERKAUFSEMPFEHLUNGEN</b>")
+    if sell_recs:
+        for s in sell_recs:
+            lines.append(f"🔴 <b>{s['symbol']}</b> ({s['name']}) @ {telegram_client.fmt_eur(s['preis'])} — Score {s['score']}/100")
+    else:
+        lines.append("Aktuell keine Verkaufsempfehlungen.")
+
+    res = telegram_client._send_message("\n".join(lines), token=token, chat_id=chat_id)
+    return jsonify({"ok": res.get("ok", False), "telegram_response": res, "buy_count": len(buy_recs), "sell_count": len(sell_recs)})
+
+
 @app.route("/api/scheduler/real_positions_alert", methods=["POST"])
 def api_scheduler_real_positions_alert():
     if not _scheduler_auth():

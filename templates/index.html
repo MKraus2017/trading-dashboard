@@ -16,6 +16,7 @@
     <span class="timestamp" id="last-update">Lade...</span>
     <button class="refresh-btn" onclick="loadPortfolio()">⟳ Depot aktualisieren</button>
     <button class="refresh-btn" onclick="generateRecommendations(false)" id="analyze-btn">🔍 Analyse & Auto-Handel</button>
+    <button class="refresh-btn" onclick="sendRecsToTelegram()" id="send-recs-btn">📤 Empfehlungen an Telegram</button>
     <a href="/settings" class="refresh-btn">⚙️ Einstellungen</a>
     <form action="/logout" method="POST" style="display:inline;">
       <button type="submit" class="logout-btn">⎋ Logout</button>
@@ -132,6 +133,6 @@
       <div id="backtest-details"></div>
     </div>
   </div>
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

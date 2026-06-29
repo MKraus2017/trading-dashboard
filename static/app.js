@@ -446,6 +446,27 @@ async function resetDepot() {
   finally { showLoading(false); }
 }
 
+async function sendRecsToTelegram() {
+  const btn = document.getElementById('send-recs-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Sende...';
+  showError('');
+  try {
+    const r = await fetch('/api/send_recommendations_telegram', {method: 'POST'});
+    const data = await r.json();
+    if (data.ok) {
+      alert(`✅ Empfehlungen gesendet:\n${data.buy_count} Kauf- / ${data.sell_count} Verkaufsempfehlungen`);
+    } else {
+      showError(data.error || 'Senden fehlgeschlagen');
+    }
+  } catch (e) {
+    showError('Fehler: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📤 Empfehlungen an Telegram';
+  }
+}
+
 async function reportRealTrade() {
   const symbol = document.getElementById('real-symbol').value.trim().toUpperCase();
   const action = document.getElementById('real-action').value;
