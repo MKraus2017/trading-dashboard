@@ -88,7 +88,11 @@ def _get_usd_eur_rate() -> Optional[float]:
 
 
 def _convert_to_eur(data: dict) -> dict:
-    """Wandelt USD/CHF/GBP-Preise in Euro um."""
+    """Wandelt USD/CHF/GBP-Preise in Euro um.
+    
+    Yahoo liefert EURXXX=X als Wechselkurs für 1 EUR in XXX.
+    Um XXX in EUR zu erhalten: EUR = XXX / EURXXX=X.
+    """
     if not data:
         return data
     currency = data.get("currency")
@@ -102,13 +106,17 @@ def _convert_to_eur(data: dict) -> dict:
         return data
 
     rate = _get_fx_rate(pair)
-    if not rate:
+    if not rate or rate == 0:
         return data
 
+    # EURXXX=X = wie viel Fremdwährung man für 1 EUR bekommt
+    # Also: Fremdwährung / Kurs = Euro
+    eur_rate = 1.0 / rate
+
     for key in ["closes", "opens", "highs", "lows"]:
-        data[key] = [round(v * rate, 6) for v in data.get(key, [])]
-    data["latest"] = round(data["latest"] * rate, 4)
-    data["previous"] = round(data["previous"] * rate, 4)
+        data[key] = [round(v * eur_rate, 6) for v in data.get(key, [])]
+    data["latest"] = round(data["latest"] * eur_rate, 4)
+    data["previous"] = round(data["previous"] * eur_rate, 4)
     data["currency"] = "EUR"
     return data
 
