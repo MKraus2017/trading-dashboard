@@ -410,6 +410,7 @@ def run_backtest(p: dict) -> dict:
         strategy_pnl += pair_pnl
         buy_hold_pnl += pair_buy_hold
 
+        strategy_pnl_pct = ((sell_price - buy_price) / buy_price * 100) if buy_price else 0.0
         completed_pairs.append({
             "symbol": symbol,
             "buy_price": round(buy_price, 4),
@@ -417,6 +418,7 @@ def run_backtest(p: dict) -> dict:
             "shares": round(shares, 4),
             "days_held": days_held,
             "strategy_pnl": round(pair_pnl, 2),
+            "strategy_pnl_pct": round(strategy_pnl_pct, 2),
             "buyhold_pnl": round(pair_buy_hold, 2),
         })
 
@@ -435,8 +437,13 @@ def run_backtest(p: dict) -> dict:
         improvements.append(f"Durchschnittsverlust {fmtEur(avg_loss)} pro Trade – Risiko pro Trade reduzieren.")
     if alpha < 0:
         improvements.append(f"Strategie lag {fmtEur(abs(alpha))} hinter Buy-&-Hold zurück – Haltezeiten / Take-Profit anpassen.")
-    if not any(t.get("trailing_stop") for t in p.get("positions", [])) and completed_pairs:
-        improvements.append("Trailing-Stop wurde noch nicht genutzt – bei Gewinnen von >25 % aktivieren.")
+    # Trailing-Stop-Hinweis nur sinnvoll: es gab starke Gewinner (>25 %), aber
+    # bisher wurde bei keinem abgeschlossenen Trade ein Trailing-Stop genutzt.
+    if completed_pairs:
+        big_winners = [t for t in win_trades if t.get("strategy_pnl_pct", 0) > 25]
+        has_active_trailing = any(pos.get("trailing_stop") for pos in p.get("positions", []))
+        if len(big_winners) >= 1 and not has_active_trailing:
+            improvements.append("Trailing-Stop wurde bei großen Gewinnern (>25 %) noch nicht genutzt – bei >+25 % Gewinn automatisch aktivieren.")
     if not improvements and completed_pairs:
         improvements.append("Strategie performt gut. Fokus auf Disziplin und Einhaltung der Regeln.")
     if not completed_pairs:
