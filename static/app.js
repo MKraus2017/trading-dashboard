@@ -472,44 +472,51 @@ async function sendRecsToTelegram() {
 }
 
 async function analyzeRealPositions() {
-  const btn = document.getElementById('analyze-real-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳ Analysiere...';
+  await analyzeRealPositionsInTab(false);
+}
+
+async function analyzeRealPositionsInTab(useLLM) {
+  const btnId = useLLM ? 'analyze-real-llm-tab-btn' : 'analyze-real-tab-btn';
+  const label = useLLM ? '🧠 KI-Analyse reale Positionen' : '📊 Reale Positionen analysieren';
+  const btn = document.getElementById(btnId) || document.getElementById('analyze-real-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Analysiere...'; }
   showError('');
   try {
-    const r = await fetch('/api/analyze_real_positions', {method: 'POST'});
+    const endpoint = useLLM ? '/api/analyze_real_positions_llm' : '/api/analyze_real_positions';
+    const r = await fetch(endpoint, {method: 'POST'});
     const data = await r.json();
     if (data.ok) {
-      let html = `<div class="section-title">📊 Analyse Reale TR-Positionen</div>`;
+      let html = `<div class="section-title">${useLLM ? '🧠 KI-Analyse' : '📊 Technische Analyse'} — Reale TR-Positionen</div>`;
       html += `<div style="margin-bottom:16px;color:#8b949e;">${data.summary}</div>`;
       for (const pos of data.results) {
-        let adviceClass = pos.advice === 'VERKAUFEN' ? 'sell' : (pos.advice === 'NACHKAUFEN' ? 'buy' : '');
+        let adviceClass = pos.advice === 'VERKAUFEN' || pos.advice === 'VERKAUFEN / AVOID' ? 'sell' : (pos.advice.includes('NACHKAUFEN') ? 'buy' : '');
         html += `
         <div class="position-row">
           <div><b>${pos.symbol}</b> <span class="badge-${adviceClass}">${pos.advice}</span></div>
-          <div>Score: ${pos.score != null ? pos.score : 'n/a'}/100 | Aktuell: ${fmtEur(pos.price)} (${pos.pnl_pct > 0 ? '+' : ''}${pos.pnl_pct}%)</div>
+          ${useLLM ? `<div>KI-Verdict: ${pos.verdict ? pos.verdict.toUpperCase() : 'n/a'} | Risiko: ${pos.risk_level} (${pos.risk_score != null ? pos.risk_score : 'n/a'}/10) | Max: ${pos.max_position_pct}</div>` : `<div>Score: ${pos.score != null ? pos.score : 'n/a'}/100 | Aktuell: ${fmtEur(pos.price)} (${pos.pnl_pct > 0 ? '+' : ''}${pos.pnl_pct}%)</div>`}
           <div>Einstieg: ${fmtEur(pos.entry)} | Stücke: ${pos.shares}</div>
-          <div>SL: ${fmtEur(pos.stop_loss)} | TP: ${fmtEur(pos.take_profit)}</div>
-          <div style="color:#8b949e;">${pos.reason}</div>
+          ${useLLM ? '' : `<div>SL: ${fmtEur(pos.stop_loss)} | TP: ${fmtEur(pos.take_profit)}</div>`}
+          ${useLLM && pos.main_risks && pos.main_risks.length ? `<div style="color:#f85149;">Risiken: ${pos.main_risks.join(', ')}</div>` : ''}
+          ${useLLM && pos.catalyst ? `<div>Kurstreiber: ${pos.catalyst}</div>` : ''}
+          <div style="color:#8b949e;">${useLLM ? pos.summary : pos.reason}</div>
         </div>`;
       }
-      const panel = document.getElementById('panel-empfehlungen');
+      const panel = document.getElementById('real-analysis-result');
       panel.innerHTML = html;
-      showTab('empfehlungen');
+      showTab('real');
       if (data.telegram_sent) {
-        showError(`✅ Analyse berechnet und an Telegram gesendet: ${data.summary}`);
+        showError(`✅ ${useLLM ? 'KI-Analyse' : 'Analyse'} berechnet und an Telegram gesendet: ${data.summary}`);
       } else {
-        showError(`✅ Analyse berechnet. Telegram-Versand fehlgeschlagen oder deaktiviert.`);
+        showError(`✅ ${useLLM ? 'KI-Analyse' : 'Analyse'} berechnet. Telegram-Versand fehlgeschlagen oder deaktiviert.`);
       }
       setTimeout(() => showError(''), 7000);
     } else {
-      showError(`❌ Analyse fehlgeschlagen: ${data.error || JSON.stringify(data)}`);
+      showError(`❌ ${useLLM ? 'KI-Analyse' : 'Analyse'} fehlgeschlagen: ${data.error || JSON.stringify(data)}`);
     }
   } catch (e) {
     showError('Fehler: ' + e.message);
   } finally {
-    btn.disabled = false;
-    btn.textContent = '📊 Reale TR Positionen analysieren';
+    if (btn) { btn.disabled = false; btn.textContent = label; }
   }
 }
 

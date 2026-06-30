@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 from analyzer import auto_trader, db_store, indicators, market_hours, portfolio, signals, telegram, yahoo_client
+from analyzer import llm_risk, news_client
+import config
 
 
 EUROPE_TZ_OFFSET = 2  # CEST (UTC+2)
@@ -347,10 +349,126 @@ def analyze_real_positions(user_id: int, notify: bool = True) -> dict:
         except Exception as e:
             print(f"[analyze_real_positions] Telegram error: {e}")
 
+
+
+def analyze_real_positions_llm(user_id: int, notify: bool = True) -> dict:
+    """KI-gestützte Analyse (OpenRouter) aller realen TR-Positionen eines Users."""
+    p = portfolio.get_portfolio(user_id)
+    real_positions = p.get("real_positions", [])
+    if not real_positions:
+        return {"ok": False, "error": "Keine realen TR-Positionen vorhanden"}
+
+    if not config.OPENROUTER_API_KEY:
+        return {"ok": False, "error": "Kein OPENROUTER_API_KEY konfiguriert"}
+
+    token, chat_id = _user_telegram_cfg(user_id)
+    lines = [f"🧠 <b>KI-Analyse: Reale TR-Positionen</b> ({datetime.now().strftime('%d.%m.%Y %H:%M')})", ""]
+    results = []
+    verdict_counts = {"buy": 0, "hold": 0, "avoid": 0}
+
+    for pos in real_positions:
+        symbol = pos["symbol"]
+        name = config.get_symbol_name(symbol)
+        entry = pos.get("entry_price", 0)
+        shares = pos.get("shares", 0)
+        analysis = _analyze_symbol(symbol)
+        current = analysis["price"] if analysis else pos.get("last_price", entry)
+        pnl_pct = (current - entry) / entry * 100 if entry else 0
+
+        # Technische Indikatoren zusammenfassen
+        tech = {}
+        if analysis:
+            tech["score"] = analysis["score"]
+            tech["rsi"] = None
+            tech["ema_trend"] = "bullish" if any("Trend +" in d for d in analysis.get("details", [])) else "bearish"
+            tech["stop_loss"] = analysis["stop_loss"]
+            tech["take_profit"] = analysis["take_profit"]
+
+        # News holen
+        try:
+            news = news_client.get_news_sentiment(symbol, name)
+            headlines = news.get("headlines", []) if isinstance(news, dict) else []
+        except Exception:
+            headlines = []
+
+        # LLM Risikobewertung
+        try:
+            risk = llm_risk.assess_risk(
+                symbol=symbol,
+                name=name,
+                price=current,
+                entry_low=round(entry * 0.98, 2),
+                entry_high=round(entry * 1.02, 2),
+                stop_loss=round(current * 0.92, 2),
+                take_profit=round(current * 1.12, 2),
+                indicators=tech,
+                news=headlines,
+            ) or {"error": "Keine LLM-Antwort"}
+        except Exception as e:
+            risk = {"error": str(e)}
+
+        verdict = risk.get("verdict", "hold").lower()
+        verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+        risk_score = risk.get("risk_score")
+        risk_level = risk.get("risk_level", "n/a")
+        max_pos = risk.get("max_position_pct", "n/a")
+        summary_text = risk.get("summary", "n/a")
+        main_risks = risk.get("main_risks", [])
+        catalyst = risk.get("catalyst", "n/a")
+
+        # Mapping auf Handlungsempfehlung
+        if verdict == "avoid":
+            advice = "VERKAUFEN"
+            emoji = "🔴"
+        elif verdict == "buy":
+            advice = "HALTEN / NACHKAUFEN"
+            emoji = "🟢"
+        else:
+            advice = "HALTEN"
+            emoji = "🟡"
+
+        results.append({
+            "symbol": symbol,
+            "advice": advice,
+            "verdict": verdict,
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "max_position_pct": max_pos,
+            "summary": summary_text,
+            "main_risks": main_risks,
+            "catalyst": catalyst,
+            "price": current,
+            "entry": entry,
+            "pnl_pct": round(pnl_pct, 2),
+            "shares": shares,
+            "llm_model": risk.get("llm_model", config.OPENROUTER_MODEL),
+        })
+
+        lines.append(f"{emoji} <b>{symbol}</b> → {advice}")
+        lines.append(f"   KI-Verdict: {verdict.upper()} | Risiko: {risk_level} ({risk_score}/10)")
+        lines.append(f"   Aktuell: {telegram.fmt_eur(current)} ({pnl_pct:+.2f}%) | Einstieg: {telegram.fmt_eur(entry)}")
+        lines.append(f"   Max. Positionsgröße: {max_pos}")
+        lines.append(f"   Kurstreiber: {catalyst}")
+        if main_risks:
+            lines.append(f"   Haupt-Risiken: {', '.join(main_risks[:3])}")
+        lines.append(f"   Zusammenfassung: {summary_text}")
+        lines.append("")
+
+    stats = f"Verdicts: {verdict_counts['buy']}× Kaufen/Halten, {verdict_counts['hold']}× Halten, {verdict_counts['avoid']}× Vermeiden/Verkaufen"
+    lines.insert(2, f"<i>{stats}</i>")
+
+    telegram_sent = False
+    if notify and chat_id:
+        try:
+            res = telegram._send_message("\n".join(lines), token=token, chat_id=chat_id)
+            telegram_sent = res.get("ok", False)
+        except Exception as e:
+            print(f"[analyze_real_positions_llm] Telegram error: {e}")
+
     return {
         "ok": True,
         "count": len(results),
-        "summary": summary,
+        "summary": stats,
         "results": results,
         "telegram_sent": telegram_sent,
     }

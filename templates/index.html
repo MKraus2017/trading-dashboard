@@ -63,6 +63,12 @@
     <p style="color:#8b949e;margin-bottom:16px;">Wähle eine Aktie aus der Liste. Vorgeschlagene Kaufempfehlungen stehen immer ganz oben.</p>
     <div id="real-positions"></div>
 
+    <div class="quick-form" style="margin-top:24px;gap:8px;display:flex;flex-wrap:wrap;">
+      <button class="refresh-btn" onclick="analyzeRealPositionsInTab(false)" id="analyze-real-tab-btn">📊 Reale Positionen analysieren</button>
+      <button class="refresh-btn" onclick="analyzeRealPositionsInTab(true)" id="analyze-real-llm-tab-btn">🧠 KI-Analyse reale Positionen</button>
+    </div>
+    <div id="real-analysis-result" style="margin-top:20px;"></div>
+
     <div class="quick-form" style="margin-top:24px;">
       <div class="symbol-select-wrapper">
         <input type="text" id="real-symbol-search" placeholder="🔍 Symbol suchen..." autocomplete="off" oninput="filterSymbolSelect()" onfocus="renderSymbolSelect()">
@@ -134,6 +140,6 @@
       <div id="backtest-details"></div>
     </div>
   </div>
-<script src="/static/app.js?v=12"></script>
+<script src="/static/app.js?v=13"></script>
 </body>
 </html>
