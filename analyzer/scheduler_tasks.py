@@ -76,11 +76,56 @@ def market_analysis(notify: bool = True) -> dict:
                 if not chat_id:
                     print(f"[market_analysis] user_id={user_id}: no chat_id configured")
                     continue
+
+                lines = []
                 if recs.get("suggestions"):
-                    lines = [f"• {s['symbol']} ({s['direction']}) Score {s['score']}/100 @ {s['preis']:.2f}" for s in recs["suggestions"]]
-                    res = telegram._send_message("📈 <b>Marktanalyse (30 Min)</b>\n\n" + "\n".join(lines), token=token, chat_id=chat_id)
+                    lines.append("<b>Kaufempfehlungen (virtuelles Depot):</b>")
+                    lines += [f"• {s['symbol']} ({s['direction']}) Score {s['score']}/100 @ {s['preis']:.2f}" for s in recs["suggestions"]]
+
+                # Reale TR-Positionen auswerten
+                p = portfolio.get_portfolio(user_id)
+                real_positions = p.get("real_positions", [])
+                if real_positions:
+                    if lines:
+                        lines.append("")
+                    lines.append("<b>Deine realen TR-Positionen:</b>")
+                    for pos in real_positions:
+                        symbol = pos["symbol"]
+                        analysis = _analyze_symbol(symbol)
+                        entry = pos.get("entry_price", 0)
+                        current = analysis["price"] if analysis else pos.get("last_price", entry)
+                        pnl_pct = (current - entry) / entry * 100 if entry else 0
+                        if analysis:
+                            direction = analysis["direction"]
+                            score = analysis["score"]
+                        else:
+                            direction = "HALTEN"
+                            score = "n/a"
+                        if direction == "VERKAUF":
+                            action_emoji = "🔴"
+                            action_text = "VERKAUFEN"
+                        elif direction == "KAUF":
+                            action_emoji = "🟢"
+                            action_text = "HALTEN (kein Verkauf)"
+                        else:
+                            action_emoji = "🟡"
+                            action_text = "HALTEN"
+                        lines.append(f"{action_emoji} <b>{symbol}</b> — {action_text} (Score {score}/100)")
+                        lines.append(f"   Einstieg: {telegram.fmt_eur(entry)} | Aktuell: {telegram.fmt_eur(current)} ({pnl_pct:+.2f}%)")
+                        if analysis:
+                            lines.append(f"   SL: {telegram.fmt_eur(analysis['stop_loss'])} | TP: {telegram.fmt_eur(analysis['take_profit'])}")
+                            if direction == "VERKAUF":
+                                lines.append(f"   ⚠️ Dringend: Verkauf empfohlen!")
                 else:
-                    res = telegram._send_message("📈 <b>Marktanalyse (30 Min)</b>\n\nKeine klaren Handlungsempfehlungen.", token=token, chat_id=chat_id)
+                    if lines:
+                        lines.append("")
+                    lines.append("<b>Reale TR-Positionen:</b> Keine")
+
+                if lines:
+                    text = "📈 <b>Marktanalyse (30 Min)</b>\n\n" + "\n".join(lines)
+                else:
+                    text = "📈 <b>Marktanalyse (30 Min)</b>\n\nKeine klaren Handlungsempfehlungen."
+                res = telegram._send_message(text, token=token, chat_id=chat_id)
                 print(f"[market_analysis] user_id={user_id}: {res}")
             except Exception as e:
                 print(f"[market_analysis] user_id={user_id} error: {e}")
