@@ -577,17 +577,29 @@ def api_send_recommendations_telegram():
     return jsonify({"ok": res.get("ok", False), "telegram_response": res, "buy_count": len(buy_recs), "sell_count": len(sell_recs)})
 
 
+def _analyze_real_positions_api(uid, llm=False):
+    """Wrapper mit Fehlerlogging für die reale Positionsanalyse."""
+    try:
+        settings = db_store.get_settings(uid)
+        chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+        if not chat_id:
+            return jsonify({"ok": False, "error": "Telegram Chat-ID nicht konfiguriert"}), 400
+        fn = scheduler_tasks.analyze_real_positions_llm if llm else scheduler_tasks.analyze_real_positions
+        result = fn(uid, notify=True)
+        if result is None:
+            return jsonify({"ok": False, "error": "Analyse lieferte kein Ergebnis"}), 500
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/analyze_real_positions", methods=["POST"])
 @login_required
 def api_analyze_real_positions():
     """Analysiert alle realen TR-Positionen und sendet Empfehlung an Telegram."""
     uid = get_current_user_id()
-    settings = db_store.get_settings(uid)
-    chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
-    if not chat_id:
-        return jsonify({"ok": False, "error": "Telegram Chat-ID nicht konfiguriert"}), 400
-    result = scheduler_tasks.analyze_real_positions(uid, notify=True)
-    return jsonify(result)
+    return _analyze_real_positions_api(uid, llm=False)
 
 
 @app.route("/api/analyze_real_positions_llm", methods=["POST"])
@@ -595,12 +607,7 @@ def api_analyze_real_positions():
 def api_analyze_real_positions_llm():
     """KI-gestützte Analyse aller realen TR-Positionen."""
     uid = get_current_user_id()
-    settings = db_store.get_settings(uid)
-    chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
-    if not chat_id:
-        return jsonify({"ok": False, "error": "Telegram Chat-ID nicht konfiguriert"}), 400
-    result = scheduler_tasks.analyze_real_positions_llm(uid, notify=True)
-    return jsonify(result)
+    return _analyze_real_positions_api(uid, llm=True)
 
 
 @app.route("/api/scheduler/real_positions_alert", methods=["POST"])
