@@ -45,38 +45,66 @@ def _is_cache_valid(entry):
         return False
 
 
-def _get_usd_eur_rate() -> float:
-    """Holt den aktuellen USD→EUR Wechselkurs."""
+def _get_fx_rate(pair: str) -> Optional[float]:
+    """Holt einen aktuellen FX-Kurs (z. B. EURCHF=X, EURGBP=X) als EUR pro Fremdwährung."""
     cache = _load_cache()
-    cached = cache.get("_USD_EUR_RATE_")
+    cache_key = f"_FX_RATE_{pair}_"
+    cached = cache.get(cache_key)
     if cached and _is_cache_valid(cached):
         return cached["data"]
+    last_key = f"_FX_RATE_LAST_{pair}_"
     try:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/EURUSD=X"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{pair}"
         params = {"interval": "1d", "range": "1d"}
         headers = {"User-Agent": config.YAHOO_USER_AGENT}
         resp = requests.get(url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
         payload = resp.json()
         result = payload.get("chart", {}).get("result", [None])[0]
+        if not result:
+            return cache.get(last_key, {}).get("data")
         closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
         rate = [c for c in closes if c is not None][-1] if closes else None
         if not rate:
-            return cache.get("_USD_EUR_RATE_LAST_", {}).get("data", 0.92)
-        eur_per_usd = 1.0 / rate  # EURUSD=X = USD pro 1 EUR, also Inverses
-        cache["_USD_EUR_RATE_"] = {"timestamp": datetime.utcnow().isoformat(), "data": eur_per_usd}
-        cache["_USD_EUR_RATE_LAST_"] = {"timestamp": datetime.utcnow().isoformat(), "data": eur_per_usd}
+            return cache.get(last_key, {}).get("data")
+        # Bei EURCHF=X steht drin, wie viel EUR 1 CHF kostet
+        # Bei EURGBP=X steht drin, wie viel EUR 1 GBP kostet
+        # Bei EURUSD=X steht drin, wie viel EUR 1 USD kostet
+        cache[cache_key] = {"timestamp": datetime.utcnow().isoformat(), "data": rate}
+        cache[last_key] = {"timestamp": datetime.utcnow().isoformat(), "data": rate}
         _save_cache(cache)
-        return eur_per_usd
-    except Exception:
-        return cache.get("_USD_EUR_RATE_LAST_", {}).get("data", 0.92)
+        return rate
+    except Exception as e:
+        print(f"[Yahoo FX] Fehler bei {pair}: {e}")
+        return cache.get(last_key, {}).get("data")
+
+
+def _get_usd_eur_rate() -> Optional[float]:
+    """Holt den aktuellen USD→EUR Wechselkurs."""
+    rate = _get_fx_rate("EURUSD=X")
+    if rate:
+        return rate
+    return None
 
 
 def _convert_to_eur(data: dict) -> dict:
-    """Wandelt alle USD-Preise in Euro um."""
-    if not data or data.get("currency") != "USD":
+    """Wandelt USD/CHF/GBP-Preise in Euro um."""
+    if not data:
         return data
-    rate = _get_usd_eur_rate()
+    currency = data.get("currency")
+    if currency == "EUR":
+        return data
+
+    pair_map = {"USD": "EURUSD=X", "CHF": "EURCHF=X", "GBP": "EURGBP=X"}
+    pair = pair_map.get(currency)
+    if not pair:
+        print(f"[Yahoo FX] Keine Umrechnung für Währung {currency} hinterlegt")
+        return data
+
+    rate = _get_fx_rate(pair)
+    if not rate:
+        return data
+
     for key in ["closes", "opens", "highs", "lows"]:
         data[key] = [round(v * rate, 6) for v in data.get(key, [])]
     data["latest"] = round(data["latest"] * rate, 4)
