@@ -1,5 +1,6 @@
 """Flask-Dashboard für Trading-Bot (Multi-User)."""
 import json
+import requests
 import os
 import shutil
 import tempfile
@@ -348,8 +349,17 @@ def api_telegram_status():
             result["test_result"] = {"ok": False, "error": "Token oder Chat-ID fehlen"}
             return jsonify(result)
 
-        test_res = telegram_client._send_message("🧪 Testnachricht vom Trading Bot Dashboard.", token=active_token, chat_id=active_chat)
-        result["test_result"] = test_res
+        # Prüfe nur, ob der Bot-Token gültig ist (keine echte Testnachricht senden)
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{active_token}/getMe", timeout=15)
+            data = r.json()
+            result["test_result"] = {
+                "ok": data.get("ok", False),
+                "bot_name": data.get("result", {}).get("username") if data.get("ok") else None,
+                "error": data.get("description") if not data.get("ok") else None,
+            }
+        except Exception as e:
+            result["test_result"] = {"ok": False, "error": str(e)}
         return jsonify(result)
     except Exception as e:
         import traceback
