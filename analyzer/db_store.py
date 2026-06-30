@@ -121,12 +121,21 @@ def restore_db_backup():
     for c in candidates:
         print(f"[DB]   {c}: exists={os.path.exists(c)}, size={_db_size(c)} bytes, mtime={_db_mtime(c)}")
 
-    if newest == DB_PATH:
-        local_users = _count_users(DB_PATH)
-        local_portfolios = _count_portfolios(DB_PATH)
-        print(f"[DB] Local DB is newest -> KEEP (users={local_users}, portfolios={local_portfolios})")
+    # Bei leerer lokaler DB (z. B. neues Render-Deploy ohne persistente Disk) immer
+    # das neueste verfügbare Backup verwenden, auch wenn DB_PATH existiert, aber leer ist.
+    local_size = _db_size(DB_PATH)
+    local_users = _count_users(DB_PATH)
+    local_portfolios = _count_portfolios(DB_PATH)
+
+    if newest == DB_PATH and local_users > 0:
+        print(f"[DB] Local DB is newest and has data -> KEEP (users={local_users}, portfolios={local_portfolios})")
         print("=" * 60)
         return
+
+    if DB_PATH == newest and local_size == 0:
+        print("[DB] Local DB exists but is empty -> searching for backup")
+        candidates_without_local = [c for c in candidates if c != DB_PATH]
+        newest = _newest_existing(*candidates_without_local)
 
     if newest:
         print(f"[DB] Restoring newest DB from {newest}")
