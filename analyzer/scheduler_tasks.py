@@ -213,7 +213,9 @@ def _analyze_symbol(symbol: str):
     ema50 = indicators.ema(closes, 50)[-1]
     rsi = indicators.rsi(closes, 14)[-1]
     macd_line, signal_line, _ = indicators.macd(closes)
-    bb_upper, bb_sma, bb_lower = indicators.bollinger_bands(closes, 20, 2)
+    bb = indicators.bollinger(closes, 20, 2)
+    bb_upper = bb["upper"]
+    bb_lower = bb["lower"]
     atr = indicators.atr(highs, lows, closes, 14)[-1]
     latest = closes[-1]
 
