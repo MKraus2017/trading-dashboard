@@ -484,7 +484,16 @@ async function analyzeRealPositionsInTab(useLLM) {
   try {
     const endpoint = useLLM ? '/api/analyze_real_positions_llm' : '/api/analyze_real_positions';
     const r = await fetch(endpoint, {method: 'POST'});
-    const data = await r.json();
+    let data;
+    try {
+      data = await r.json();
+    } catch (parseErr) {
+      const text = await r.text();
+      throw new Error(`Server antwortete mit HTTP ${r.status}: ${text.slice(0, 200)}`);
+    }
+    if (!data) {
+      throw new Error('Leere Antwort vom Server');
+    }
     if (data.ok) {
       let html = `<div class="section-title">${useLLM ? '🧠 KI-Analyse' : '📊 Technische Analyse'} — Reale TR-Positionen</div>`;
       html += `<div style="margin-bottom:16px;color:#8b949e;">${data.summary}</div>`;

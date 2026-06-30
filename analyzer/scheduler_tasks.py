@@ -267,7 +267,11 @@ def analyze_real_positions(user_id: int, notify: bool = True) -> dict:
     if not real_positions:
         return {"ok": False, "error": "Keine realen TR-Positionen vorhanden"}
 
-    token, chat_id = _user_telegram_cfg(user_id)
+    try:
+        token, chat_id = _user_telegram_cfg(user_id)
+    except Exception as e:
+        token, chat_id = None, None
+        print(f"[analyze_real_positions] telegram config error: {e}")
     lines = [f"📊 <b>Manuelle Analyse: Reale TR-Positionen</b> ({datetime.now().strftime('%d.%m.%Y %H:%M')})", ""]
     results = []
     sell_count = 0
