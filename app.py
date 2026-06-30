@@ -574,6 +574,21 @@ def api_send_recommendations_telegram():
         lines.append("Aktuell keine Verkaufsempfehlungen.")
 
     res = telegram_client._send_message("\n".join(lines), token=token, chat_id=chat_id)
+@app.route("/api/analyze_real_positions", methods=["POST"])
+@login_required
+def api_analyze_real_positions():
+    """Analysiert alle realen TR-Positionen und sendet Empfehlung an Telegram."""
+    uid = get_current_user_id()
+    settings = db_store.get_settings(uid)
+    token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+    chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+    if not chat_id:
+        return jsonify({"ok": False, "error": "Telegram Chat-ID nicht konfiguriert"}), 400
+
+    result = scheduler_tasks.analyze_real_positions(uid, notify=True)
+    return jsonify(result)
+
+
     return jsonify({"ok": res.get("ok", False), "telegram_response": res, "buy_count": len(buy_recs), "sell_count": len(sell_recs)})
 
 

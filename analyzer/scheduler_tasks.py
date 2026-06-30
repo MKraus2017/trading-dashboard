@@ -256,6 +256,104 @@ def _analyze_symbol(symbol: str):
     }
 
 
+def analyze_real_positions(user_id: int, notify: bool = True) -> dict:
+    """Analysiert alle realen TR-Positionen eines Users und gibt konkrete Handlungsempfehlungen."""
+    p = portfolio.get_portfolio(user_id)
+    real_positions = p.get("real_positions", [])
+    if not real_positions:
+        return {"ok": False, "error": "Keine realen TR-Positionen vorhanden"}
+
+    token, chat_id = _user_telegram_cfg(user_id)
+    lines = [f"📊 <b>Manuelle Analyse: Reale TR-Positionen</b> ({datetime.now().strftime('%d.%m.%Y %H:%M')})", ""]
+    results = []
+    sell_count = 0
+    partial_count = 0
+    hold_count = 0
+    add_count = 0
+
+    for pos in real_positions:
+        symbol = pos["symbol"]
+        analysis = _analyze_symbol(symbol)
+        entry = pos.get("entry_price", 0)
+        shares = pos.get("shares", 0)
+        current = analysis["price"] if analysis else pos.get("last_price", entry)
+        pnl_pct = (current - entry) / entry * 100 if entry else 0
+
+        if not analysis:
+            advice = "HALTEN"
+            emoji = "🟡"
+            reason = "Keine aktuelle Analyse verfügbar"
+        else:
+            score = analysis["score"]
+            if score >= 70 and pnl_pct > -5:
+                advice = "NACHKAUFEN"
+                emoji = "🟢🟢"
+                reason = "Starkes Signal – bestehender Trend intakt"
+            elif score >= 60:
+                advice = "HALTEN"
+                emoji = "🟢"
+                reason = "Kaufsignal – Position weiterhalten"
+            elif score < 45 and pnl_pct > 25:
+                advice = "TEILVERKAUFEN"
+                emoji = "🟠"
+                reason = "Schwäche – Teilverkauf zur Gewinn-Sicherung"
+                partial_count += 1
+            elif score < 45:
+                advice = "VERKAUFEN"
+                emoji = "🔴"
+                reason = "Verkaufssignal – Risiko reduzieren"
+                sell_count += 1
+            else:
+                advice = "HALTEN"
+                emoji = "🟡"
+                reason = "Neutrales Signal – abwarten"
+
+        if advice == "HALTEN":
+            hold_count += 1
+        elif advice == "NACHKAUFEN":
+            add_count += 1
+
+        results.append({
+            "symbol": symbol,
+            "advice": advice,
+            "score": analysis["score"] if analysis else None,
+            "price": current,
+            "entry": entry,
+            "pnl_pct": round(pnl_pct, 2),
+            "shares": shares,
+            "reason": reason,
+            "stop_loss": analysis["stop_loss"] if analysis else None,
+            "take_profit": analysis["take_profit"] if analysis else None,
+        })
+
+        lines.append(f"{emoji} <b>{symbol}</b> → <u>{advice}</u>")
+        lines.append(f"   Score: {analysis['score'] if analysis else 'n/a'}/100 | Aktuell: {telegram.fmt_eur(current)} ({pnl_pct:+.2f}%)")
+        lines.append(f"   Einstieg: {telegram.fmt_eur(entry)} | Stücke: {shares}")
+        if analysis:
+            lines.append(f"   SL: {telegram.fmt_eur(analysis['stop_loss'])} | TP: {telegram.fmt_eur(analysis['take_profit'])}")
+        lines.append(f"   Begründung: {reason}")
+        lines.append("")
+
+    summary = f"Zusammenfassung: {sell_count}× Verkaufen, {partial_count}× Teil-Verkauf, {hold_count}× Halten, {add_count}× Nachkaufen"
+    lines.insert(2, f"<i>{summary}</i>")
+
+    telegram_sent = False
+    if notify and chat_id:
+        try:
+            res = telegram._send_message("\n".join(lines), token=token, chat_id=chat_id)
+            telegram_sent = res.get("ok", False)
+        except Exception as e:
+            print(f"[analyze_real_positions] Telegram error: {e}")
+
+    return {
+        "ok": True,
+        "count": len(results),
+        "summary": summary,
+        "results": results,
+        "telegram_sent": telegram_sent,
+    }
+
+
 def real_positions_report(only_urgent: bool = False) -> dict:
     sent_any = False
     for user_id in _get_active_users():

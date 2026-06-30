@@ -471,6 +471,48 @@ async function sendRecsToTelegram() {
   }
 }
 
+async function analyzeRealPositions() {
+  const btn = document.getElementById('analyze-real-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analysiere...';
+  showError('');
+  try {
+    const r = await fetch('/api/analyze_real_positions', {method: 'POST'});
+    const data = await r.json();
+    if (data.ok) {
+      let html = `<div class="section-title">📊 Analyse Reale TR-Positionen</div>`;
+      html += `<div style="margin-bottom:16px;color:#8b949e;">${data.summary}</div>`;
+      for (const pos of data.results) {
+        let adviceClass = pos.advice === 'VERKAUFEN' ? 'sell' : (pos.advice === 'NACHKAUFEN' ? 'buy' : '');
+        html += `
+        <div class="position-row">
+          <div><b>${pos.symbol}</b> <span class="badge-${adviceClass}">${pos.advice}</span></div>
+          <div>Score: ${pos.score != null ? pos.score : 'n/a'}/100 | Aktuell: ${fmtEur(pos.price)} (${pos.pnl_pct > 0 ? '+' : ''}${pos.pnl_pct}%)</div>
+          <div>Einstieg: ${fmtEur(pos.entry)} | Stücke: ${pos.shares}</div>
+          <div>SL: ${fmtEur(pos.stop_loss)} | TP: ${fmtEur(pos.take_profit)}</div>
+          <div style="color:#8b949e;">${pos.reason}</div>
+        </div>`;
+      }
+      const panel = document.getElementById('panel-empfehlungen');
+      panel.innerHTML = html;
+      showTab('empfehlungen');
+      if (data.telegram_sent) {
+        showError(`✅ Analyse berechnet und an Telegram gesendet: ${data.summary}`);
+      } else {
+        showError(`✅ Analyse berechnet. Telegram-Versand fehlgeschlagen oder deaktiviert.`);
+      }
+      setTimeout(() => showError(''), 7000);
+    } else {
+      showError(`❌ Analyse fehlgeschlagen: ${data.error || JSON.stringify(data)}`);
+    }
+  } catch (e) {
+    showError('Fehler: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📊 Reale TR Positionen analysieren';
+  }
+}
+
 async function reportRealTrade() {
   const symbol = document.getElementById('real-symbol').value.trim().toUpperCase();
   const action = document.getElementById('real-action').value;
