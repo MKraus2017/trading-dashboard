@@ -293,20 +293,29 @@ def analyze_real_positions(user_id: int, notify: bool = True) -> dict:
             reason = "Keine aktuelle Analyse verfügbar"
         else:
             score = analysis["score"]
-            if score >= 70 and pnl_pct > -5:
+            # Gewichtung: Profit stärker berücksichtigen, damit steigende Titel nicht verkauft werden
+            adjusted_score = score
+            if pnl_pct > 25:
+                adjusted_score += 15  # großer Gewinn stabilisiert Haltensignal
+            elif pnl_pct > 10:
+                adjusted_score += 8
+            elif pnl_pct < -10:
+                adjusted_score -= 10  # Verlust verstärkt Verkaufssignal
+
+            if adjusted_score >= 70 and pnl_pct > -5:
                 advice = "NACHKAUFEN"
                 emoji = "🟢🟢"
                 reason = "Starkes Signal – bestehender Trend intakt"
-            elif score >= 60:
+            elif adjusted_score >= 55:
                 advice = "HALTEN"
                 emoji = "🟢"
                 reason = "Kaufsignal – Position weiterhalten"
-            elif score < 45 and pnl_pct > 25:
+            elif adjusted_score < 40 and pnl_pct > 30:
                 advice = "TEILVERKAUFEN"
                 emoji = "🟠"
                 reason = "Schwäche – Teilverkauf zur Gewinn-Sicherung"
                 partial_count += 1
-            elif score < 45:
+            elif adjusted_score < 40:
                 advice = "VERKAUFEN"
                 emoji = "🔴"
                 reason = "Verkaufssignal – Risiko reduzieren"
@@ -499,15 +508,26 @@ def real_positions_report(only_urgent: bool = False) -> dict:
             entry = pos.get("entry_price", 0)
             current = analysis["price"] if analysis else pos.get("last_price", entry)
             pnl_pct = (current - entry) / entry * 100 if entry else 0
-            emoji = "🟢" if analysis and analysis["direction"] == "KAUF" else ("🔴" if analysis and analysis["direction"] == "VERKAUF" else "🟡")
+
+            # Echte Positionen: Gewinne berücksichtigen, damit starke Titel nicht verkauft werden
+            adjusted_direction = analysis["direction"] if analysis else "HALTEN"
+            if analysis and analysis["direction"] == "VERKAUF":
+                if pnl_pct > 25:
+                    adjusted_direction = "HALTEN"  # großer Gewinn → Halten trotz kurzfristiger Überkauftheit
+                elif pnl_pct > 10:
+                    adjusted_direction = "HALTEN"
+                elif pnl_pct < -10:
+                    adjusted_direction = "VERKAUF"  # Verlustverdopplung bestätigt Verkauf
+
+            emoji = "🟢" if adjusted_direction == "KAUF" else ("🔴" if adjusted_direction == "VERKAUF" else "🟡")
             title = "🚨 Dringende Alerts (reale Positionen)" if only_urgent else "📋 Bericht (reale Positionen)"
             lines = [
-                f"{emoji} <b>{pos['symbol']}</b> — {analysis['direction'] if analysis else 'HALTEN'} (Score {analysis['score'] if analysis else 'n/a'})",
+                f"{emoji} <b>{pos['symbol']}</b> — {adjusted_direction} (Score {analysis['score'] if analysis else 'n/a'}, P&L {pnl_pct:+.1f}%)",
                 f"Einstieg: {telegram.fmt_eur(entry)} | Aktuell: {telegram.fmt_eur(current)} ({pnl_pct:+.2f}%)",
             ]
             if analysis:
                 lines.append(f"SL: {telegram.fmt_eur(analysis['stop_loss'])} | TP: {telegram.fmt_eur(analysis['take_profit'])}")
-            if analysis and analysis["direction"] == "VERKAUF" and pnl_pct >= -2:
+            if adjusted_direction == "VERKAUF" and pnl_pct >= -2:
                 urgent.append(pos["symbol"])
                 lines.append("<b>⚠️ Dringend: Verkauf empfohlen!</b>")
             reports.append("\n".join(lines))
