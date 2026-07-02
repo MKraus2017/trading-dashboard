@@ -847,3 +847,74 @@ function renderImprovements(p) {
     }
   }
 }
+
+
+// --- Historischer Strategie-Backtest ---
+function renderFullBacktest(data) {
+  const div = document.getElementById('full-backtest-result');
+  if (!div) return;
+  if (!data || !data.variants) {
+    div.innerHTML = '<div class="no-data">Noch kein Backtest ausgeführt.</div>';
+    return;
+  }
+  let html = `<div style="color:#8b949e;margin-bottom:10px;">Stand: ${data.updated ? new Date(data.updated).toLocaleString('de-DE') : '-'} · ${data.symbols_tested} Symbole · ${data.period}${data.cached ? ' · (gespeichertes Ergebnis)' : ''}</div>`;
+
+  if (data.improvements && data.improvements.length) {
+    html += '<div style="margin-bottom:14px;">';
+    for (const imp of data.improvements) {
+      html += `<div class="alert-box" style="margin-bottom:6px;">💡 ${imp}</div>`;
+    }
+    html += '</div>';
+  }
+
+  html += '<table><tr><th>Variante</th><th>Trades</th><th>Win-Rate</th><th>Ø Gewinn</th><th>Ø Verlust</th><th>Profit-Faktor</th><th>Gesamt-PnL</th><th>Max. DD</th><th>Ø Tage</th></tr>';
+  for (const v of data.variants) {
+    const isBest = v.name === data.best_variant;
+    const pfClass = v.profit_factor >= 1.2 ? 'pnl-pos' : (v.profit_factor < 1.0 ? 'pnl-neg' : '');
+    html += `<tr style="${isBest ? 'background:rgba(46,160,67,0.15);' : ''}">
+      <td>${isBest ? '⭐ ' : ''}<strong>${v.name}</strong></td>
+      <td>${v.trades}</td>
+      <td>${v.win_rate}%</td>
+      <td class="pnl-pos">${v.avg_win}%</td>
+      <td class="pnl-neg">${v.avg_loss}%</td>
+      <td class="${pfClass}">${v.profit_factor}</td>
+      <td class="${v.total_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${v.total_pnl_pct}%</td>
+      <td>${v.max_drawdown_pct}%</td>
+      <td>${v.avg_days}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  html += '<div style="color:#8b949e;font-size:12px;margin-top:8px;">Hinweis: Simulation nur mit technischen Signalen (ohne News-Sentiment/LLM, da historisch nicht verfügbar). Profit-Faktor = Bruttogewinne / Bruttoverluste; >1.2 gilt als solide.</div>';
+  div.innerHTML = html;
+}
+
+async function runFullBacktest() {
+  const btn = document.getElementById('full-backtest-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Backtest läuft (kann 1-2 Min. dauern)...';
+  showError('');
+  try {
+    const r = await fetch('/api/backtest', {method: 'POST'});
+    const data = await r.json();
+    if (data.ok) {
+      renderFullBacktest(data);
+    } else {
+      showError('❌ Backtest fehlgeschlagen: ' + (data.error || 'Unbekannt'));
+    }
+  } catch (e) {
+    showError('Fehler: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🧪 Backtest jetzt ausführen';
+  }
+}
+
+async function loadCachedBacktest() {
+  try {
+    const r = await fetch('/api/backtest');
+    const data = await r.json();
+    if (data.ok) renderFullBacktest(data);
+  } catch (e) { /* still */ }
+}
+
+loadCachedBacktest();

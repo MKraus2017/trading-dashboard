@@ -12,7 +12,7 @@ import bcrypt
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 import config
-from analyzer import auto_trader, db_store, portfolio, scheduler_tasks, signals, yahoo_client, telegram as telegram_client
+from analyzer import auto_trader, backtester, db_store, portfolio, scheduler_tasks, signals, yahoo_client, telegram as telegram_client
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -633,6 +633,24 @@ def api_analyze_real_positions_llm():
     """KI-gestützte Analyse aller realen TR-Positionen."""
     uid = get_current_user_id()
     return _analyze_real_positions_api(uid, llm=True)
+
+
+@app.route("/api/backtest", methods=["GET", "POST"])
+@login_required
+def api_backtest():
+    """Historisches Backtesting der Strategie inkl. Parameter-Varianten."""
+    if request.method == "GET":
+        cached = backtester.load_last_backtest()
+        if cached:
+            return jsonify({"ok": True, "cached": True, **cached})
+        return jsonify({"ok": False, "error": "Noch kein Backtest vorhanden. POST zum Starten."})
+    try:
+        result = backtester.run_full_backtest()
+        return jsonify({"ok": True, "cached": False, **result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/scheduler/real_positions_alert", methods=["POST"])
