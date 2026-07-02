@@ -22,6 +22,7 @@ OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 START_CAPITAL = 10_000.00
 MAX_POSITIONS = 5
 MAX_POSITION_PCT = 0.20          # max. 20 % des Depotwerts pro Position
+MIN_POSITION_EUR = 500.00        # Mindest-Kaufbetrag pro Trade (kleinere Käufe lohnen nicht)
 CASH_RESERVE_PCT = 0.20          # min. 20 % Cash behalten
 DEFAULT_STOP_PCT = 0.04          # 4 % harter Stop-Loss (mehr Raum für Swing-Trades)
 TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger sichern)

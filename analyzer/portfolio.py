@@ -200,8 +200,8 @@ def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Op
     if amount_eur is None:
         amount_eur = min(max_per_position, available_for_trade)
 
-    if amount_eur < 100:
-        return {"ok": False, "error": "Kaufbetrag zu niedrig (< €100) oder Reserve überschritten"}
+    if amount_eur < config.MIN_POSITION_EUR:
+        return {"ok": False, "error": f"Kaufbetrag zu niedrig (< €{config.MIN_POSITION_EUR:.0f}) oder Cash-Reserve überschritten"}
 
     if len(p.get("positions", [])) >= config.MAX_POSITIONS:
         return {"ok": False, "error": "Maximale Anzahl Positionen erreicht"}
@@ -212,13 +212,13 @@ def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Op
         return {"ok": False, "error": f"Kein gültiger Kurs für {symbol}"}
 
     amount_eur = min(amount_eur, p["cash"])
-    if amount_eur < 100:
-        return {"ok": False, "error": "Nicht genug Cash für Mindestkauf"}
+    if amount_eur < config.MIN_POSITION_EUR:
+        return {"ok": False, "error": f"Nicht genug Cash für Mindestkauf (min. €{config.MIN_POSITION_EUR:.0f})"}
 
     shares = amount_eur / price
     invested = shares * price
-    if invested < 100:
-        return {"ok": False, "error": "Investition zu gering"}
+    if invested < config.MIN_POSITION_EUR:
+        return {"ok": False, "error": f"Investition zu gering (min. €{config.MIN_POSITION_EUR:.0f})"}
 
     stop_loss = round(price * (1 - config.DEFAULT_STOP_PCT), 2)
     take_profit = round(price + (price - stop_loss) * config.MIN_RR_RATIO, 2)
