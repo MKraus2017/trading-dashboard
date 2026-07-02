@@ -28,6 +28,8 @@ DEFAULT_STOP_PCT = 0.03          # Backtest 1J/28 Symbole: SL 3 % + Score>=70 =>
 TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger sichern)
 MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
 BUY_SCORE_THRESHOLD = 70         # Backtest 1J/28 Symbole: Score>=70 => Profit-Faktor 1.23, Win-Rate 38.1 % (beste Variante)
+BREAKEVEN_AT_PCT = 4.0           # Ab +4 % Gewinn Stop auf Einstiegskurs anheben (Backtest: PF 1.89 statt 1.57)
+TIME_EXIT_DAYS = 10              # Position nach 10 Handelstagen schließen, wenn Gewinn < +1 % (totes Kapital freigeben)
 
 # Für Trade Republic greifen ausschließlich Long-Positionen.
 ALLOW_SHORT = False

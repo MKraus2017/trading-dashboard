@@ -105,6 +105,27 @@ def evaluate_portfolio(user_id: int) -> dict:
         pos["unrealized_pct"] = round(unrealized_pct, 2)
         pos["unrealized_eur"] = round(current_value - invested, 2)
 
+        # Breakeven-Stop: ab +4 % Gewinn Stop-Loss auf Einstiegskurs anheben
+        be_at = getattr(config, "BREAKEVEN_AT_PCT", 4.0)
+        if unrealized_pct >= be_at and pos.get("stop_loss") and pos["stop_loss"] < entry and not pos.get("breakeven_set"):
+            pos["stop_loss"] = round(entry, 4)
+            pos["breakeven_set"] = True
+            alerts.append({"type": "info", "symbol": symbol, "msg": f"Breakeven-Stop: Stop-Loss auf Einstieg {round(entry, 2)} € angehoben"})
+
+        # Time-Exit: nach N Handelstagen ohne nennenswerten Gewinn schließen
+        time_exit_days = getattr(config, "TIME_EXIT_DAYS", 0)
+        if time_exit_days and pos.get("opened_at") and unrealized_pct < 1.0:
+            try:
+                opened = datetime.fromisoformat(pos["opened_at"])
+                cal_days = (datetime.utcnow() - opened).days
+                # ~10 Handelstage entsprechen ~14 Kalendertagen
+                if cal_days >= round(time_exit_days * 1.4):
+                    _sell_position_logic(p, pos, price, f"Time-Exit: {cal_days} Tage ohne Gewinn (<+1 %)", auto=True)
+                    alerts.append({"type": "sell", "symbol": symbol, "msg": f"Time-Exit nach {cal_days} Tagen ohne Gewinn", "price": price})
+                    continue
+            except Exception:
+                pass
+
         # Trailing-Stop
         if unrealized_pct >= 25 and "trailing_stop" not in pos:
             pos["trailing_stop"] = round(price * (1 - config.TRAILING_STOP_PCT), 2)

@@ -79,7 +79,9 @@ def _tech_score(closes: List[float], i: int, ema9, ema20, ema50, rsi14, macd_lin
 
 def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
                      buy_threshold: int, stop_pct: float, rr_ratio: float,
-                     trailing_pct: float) -> List[dict]:
+                     trailing_pct: float,
+                     breakeven_at: Optional[float] = None,
+                     time_exit_days: Optional[int] = None) -> List[dict]:
     """Simuliert Trades für ein Symbol. Liefert Liste abgeschlossener Trades."""
     n = len(closes)
     if n < 80:
@@ -112,8 +114,13 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
             exit_price = None
             reason = None
 
-            # Trailing-Stop aktivieren ab +25 %
             gain_pct = (price - pos["entry"]) / pos["entry"] * 100
+
+            # Breakeven-Stop: ab +X % Stop auf Einstieg anheben
+            if breakeven_at and gain_pct >= breakeven_at and pos["stop"] < pos["entry"]:
+                pos["stop"] = pos["entry"]
+
+            # Trailing-Stop aktivieren ab +25 %
             if gain_pct >= 25 and pos["trailing"] is None:
                 pos["trailing"] = price * (1 - trailing_pct)
             if pos["trailing"] is not None and price > pos["highest"]:
@@ -129,6 +136,9 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
             elif hi is not None and hi >= pos["tp"] and pos["trailing"] is None:
                 exit_price = pos["tp"]
                 reason = "TP"
+            elif time_exit_days and (i - pos["entry_i"]) >= time_exit_days and gain_pct < 1:
+                exit_price = price
+                reason = "TimeExit"
 
             if exit_price is not None:
                 pnl_pct = (exit_price - pos["entry"]) / pos["entry"] * 100
@@ -196,6 +206,8 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
         "stop_pct": config.DEFAULT_STOP_PCT,
         "rr_ratio": config.MIN_RR_RATIO,
         "trailing_pct": config.TRAILING_STOP_PCT,
+        "breakeven_at": getattr(config, "BREAKEVEN_AT_PCT", None),
+        "time_exit_days": getattr(config, "TIME_EXIT_DAYS", None),
     }
 
     variants = [
@@ -207,6 +219,8 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
         {"name": f"Selektiver (Score {current['buy_threshold']+5})", **{**current, "buy_threshold": current["buy_threshold"] + 5}},
         {"name": f"Aggressiver (Score {current['buy_threshold']-5})", **{**current, "buy_threshold": current["buy_threshold"] - 5}},
         {"name": "Trailing 6 %", **{**current, "trailing_pct": 0.06}},
+        {"name": "Ohne Breakeven-Stop", **{**current, "breakeven_at": None}},
+        {"name": "Ohne Time-Exit", **{**current, "time_exit_days": None}},
     ]
 
     results = []
@@ -216,6 +230,7 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
             trades = _simulate_symbol(
                 d["closes"], d["highs"], d["lows"],
                 v["buy_threshold"], v["stop_pct"], v["rr_ratio"], v["trailing_pct"],
+                breakeven_at=v.get("breakeven_at"), time_exit_days=v.get("time_exit_days"),
             )
             all_trades.extend(trades)
         m = _metrics(all_trades)
@@ -300,6 +315,8 @@ def run_real_backtest(real_positions: List[dict]) -> dict:
         "stop_pct": config.DEFAULT_STOP_PCT,
         "rr_ratio": config.MIN_RR_RATIO,
         "trailing_pct": config.TRAILING_STOP_PCT,
+        "breakeven_at": getattr(config, "BREAKEVEN_AT_PCT", None),
+        "time_exit_days": getattr(config, "TIME_EXIT_DAYS", None),
     }
 
     per_symbol = []
@@ -312,6 +329,7 @@ def run_real_backtest(real_positions: List[dict]) -> dict:
         trades = _simulate_symbol(
             d["closes"], d["highs"], d["lows"],
             params["buy_threshold"], params["stop_pct"], params["rr_ratio"], params["trailing_pct"],
+            breakeven_at=params.get("breakeven_at"), time_exit_days=params.get("time_exit_days"),
         )
         all_trades.extend(trades)
         m = _metrics(trades)
