@@ -171,22 +171,25 @@ def _metrics(trades: List[dict]) -> dict:
     }
 
 
-def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
-    """Backtest der aktuellen Strategie + Parameter-Varianten über die Watchlist."""
-    universe = config.get_universe()
-    if max_symbols:
-        universe = universe[:max_symbols]
-
-    # Kursdaten einmalig laden
+def _load_data(symbols: List[str]) -> Dict[str, dict]:
     data_cache = {}
-    for item in universe:
-        sym = item["symbol"]
+    for sym in symbols:
         try:
             d = yahoo_client.fetch_yahoo(sym, interval="1d", range_="1y")
             if d and len(d.get("closes", [])) >= 80:
                 data_cache[sym] = d
         except Exception:
             continue
+    return data_cache
+
+
+def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
+    """Backtest der aktuellen Strategie + Parameter-Varianten über die Watchlist."""
+    universe = config.get_universe()
+    if max_symbols:
+        universe = universe[:max_symbols]
+
+    data_cache = _load_data([item["symbol"] for item in universe])
 
     current = {
         "buy_threshold": getattr(config, "BUY_SCORE_THRESHOLD", 65),
@@ -278,3 +281,62 @@ def load_last_backtest() -> Optional[dict]:
             return json.load(f)
     except Exception:
         return None
+
+
+def run_real_backtest(real_positions: List[dict]) -> dict:
+    """Backtest der Strategie nur über die Symbole der realen TR-Positionen.
+
+    Zeigt pro Symbol, wie die aktuelle Signal-Logik im letzten Jahr performt
+    hätte — als Realitätscheck für die tatsächlich gehaltenen Titel.
+    """
+    symbols = sorted({p.get("symbol") for p in real_positions if p.get("symbol")})
+    if not symbols:
+        return {"ok": False, "error": "Keine realen TR-Positionen vorhanden"}
+
+    data_cache = _load_data(symbols)
+
+    params = {
+        "buy_threshold": getattr(config, "BUY_SCORE_THRESHOLD", 65),
+        "stop_pct": config.DEFAULT_STOP_PCT,
+        "rr_ratio": config.MIN_RR_RATIO,
+        "trailing_pct": config.TRAILING_STOP_PCT,
+    }
+
+    per_symbol = []
+    all_trades = []
+    for sym in symbols:
+        d = data_cache.get(sym)
+        if not d:
+            per_symbol.append({"symbol": sym, "trades": 0, "note": "Keine ausreichenden Kursdaten"})
+            continue
+        trades = _simulate_symbol(
+            d["closes"], d["highs"], d["lows"],
+            params["buy_threshold"], params["stop_pct"], params["rr_ratio"], params["trailing_pct"],
+        )
+        all_trades.extend(trades)
+        m = _metrics(trades)
+        per_symbol.append({"symbol": sym, **m})
+
+    overall = _metrics(all_trades)
+
+    hints = []
+    for s in per_symbol:
+        if s.get("trades", 0) == 0:
+            hints.append(f"{s['symbol']}: Strategie fand im letzten Jahr keinen Einstieg (oder keine Daten) — Position beruht nicht auf aktuellem Signal.")
+        elif s.get("profit_factor", 0) < 1.0:
+            hints.append(f"{s['symbol']}: Strategie war auf diesem Titel historisch unprofitabel (PF {s['profit_factor']}, Win-Rate {s['win_rate']} %) — Signale hier kritisch prüfen.")
+        elif s.get("profit_factor", 0) >= 1.5:
+            hints.append(f"{s['symbol']}: Strategie funktioniert auf diesem Titel gut (PF {s['profit_factor']}, Win-Rate {s['win_rate']} %).")
+    if not hints:
+        hints.append("Strategie zeigt auf deinen realen Titeln durchschnittliche Ergebnisse.")
+
+    return {
+        "ok": True,
+        "updated": datetime.utcnow().isoformat(),
+        "period": "1 Jahr Tagesdaten",
+        "params": params,
+        "symbols": symbols,
+        "per_symbol": per_symbol,
+        "overall": overall,
+        "hints": hints,
+    }

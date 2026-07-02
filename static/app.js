@@ -918,3 +918,60 @@ async function loadCachedBacktest() {
 }
 
 loadCachedBacktest();
+
+
+// --- Backtest auf realen Positionen (Historie-R) ---
+async function runRealBacktest() {
+  const btn = document.getElementById('real-backtest-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Backtest läuft...';
+  showError('');
+  try {
+    const r = await fetch('/api/backtest_real', {method: 'POST'});
+    const data = await r.json();
+    const div = document.getElementById('real-backtest-result');
+    if (data.ok) {
+      let html = `<div style="color:#8b949e;margin-bottom:10px;">Stand: ${new Date(data.updated).toLocaleString('de-DE')} · ${data.symbols.length} Symbole · ${data.period} · Parameter: Score≥${data.params.buy_threshold}, SL ${(data.params.stop_pct*100).toFixed(0)} %, RR ${data.params.rr_ratio}:1</div>`;
+      if (data.hints && data.hints.length) {
+        for (const h of data.hints) {
+          html += `<div class="alert-box" style="margin-bottom:6px;">💡 ${h}</div>`;
+        }
+      }
+      html += '<table><tr><th>Symbol</th><th>Trades</th><th>Win-Rate</th><th>Ø Gewinn</th><th>Ø Verlust</th><th>Profit-Faktor</th><th>Gesamt-PnL</th><th>Ø Tage</th></tr>';
+      for (const s of data.per_symbol) {
+        if (!s.trades) {
+          html += `<tr><td><strong>${s.symbol}</strong><br><span style="color:#8b949e;font-size:12px;">${symbolName(s.symbol)}</span></td><td colspan="7" style="color:#8b949e;">${s.note || 'Keine Trades im Zeitraum'}</td></tr>`;
+          continue;
+        }
+        const pfClass = s.profit_factor >= 1.2 ? 'pnl-pos' : (s.profit_factor < 1.0 ? 'pnl-neg' : '');
+        html += `<tr>
+          <td><strong>${s.symbol}</strong><br><span style="color:#8b949e;font-size:12px;">${symbolName(s.symbol)}</span></td>
+          <td>${s.trades}</td>
+          <td>${s.win_rate}%</td>
+          <td class="pnl-pos">${s.avg_win}%</td>
+          <td class="pnl-neg">${s.avg_loss}%</td>
+          <td class="${pfClass}">${s.profit_factor}</td>
+          <td class="${s.total_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${s.total_pnl_pct}%</td>
+          <td>${s.avg_days}</td>
+        </tr>`;
+      }
+      const o = data.overall;
+      html += `<tr style="background:rgba(56,139,253,0.1);font-weight:600;">
+        <td>GESAMT</td><td>${o.trades}</td><td>${o.win_rate}%</td>
+        <td class="pnl-pos">${o.avg_win}%</td><td class="pnl-neg">${o.avg_loss}%</td>
+        <td class="${o.profit_factor >= 1.2 ? 'pnl-pos' : (o.profit_factor < 1.0 ? 'pnl-neg' : '')}">${o.profit_factor}</td>
+        <td class="${o.total_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${o.total_pnl_pct}%</td>
+        <td>${o.avg_days}</td>
+      </tr>`;
+      html += '</table>';
+      div.innerHTML = html;
+    } else {
+      div.innerHTML = `<div class="no-data">❌ ${data.error || 'Backtest fehlgeschlagen'}</div>`;
+    }
+  } catch (e) {
+    showError('Fehler: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🧪 Backtest auf reale Positionen';
+  }
+}

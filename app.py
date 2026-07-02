@@ -653,6 +653,22 @@ def api_backtest():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/backtest_real", methods=["POST"])
+@login_required
+def api_backtest_real():
+    """Backtest der Strategie über die Symbole der realen TR-Positionen."""
+    uid = get_current_user_id()
+    try:
+        p = portfolio.get_portfolio(uid)
+        result = backtester.run_real_backtest(p.get("real_positions", []))
+        status = 200 if result.get("ok") else 400
+        return jsonify(result), status
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/scheduler/real_positions_alert", methods=["POST"])
 def api_scheduler_real_positions_alert():
     if not _scheduler_auth():

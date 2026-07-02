@@ -122,6 +122,11 @@
       <div id="real-historie-positions"></div>
       <div class="section-title" style="margin-top:24px;">📝 Echte Trades</div>
       <div id="real-trade-history"></div>
+
+      <div class="section-title" style="margin-top:24px;">🧪 Strategie-Backtest auf realen Positionen</div>
+      <p style="color:#8b949e;margin-bottom:12px;">Simuliert die aktuelle Signal-Logik (1 Jahr Tagesdaten) auf genau den Titeln, die du real hältst — als Realitätscheck pro Symbol.</p>
+      <button class="refresh-btn" onclick="runRealBacktest()" id="real-backtest-btn">🧪 Backtest auf reale Positionen</button>
+      <div id="real-backtest-result" style="margin-top:16px;"></div>
     </div>
 
     <!-- Vergleich Tab -->
@@ -148,6 +153,6 @@
       <div id="backtest-details"></div>
     </div>
   </div>
-<script src="/static/app.js?v=16"></script>
+<script src="/static/app.js?v=17"></script>
 </body>
 </html>
