@@ -107,6 +107,20 @@ function renderPortfolio(p, alerts) {
     posDiv.innerHTML = html;
   }
 
+  // Historie-V GuV
+  const virtualGuV = p.virtual_guv || {};
+  const virtualGuVDiv = document.getElementById('virtual-guv');
+  if (virtualGuVDiv) {
+    const totalClass = (virtualGuV.total_return || 0) >= 0 ? 'green' : 'red';
+    virtualGuVDiv.innerHTML = `
+      <div class="card"><div class="card-label">Investiert</div><div class="card-value neutral">${fmtEur(virtualGuV.invested)}</div></div>
+      <div class="card"><div class="card-label">Aktueller Wert</div><div class="card-value neutral">${fmtEur(virtualGuV.current_value)}</div></div>
+      <div class="card"><div class="card-label">Unrealisiert</div><div class="card-value ${(virtualGuV.unrealized || 0) >= 0 ? 'green' : 'red'}">${fmtEur(virtualGuV.unrealized)} (${fmtPct(virtualGuV.unrealized_pct)})</div></div>
+      <div class="card"><div class="card-label">Realisiert</div><div class="card-value ${(virtualGuV.realized || 0) >= 0 ? 'green' : 'red'}">${fmtEur(virtualGuV.realized)}</div></div>
+      <div class="card"><div class="card-label">Gesamtrendite</div><div class="card-value ${totalClass}">${fmtEur(virtualGuV.total_return)} (${fmtPct(virtualGuV.total_return_pct)})</div></div>
+    `;
+  }
+
   // Historie-V
   const histDiv = document.getElementById('trade-history');
   const trades = (p.trades || []).slice().reverse();

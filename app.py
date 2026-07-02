@@ -128,6 +128,7 @@ def api_portfolio():
     # Preise für echte Positionen anreichern
     p = portfolio.enrich_real_positions(p)
     p = _calc_real_guv(p)
+    p = _calc_virtual_guv(p)
     # Vergleichs- & Backtest-Daten anreichern
     p["comparison"] = portfolio.calculate_comparison(p)
     p["backtest"] = portfolio.run_backtest(p)
@@ -147,6 +148,30 @@ def _calc_real_guv(p: dict) -> dict:
     realized = total_sell_proceeds - (total_buy - total_invested)
 
     p["real_guv"] = {
+        "invested": round(total_invested, 2),
+        "current_value": round(current_value, 2),
+        "unrealized": round(unrealized, 2),
+        "unrealized_pct": round(unrealized / total_invested * 100, 2) if total_invested else 0.0,
+        "realized": round(realized, 2),
+        "total_return": round(unrealized + realized, 2),
+        "total_return_pct": round((unrealized + realized) / max(total_invested, 1) * 100, 2) if total_invested > 0 else 0.0,
+    }
+    return p
+
+
+def _calc_virtual_guv(p: dict) -> dict:
+    """Berechnet GuV-Zahlen für das virtuelle Depot."""
+    positions = p.get("positions", [])
+    trades = p.get("trades", [])
+    total_invested = sum(pos.get("invested", pos.get("shares", 0) * pos.get("entry_price", 0)) for pos in positions)
+    current_value = sum(pos.get("shares", 0) * pos.get("last_price", pos.get("entry_price", 0)) for pos in positions)
+    unrealized = current_value - total_invested
+
+    total_buy = sum(t.get("invested", t.get("shares", 0) * t.get("price", 0)) for t in trades if t.get("action") == "BUY")
+    total_sell_proceeds = sum(t.get("shares", 0) * t.get("price", 0) for t in trades if t.get("action") == "SELL")
+    realized = total_sell_proceeds - (total_buy - total_invested)
+
+    p["virtual_guv"] = {
         "invested": round(total_invested, 2),
         "current_value": round(current_value, 2),
         "unrealized": round(unrealized, 2),
