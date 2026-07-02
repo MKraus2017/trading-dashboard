@@ -47,6 +47,18 @@ function fmtPct(n) {
   return Number(n).toFixed(2) + '%';
 }
 
+function adviceBadge(advice) {
+  if (!advice) return '';
+  const map = {
+    'gruen': {bg: '#2ea043', icon: '🟢', label: advice.advice || 'NACHKAUFEN'},
+    'gelb':  {bg: '#bb8009', icon: '🟡', label: advice.advice || 'HALTEN'},
+    'rot':   {bg: '#da3633', icon: '🔴', label: advice.advice || 'VERKAUFEN'}
+  };
+  const c = map[advice.color] || map['gelb'];
+  const title = (advice.reason || '') + (advice.score != null ? ` (Score ${advice.score}/100)` : '');
+  return `<span title="${title}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:${c.bg};color:#fff;font-size:11px;font-weight:600;white-space:nowrap;">${c.icon} ${c.label}</span>`;
+}
+
 async function loadPortfolio() {
   showLoading(true);
   showError('');
@@ -90,7 +102,7 @@ function renderPortfolio(p, alerts) {
   if (positions.length === 0) {
     posDiv.innerHTML = '<div class="no-data">Keine offenen Positionen. Starte eine Analyse und kaufe virtuell.</div>';
   } else {
-    let html = '<table><tr><th>Symbol</th><th>Einstieg</th><th>Aktuell</th><th>Stück</th><th>Investiert</th><th>Gewinn</th><th>SL</th><th>TP</th><th></th></tr>';
+    let html = '<table><tr><th>Symbol</th><th>Einstieg</th><th>Aktuell</th><th>Stück</th><th>Investiert</th><th>Gewinn</th><th>Empfehlung</th><th>SL</th><th>TP</th><th></th></tr>';
     for (const pos of positions) {
       const pnlClass = pos.unrealized_eur >= 0 ? 'pnl-pos' : 'pnl-neg';
       html += `<tr>
@@ -100,6 +112,7 @@ function renderPortfolio(p, alerts) {
         <td>${pos.shares}</td>
         <td>${fmtEur(pos.invested)}</td>
         <td class="${pnlClass}">${fmtEur(pos.unrealized_eur)} (${fmtPct(pos.unrealized_pct)})</td>
+        <td>${adviceBadge(pos.advice)}</td>
         <td>${pos.stop_loss ? fmtEur(pos.stop_loss) : '-'}</td>
         <td>${pos.take_profit ? fmtEur(pos.take_profit) : '-'}</td>
         <td><button class="btn-sell" onclick="quickSell('${pos.symbol}')">Verkaufen</button></td>
@@ -166,7 +179,7 @@ function renderPortfolio(p, alerts) {
     if (!realPositions.length) {
       realHistPositionsDiv.innerHTML = '<div class="no-data">Keine offenen echten Positionen.</div>';
     } else {
-      let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th></tr>';
+      let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th><th>Empfehlung</th></tr>';
       for (const pos of realPositions) {
         const pnlClass = (pos.unrealized_eur || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
         html += `<tr>
@@ -178,6 +191,7 @@ function renderPortfolio(p, alerts) {
           <td>${pos.last_price ? fmtEur(pos.last_price) : '-'}</td>
           <td>${pos.current_value ? fmtEur(pos.current_value) : '-'}</td>
           <td class="${pnlClass}">${pos.unrealized_eur ? fmtEur(pos.unrealized_eur) : '-'} (${pos.unrealized_pct ? fmtPct(pos.unrealized_pct) : '-'})</td>
+          <td>${adviceBadge(pos.advice)}</td>
         </tr>`;
       }
       html += '</table>';
@@ -231,7 +245,7 @@ function renderRealPositions(p) {
     div.innerHTML = '<div class="no-data">Noch keine echten TR-Positionen eingetragen.</div>';
     return;
   }
-  let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th><th>Gekauft</th><th>Verkauft</th></tr>';
+  let html = '<table><tr><th>Symbol</th><th>Name</th><th>Stück</th><th>Einstieg</th><th>Investiert</th><th>Aktuell</th><th>Wert</th><th>P&L</th><th>Empfehlung</th><th>Gekauft</th><th>Verkauft</th></tr>';
   for (const pos of positions) {
     const name = symbolName(pos.symbol);
     const pnlClass = pos.unrealized_eur >= 0 ? 'pnl-pos' : 'pnl-neg';
@@ -245,6 +259,7 @@ function renderRealPositions(p) {
       <td>${pos.last_price ? fmtEur(pos.last_price) : '-'}</td>
       <td>${pos.current_value ? fmtEur(pos.current_value) : '-'}</td>
       <td class="${pnlClass}">${pos.unrealized_eur ? fmtEur(pos.unrealized_eur) : '-'} (${pos.unrealized_pct ? fmtPct(pos.unrealized_pct) : '-'})</td>
+      <td>${adviceBadge(pos.advice)}</td>
       <td>${new Date(pos.opened_at).toLocaleString('de-DE')}</td>
       <td>${closedAt}</td>
     </tr>`;

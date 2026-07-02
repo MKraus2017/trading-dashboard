@@ -129,10 +129,64 @@ def api_portfolio():
     p = portfolio.enrich_real_positions(p)
     p = _calc_real_guv(p)
     p = _calc_virtual_guv(p)
+    # Ampel-Empfehlung (halten/verkaufen/nachkaufen) je Position
+    p = _enrich_position_advice(p)
     # Vergleichs- & Backtest-Daten anreichern
     p["comparison"] = portfolio.calculate_comparison(p)
     p["backtest"] = portfolio.run_backtest(p)
     return jsonify({"portfolio": p, "alerts": alerts})
+
+
+def _position_advice(symbol: str, pnl_pct: float) -> dict:
+    """Berechnet eine Ampel-Empfehlung für eine bestehende Position.
+
+    Nutzt die technische Analyse (Score) und den aktuellen Gewinn, um
+    HALTEN (gelb), VERKAUFEN (rot) oder NACHKAUFEN (grün) zu bestimmen.
+    """
+    try:
+        analysis = scheduler_tasks._analyze_symbol(symbol)
+    except Exception:
+        analysis = None
+
+    if not analysis:
+        return {"advice": "HALTEN", "color": "gelb", "score": None,
+                "reason": "Keine aktuelle Analyse verfügbar"}
+
+    score = analysis["score"]
+    # Gewinne berücksichtigen, damit steigende Titel nicht verkauft werden
+    adjusted = score
+    if pnl_pct > 25:
+        adjusted += 15
+    elif pnl_pct > 10:
+        adjusted += 8
+    elif pnl_pct < -10:
+        adjusted -= 10
+
+    if adjusted >= 70 and pnl_pct > -5:
+        return {"advice": "NACHKAUFEN", "color": "gruen", "score": score,
+                "reason": "Starkes Signal – Trend intakt"}
+    elif adjusted >= 55:
+        return {"advice": "HALTEN", "color": "gelb", "score": score,
+                "reason": "Kaufsignal – Position weiterhalten"}
+    elif adjusted < 40 and pnl_pct > 30:
+        return {"advice": "VERKAUFEN", "color": "rot", "score": score,
+                "reason": "Schwäche – Gewinn sichern"}
+    elif adjusted < 40:
+        return {"advice": "VERKAUFEN", "color": "rot", "score": score,
+                "reason": "Verkaufssignal – Risiko reduzieren"}
+    else:
+        return {"advice": "HALTEN", "color": "gelb", "score": score,
+                "reason": "Neutrales Signal – abwarten"}
+
+
+def _enrich_position_advice(p: dict) -> dict:
+    """Fügt jeder offenen Position (virtuell + real) eine Ampel-Empfehlung hinzu."""
+    for key in ("positions", "real_positions"):
+        for pos in p.get(key, []):
+            pnl_pct = pos.get("unrealized_pct", 0) or 0
+            pos["advice"] = _position_advice(pos["symbol"], pnl_pct)
+    return p
+
 
 
 def _calc_real_guv(p: dict) -> dict:
