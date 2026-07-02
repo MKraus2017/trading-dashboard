@@ -23,9 +23,9 @@ START_CAPITAL = 10_000.00
 MAX_POSITIONS = 5
 MAX_POSITION_PCT = 0.20          # max. 20 % des Depotwerts pro Position
 CASH_RESERVE_PCT = 0.20          # min. 20 % Cash behalten
-DEFAULT_STOP_PCT = 0.03          # 3 % harter Stop-Loss
-TRAILING_STOP_PCT = 0.10         # 10 % Trailing-Stop bei Gewinn
-MIN_RR_RATIO = 1.5               # Mindestens 1,5:1 Reward/Risk
+DEFAULT_STOP_PCT = 0.04          # 4 % harter Stop-Loss (mehr Raum für Swing-Trades)
+TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger sichern)
+MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
 
 # Für Trade Republic greifen ausschließlich Long-Positionen.
 ALLOW_SHORT = False
@@ -60,6 +60,15 @@ DEFAULT_UNIVERSE = [
     {"symbol": "LMT", "name": "Lockheed Martin"},
     {"symbol": "SMH", "name": "VanEck Semiconductors UCITS ETF"},
     {"symbol": "VUSA.AS", "name": "Vanguard S&P 500 UCITS ETF"},
+    # Neue Titel (alle auf Trade Republic handelbar)
+    {"symbol": "LLY", "name": "Eli Lilly"},
+    {"symbol": "NVO", "name": "Novo Nordisk ADR"},
+    {"symbol": "NFLX", "name": "Netflix"},
+    {"symbol": "COST", "name": "Costco"},
+    {"symbol": "SIE.DE", "name": "Siemens"},
+    {"symbol": "ALV.DE", "name": "Allianz"},
+    {"symbol": "AIR.PA", "name": "Airbus"},
+    {"symbol": "MC.PA", "name": "LVMH"},
 ]
 
 

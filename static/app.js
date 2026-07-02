@@ -28,7 +28,9 @@ const SYMBOL_NAMES = {
   LMT: 'Lockheed Martin', MA: 'Mastercard', META: 'Meta Platforms',
   MSFT: 'Microsoft', 'NESN.SW': 'Nestlé SIX (CHF)', NESN: 'Nestlé', NSRGY: 'Nestlé ADR (USD)', NVDA: 'NVIDIA',
   PLTR: 'Palantir', 'SAP': 'SAP', SMH: 'VanEck Semiconductor ETF',
-  TSLA: 'Tesla', V: 'Visa', 'VUSA.AS': 'Vanguard S&P 500 ETF'
+  TSLA: 'Tesla', V: 'Visa', 'VUSA.AS': 'Vanguard S&P 500 ETF',
+  LLY: 'Eli Lilly', NVO: 'Novo Nordisk ADR', NFLX: 'Netflix', COST: 'Costco',
+  'SIE.DE': 'Siemens', 'ALV.DE': 'Allianz', 'AIR.PA': 'Airbus', 'MC.PA': 'LVMH'
 };
 
 function symbolName(symbol) {

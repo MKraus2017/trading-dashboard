@@ -105,23 +105,53 @@ def analyze_symbol(item: dict) -> Optional[dict]:
             score -= 5
             details.append("MACD unter Signal-Linie")
 
-    # 3. Volatilität / Risiko (max 20)
+    # 3. Volatilität / Risiko (max 15) — nur belohnen, wenn kein Abwärtstrend
     atr_pct = (last_atr / latest * 100) if last_atr else None
     if atr_pct is not None:
+        vol_bonus_factor = 0.4 if trend == "abwärts" else 1.0
         if atr_pct < 2.0:
-            score += 20
+            score += int(15 * vol_bonus_factor)
             details.append(f"ATR {atr_pct:.2f}% — niedrige Volatilität")
         elif atr_pct < 4.0:
-            score += 12
+            score += int(9 * vol_bonus_factor)
             details.append(f"ATR {atr_pct:.2f}% — moderate Volatilität")
         else:
-            score += 5
+            score += int(3 * vol_bonus_factor)
             details.append(f"ATR {atr_pct:.2f}% — hohe Volatilität")
 
     vol_trend = indicators.volume_trend(volumes, 20)
     if vol_trend > 1.3:
         score += 5
         details.append("Volumen über 20-Tage-Schnitt")
+
+    # 3b. Momentum-Faktor: 3-Monats-Kursleistung (Rate of Change, 63 Handelstage)
+    if len(closes) > 63 and closes[-64]:
+        roc_63 = (latest - closes[-64]) / closes[-64] * 100
+        if roc_63 > 15:
+            score += 10
+            details.append(f"Starkes 3M-Momentum ({roc_63:+.1f}%)")
+        elif roc_63 > 5:
+            score += 6
+            details.append(f"Positives 3M-Momentum ({roc_63:+.1f}%)")
+        elif roc_63 < -10:
+            score -= 8
+            details.append(f"Negatives 3M-Momentum ({roc_63:+.1f}%)")
+
+    # 3c. Breakout-Signal: Ausbruch nahe 20-Tage-Hoch / neues 20-Tage-Tief
+    if len(closes) >= 21:
+        high_20 = max(closes[-21:-1])
+        low_20 = min(closes[-21:-1])
+        if latest >= high_20 * 0.995 and trend == "aufwärts":
+            score += 8
+            details.append("Ausbruch auf 20-Tage-Hoch (Breakout)")
+        elif latest <= low_20 * 1.005:
+            score -= 8
+            details.append("Neues 20-Tage-Tief (Schwäche)")
+
+    # 3d. Bollinger Mean-Reversion: Kurs am unteren Band im Aufwärtstrend = Einstiegschance
+    if last_bb_lower is not None and trend == "aufwärts" and latest <= last_bb_lower * 1.01:
+        score += 8
+        details.append("Kurs am unteren Bollinger-Band im Aufwärtstrend (Rücksetzer-Chance)")
 
     # 4. News Sentiment (max 20)
     sentiment = news_client.get_news_sentiment(symbol, name)
@@ -136,8 +166,10 @@ def analyze_symbol(item: dict) -> Optional[dict]:
 
     # --- Signal ableiten ---
     # Long nur bei Trend/Momentum positiv; Verkauf bei deutlichem Abwärtssignal
-    if score >= 60 and trend in ("aufwärts", "seitwärts"):
+    if score >= 60 and trend == "aufwärts":
         direction = "KAUF"
+    elif score >= 68 and trend == "seitwärts":
+        direction = "KAUF"  # Seitwärtstrend braucht stärkere Bestätigung
     elif score <= 35 and trend == "abwärts":
         direction = "VERKAUF"
     else:
