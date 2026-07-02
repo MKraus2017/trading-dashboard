@@ -24,9 +24,10 @@ MAX_POSITIONS = 5
 MAX_POSITION_PCT = 0.20          # max. 20 % des Depotwerts pro Position
 MIN_POSITION_EUR = 500.00        # Mindest-Kaufbetrag pro Trade (kleinere Käufe lohnen nicht)
 CASH_RESERVE_PCT = 0.20          # min. 20 % Cash behalten
-DEFAULT_STOP_PCT = 0.04          # 4 % harter Stop-Loss (mehr Raum für Swing-Trades)
+DEFAULT_STOP_PCT = 0.03          # Backtest 1J/28 Symbole: SL 3 % + Score>=70 => Profit-Faktor 1.57, Win-Rate 44 %
 TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger sichern)
 MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
+BUY_SCORE_THRESHOLD = 70         # Backtest 1J/28 Symbole: Score>=70 => Profit-Faktor 1.23, Win-Rate 38.1 % (beste Variante)
 
 # Für Trade Republic greifen ausschließlich Long-Positionen.
 ALLOW_SHORT = False

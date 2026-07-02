@@ -189,7 +189,7 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
             continue
 
     current = {
-        "buy_threshold": 60,
+        "buy_threshold": getattr(config, "BUY_SCORE_THRESHOLD", 65),
         "stop_pct": config.DEFAULT_STOP_PCT,
         "rr_ratio": config.MIN_RR_RATIO,
         "trailing_pct": config.TRAILING_STOP_PCT,
@@ -201,8 +201,8 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
         {"name": "Weiterer Stop (5 %)", **{**current, "stop_pct": 0.05}},
         {"name": "RR 1.5:1", **{**current, "rr_ratio": 1.5}},
         {"name": "RR 2.5:1", **{**current, "rr_ratio": 2.5}},
-        {"name": "Selektiver (Score 65)", **{**current, "buy_threshold": 65}},
-        {"name": "Aggressiver (Score 55)", **{**current, "buy_threshold": 55}},
+        {"name": f"Selektiver (Score {current['buy_threshold']+5})", **{**current, "buy_threshold": current["buy_threshold"] + 5}},
+        {"name": f"Aggressiver (Score {current['buy_threshold']-5})", **{**current, "buy_threshold": current["buy_threshold"] - 5}},
         {"name": "Trailing 6 %", **{**current, "trailing_pct": 0.06}},
     ]
 
@@ -231,9 +231,11 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
     if baseline["trades"] == 0:
         improvements.append("Backtest fand keine Einstiegssignale im letzten Jahr – Schwellenwerte prüfen.")
     else:
-        if baseline["win_rate"] < 45:
+        # Win-Rate allein ist bei Trendfolge (RR 2:1) wenig aussagekräftig — nur warnen,
+        # wenn auch der Profit-Faktor schwach ist.
+        if baseline["win_rate"] < 40 and baseline["profit_factor"] < 1.2:
             improvements.append(
-                f"Win-Rate der aktuellen Strategie nur {baseline['win_rate']} % – Einstiege selektiver wählen (höhere Score-Schwelle testen).")
+                f"Win-Rate {baseline['win_rate']} % bei Profit-Faktor {baseline['profit_factor']} – Einstiege selektiver wählen (höhere Score-Schwelle testen).")
         if baseline["profit_factor"] < 1.2:
             improvements.append(
                 f"Profit-Faktor {baseline['profit_factor']} ist schwach (<1.2) – Verhältnis Gewinn/Verlust verbessern.")

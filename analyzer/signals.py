@@ -166,9 +166,10 @@ def analyze_symbol(item: dict) -> Optional[dict]:
 
     # --- Signal ableiten ---
     # Long nur bei Trend/Momentum positiv; Verkauf bei deutlichem Abwärtssignal
-    if score >= 60 and trend == "aufwärts":
+    buy_th = getattr(config, "BUY_SCORE_THRESHOLD", 65)
+    if score >= buy_th and trend == "aufwärts":
         direction = "KAUF"
-    elif score >= 68 and trend == "seitwärts":
+    elif score >= buy_th + 8 and trend == "seitwärts":
         direction = "KAUF"  # Seitwärtstrend braucht stärkere Bestätigung
     elif score <= 35 and trend == "abwärts":
         direction = "VERKAUF"
@@ -199,7 +200,7 @@ def analyze_symbol(item: dict) -> Optional[dict]:
 
     # 5. LLM Risikobewertung (nur für auffällige Kandidaten, reduzierte Kosten)
     llm_risk_result = None
-    if config.OPENROUTER_API_KEY and direction == "KAUF" and score >= 65:
+    if config.OPENROUTER_API_KEY and direction == "KAUF" and score >= getattr(config, "BUY_SCORE_THRESHOLD", 65):
         llm_risk_result = llm_risk.assess_risk(
             symbol=symbol,
             name=name,
