@@ -124,17 +124,43 @@ def settings_page():
 @login_required
 def api_portfolio():
     uid = get_current_user_id()
-    p, alerts = portfolio.evaluate_portfolio(uid)
-    # Preise für echte Positionen anreichern
-    p = portfolio.enrich_real_positions(p)
-    p = _calc_real_guv(p)
-    p = _calc_virtual_guv(p)
-    # Ampel-Empfehlung (halten/verkaufen/nachkaufen) je Position
-    p = _enrich_position_advice(p)
-    # Vergleichs- & Backtest-Daten anreichern
-    p["comparison"] = portfolio.calculate_comparison(p)
-    p["backtest"] = portfolio.run_backtest(p)
-    return jsonify({"portfolio": p, "alerts": alerts})
+    try:
+        p, alerts = portfolio.evaluate_portfolio(uid)
+        # Preise für echte Positionen anreichern
+        p = portfolio.enrich_real_positions(p)
+        p = _calc_real_guv(p)
+        p = _calc_virtual_guv(p)
+        # Ampel-Empfehlung (halten/verkaufen/nachkaufen) je Position
+        p = _enrich_position_advice(p)
+        # Vergleichs- & Backtest-Daten anreichern
+        p["comparison"] = portfolio.calculate_comparison(p)
+        p["backtest"] = portfolio.run_backtest(p)
+        return jsonify({"portfolio": p, "alerts": alerts})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Portfolio-Fehler: {e}"}), 500
+
+
+
+_ADVICE_CACHE: dict = {}  # symbol -> {"time": epoch, "analysis": {...} or None}
+_ADVICE_CACHE_TTL = 10 * 60  # 10 Minuten – Analyse ist teuer (Yahoo-Fetch), muss nicht pro Request neu laufen
+
+
+def _cached_symbol_analysis(symbol: str):
+    """Cacht das Ergebnis von _analyze_symbol pro Symbol, um wiederholte
+    Yahoo-Abfragen beim Laden des Portfolios zu vermeiden (Render-Timeout-Schutz)."""
+    now = time.time()
+    entry = _ADVICE_CACHE.get(symbol)
+    if entry and (now - entry["time"]) < _ADVICE_CACHE_TTL:
+        return entry["analysis"]
+    try:
+        analysis = scheduler_tasks._analyze_symbol(symbol)
+    except Exception as e:
+        print(f"[_cached_symbol_analysis] Fehler bei {symbol}: {e}")
+        analysis = None
+    _ADVICE_CACHE[symbol] = {"time": now, "analysis": analysis}
+    return analysis
 
 
 def _position_advice(symbol: str, pnl_pct: float) -> dict:
@@ -143,10 +169,7 @@ def _position_advice(symbol: str, pnl_pct: float) -> dict:
     Nutzt die technische Analyse (Score) und den aktuellen Gewinn, um
     HALTEN (gelb), VERKAUFEN (rot) oder NACHKAUFEN (grün) zu bestimmen.
     """
-    try:
-        analysis = scheduler_tasks._analyze_symbol(symbol)
-    except Exception:
-        analysis = None
+    analysis = _cached_symbol_analysis(symbol)
 
     if not analysis:
         return {"advice": "HALTEN", "color": "gelb", "score": None,
@@ -180,11 +203,21 @@ def _position_advice(symbol: str, pnl_pct: float) -> dict:
 
 
 def _enrich_position_advice(p: dict) -> dict:
-    """Fügt jeder offenen Position (virtuell + real) eine Ampel-Empfehlung hinzu."""
+    """Fügt jeder offenen Position (virtuell + real) eine Ampel-Empfehlung hinzu.
+
+    Dedupliziert Symbole (virtuell + real können sich überschneiden) und
+    fängt Fehler pro Symbol ab, damit ein einzelner Yahoo-Fehler nicht den
+    gesamten Portfolio-Request zum Absturz bringt (führte zu Render-Timeout /
+    HTML-Fehlerseite statt JSON)."""
     for key in ("positions", "real_positions"):
         for pos in p.get(key, []):
             pnl_pct = pos.get("unrealized_pct", 0) or 0
-            pos["advice"] = _position_advice(pos["symbol"], pnl_pct)
+            try:
+                pos["advice"] = _position_advice(pos["symbol"], pnl_pct)
+            except Exception as e:
+                print(f"[_enrich_position_advice] Fehler bei {pos.get('symbol')}: {e}")
+                pos["advice"] = {"advice": "HALTEN", "color": "gelb", "score": None,
+                                  "reason": "Analyse vorübergehend nicht verfügbar"}
     return p
 
 
@@ -242,10 +275,15 @@ def _calc_virtual_guv(p: dict) -> dict:
 def api_recommendations():
     uid = get_current_user_id()
     dry_run = request.args.get("dry_run", "false").lower() == "true"
-    if request.method == "GET":
-        return jsonify(signals.generate_recommendations())
-    result = auto_trader.run_auto_trading(uid, dry_run=dry_run)
-    return jsonify(result)
+    try:
+        if request.method == "GET":
+            return jsonify(signals.generate_recommendations())
+        result = auto_trader.run_auto_trading(uid, dry_run=dry_run)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Analyse-Fehler: {e}"}), 500
 
 
 @app.route("/api/buy", methods=["POST"])

@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: "pip install --no-cache-dir -r requirements.txt"
-    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
     envVars:
       - key: DASHBOARD_PASSWORD
         generateValue: false

@@ -64,7 +64,16 @@ async function loadPortfolio() {
   showError('');
   try {
     const r = await fetch('/api/portfolio');
-    const data = await r.json();
+    let data;
+    try {
+      data = await r.json();
+    } catch (parseErr) {
+      const text = await r.text();
+      throw new Error(`Server antwortete mit HTTP ${r.status}: ${text.slice(0, 200)}`);
+    }
+    if (!data || data.ok === false) {
+      throw new Error((data && data.error) || 'Leere/fehlerhafte Antwort vom Server');
+    }
     currentPortfolio = data.portfolio;
     renderPortfolio(data.portfolio, data.alerts);
     document.getElementById('last-update').textContent = 'Aktualisiert: ' + new Date().toLocaleTimeString('de-DE');
@@ -292,7 +301,19 @@ async function generateRecommendations(dryRun = false) {
   try {
     const url = dryRun ? '/api/recommendations?dry_run=true' : '/api/recommendations';
     const r = await fetch(url, {method: 'POST'});
-    const data = await r.json();
+    let data;
+    try {
+      data = await r.json();
+    } catch (parseErr) {
+      const text = await r.text();
+      throw new Error(`Server antwortete mit HTTP ${r.status}: ${text.slice(0, 200)}`);
+    }
+    if (!data) {
+      throw new Error('Leere Antwort vom Server');
+    }
+    if (data.ok === false) {
+      throw new Error(data.error || 'Analyse fehlgeschlagen');
+    }
     currentRecs = (data.recommendations && data.recommendations.suggestions) || [];
     renderRecommendations(data.recommendations || data);
     if (!dryRun && data.actions && data.actions.length > 0) {
