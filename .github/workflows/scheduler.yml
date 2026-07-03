@@ -34,9 +34,9 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 80 \
+            --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/market_analysis" \
-            -H "Authorization: Bearer $SCHED" \
+            -H "Authorization: Bearer ***" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Real positions urgent alert
@@ -44,9 +44,9 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 80 \
+            --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/real_positions_alert" \
-            -H "Authorization: Bearer $SCHED" \
+            -H "Authorization: Bearer ***" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
