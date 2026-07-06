@@ -17,7 +17,7 @@ def _cached_analyze_symbol(symbol: str):
     entry = _SYM_ANALYSIS_CACHE.get(symbol)
     if entry and (now - entry["ts"]) < _SYM_ANALYSIS_TTL:
         return entry["value"]
-    result = _cached_analyze_symbol(symbol)
+    result = _analyze_symbol(symbol)
     _SYM_ANALYSIS_CACHE[symbol] = {"ts": now, "value": result}
     return result
 
