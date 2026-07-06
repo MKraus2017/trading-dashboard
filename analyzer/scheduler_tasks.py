@@ -1,10 +1,25 @@
 """Geplante Tasks: Preisaktualisierung, Marktanalyse, LLM-Analyse, Reports, Alerts (Multi-User)."""
 from datetime import datetime, timedelta, timezone
 from typing import List
+import time as _time
 
 from analyzer import auto_trader, db_store, indicators, market_hours, portfolio, signals, telegram, yahoo_client
 from analyzer import llm_risk, news_client
 import config
+
+
+# Simple TTL cache for symbol analysis (shared across tasks)
+_SYM_ANALYSIS_CACHE: dict = {}
+_SYM_ANALYSIS_TTL: int = 300  # 5 minutes
+
+def _cached_analyze_symbol(symbol: str):
+    now = _time.time()
+    entry = _SYM_ANALYSIS_CACHE.get(symbol)
+    if entry and (now - entry["ts"]) < _SYM_ANALYSIS_TTL:
+        return entry["value"]
+    result = _cached_analyze_symbol(symbol)
+    _SYM_ANALYSIS_CACHE[symbol] = {"ts": now, "value": result}
+    return result
 
 
 EUROPE_TZ_OFFSET = 2  # CEST (UTC+2)
@@ -93,7 +108,7 @@ def market_analysis(notify: bool = True) -> dict:
                     lines.append("<b>Deine realen TR-Positionen:</b>")
                     for pos in real_positions:
                         symbol = pos["symbol"]
-                        analysis = _analyze_symbol(symbol)
+                        analysis = _cached_analyze_symbol(symbol)
                         entry = pos.get("entry_price", 0)
                         current = analysis["price"] if analysis else pos.get("last_price", entry)
                         pnl_pct = (current - entry) / entry * 100 if entry else 0
@@ -281,7 +296,7 @@ def analyze_real_positions(user_id: int, notify: bool = True) -> dict:
 
     for pos in real_positions:
         symbol = pos["symbol"]
-        analysis = _analyze_symbol(symbol)
+        analysis = _cached_analyze_symbol(symbol)
         entry = pos.get("entry_price", 0)
         shares = pos.get("shares", 0)
         current = analysis["price"] if analysis else pos.get("last_price", entry)
@@ -384,7 +399,7 @@ def analyze_real_positions_llm(user_id: int, notify: bool = True) -> dict:
         name = config.get_symbol_name(symbol)
         entry = pos.get("entry_price", 0)
         shares = pos.get("shares", 0)
-        analysis = _analyze_symbol(symbol)
+        analysis = _cached_analyze_symbol(symbol)
         current = analysis["price"] if analysis else pos.get("last_price", entry)
         pnl_pct = (current - entry) / entry * 100 if entry else 0
 
@@ -504,7 +519,7 @@ def real_positions_report(only_urgent: bool = False) -> dict:
         reports = []
         urgent = []
         for pos in real_positions:
-            analysis = _analyze_symbol(pos["symbol"])
+            analysis = _cached_analyze_symbol(pos["symbol"])
             entry = pos.get("entry_price", 0)
             current = analysis["price"] if analysis else pos.get("last_price", entry)
             pnl_pct = (current - entry) / entry * 100 if entry else 0
@@ -596,7 +611,7 @@ def portfolio_report(notify: bool = True) -> dict:
             lines.append("\n<b>REALES DEPOT</b>")
             if real_positions:
                 for pos in real_positions:
-                    analysis = _analyze_symbol(pos["symbol"])
+                    analysis = _cached_analyze_symbol(pos["symbol"])
                     entry = pos.get("entry_price", 0)
                     current = analysis["price"] if analysis else pos.get("last_price", entry)
                     pnl_pct = (current - entry) / entry * 100 if entry else 0

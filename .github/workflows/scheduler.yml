@@ -74,9 +74,9 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 80 \
+            --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/portfolio_report" \
-            -H "Authorization: Bearer $SCHED" \
+            -H "Authorization: Bearer ***" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
@@ -89,8 +89,8 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 80 \
+            --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/daily_summary" \
-            -H "Authorization: Bearer $SCHED" \
+            -H "Authorization: Bearer ***" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
