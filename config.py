@@ -55,7 +55,6 @@ DEFAULT_UNIVERSE = [
     # Europa (EUR-Notierungen für TR)
     {"symbol": "ASML", "name": "ASML Holding"},
     {"symbol": "SAP", "name": "SAP SE"},
-    {"symbol": "NESN.SW", "name": "Nestlé SIX (CHF)"},
     {"symbol": "NSRGY", "name": "Nestlé ADR (USD)"},
 
     {"symbol": "JPM", "name": "JPMorgan Chase"},

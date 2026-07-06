@@ -26,7 +26,7 @@ const SYMBOL_NAMES = {
   AAPL: 'Apple', AMD: 'AMD', AMZN: 'Amazon', 'ASML': 'ASML Holding',
   AVGO: 'Broadcom', GOOGL: 'Alphabet', JPM: 'JPMorgan Chase',
   LMT: 'Lockheed Martin', MA: 'Mastercard', META: 'Meta Platforms',
-  MSFT: 'Microsoft', 'NESN.SW': 'Nestlé SIX (CHF)', NESN: 'Nestlé', NSRGY: 'Nestlé ADR (USD)', NVDA: 'NVIDIA',
+  MSFT: 'Microsoft', NSRGY: 'Nestlé ADR (USD)', NVDA: 'NVIDIA',
   PLTR: 'Palantir', 'SAP': 'SAP', SMH: 'VanEck Semiconductor ETF',
   TSLA: 'Tesla', V: 'Visa', 'VUSA.AS': 'Vanguard S&P 500 ETF',
   LLY: 'Eli Lilly', NVO: 'Novo Nordisk ADR', NFLX: 'Netflix', COST: 'Costco',
