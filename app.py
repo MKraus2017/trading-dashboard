@@ -821,6 +821,12 @@ def api_crypto_auto_trade():
     dry_run = request.args.get("dry_run", "false").lower() == "true"
     try:
         result = crypto_auto_trader.run_crypto_auto_trading(uid, dry_run=dry_run)
+        if not dry_run:
+            settings = db_store.get_settings(uid)
+            token = settings.get("telegram_bot_token")
+            chat_id = settings.get("telegram_chat_id")
+            if chat_id:
+                crypto_auto_trader.notify_crypto_actions(uid, result, token=token, chat_id=chat_id)
         return jsonify({"ok": True, **result})
     except Exception as e:
         import traceback
