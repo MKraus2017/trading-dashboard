@@ -14,17 +14,30 @@ def run_crypto_auto_trading(user_id: int, dry_run: bool = False) -> dict:
     actions = []
 
     # 1. Bestehende Positionen bewerten (SL/TP/Liquidation) - IMMER, unabhaengig vom Analyse-Fenster
+    #    Enthaelt auch den Totalverlust-Schutz (Circuit Breaker): bei zu hohem Drawdown werden
+    #    hier bereits alle Positionen notfallgeschlossen und trading_halted gesetzt.
     eval_res = crypto_portfolio.evaluate_crypto_portfolio(user_id)
     p = eval_res["portfolio"]
     for ev in eval_res["events"]:
+        action_name = {
+            "liquidation": "LIQUIDATED",
+            "emergency_close": "EMERGENCY-CLOSE",
+            "circuit_breaker": "CIRCUIT-BREAKER",
+            "circuit_breaker_critical": "CIRCUIT-BREAKER-CRITICAL",
+        }.get(ev["type"], "AUTO-CLOSE")
         actions.append({
             "symbol": ev["symbol"],
-            "action": "LIQUIDATED" if ev["type"] == "liquidation" else "AUTO-CLOSE",
+            "action": action_name,
             "reason": ev["msg"],
-            "pnl_eur": ev["trade"].get("pnl_eur"),
+            "pnl_eur": ev["trade"].get("pnl_eur") if ev.get("trade") else None,
         })
 
-    # 2. Neue Signale generieren (nur wenn im Analyse-Fenster - Aufrufer entscheidet das via scheduler)
+    # 2. Totalverlust-Schutz: keine neuen Positionen, solange der Handel pausiert ist
+    if p.get("trading_halted"):
+        return {"actions": actions, "recommendations": {"count": 0, "suggestions": []}, "portfolio": p,
+                "halted": True, "drawdown_pct": p.get("drawdown_pct", 0)}
+
+    # 3. Neue Signale generieren (nur wenn im Analyse-Fenster - Aufrufer entscheidet das via scheduler)
     recs = crypto_signals.generate_crypto_recommendations()
     held_symbols = {pos["symbol"] for pos in p.get("positions", [])}
 
@@ -73,8 +86,16 @@ def notify_crypto_actions(user_id: int, result: dict, token: str = None, chat_id
         return
     lines = ["🪙 <b>Krypto-Bot Update</b>", ""]
     for a in actions:
-        emoji = "🟢" if "OPEN-LONG" in a["action"] else ("🔴" if "OPEN-SHORT" in a["action"] else
-                ("💥" if a["action"] == "LIQUIDATED" else "✅"))
+        if a["action"] in ("CIRCUIT-BREAKER", "CIRCUIT-BREAKER-CRITICAL"):
+            emoji = "🚨"
+        elif "OPEN-LONG" in a["action"]:
+            emoji = "🟢"
+        elif "OPEN-SHORT" in a["action"]:
+            emoji = "🔴"
+        elif a["action"] in ("LIQUIDATED", "EMERGENCY-CLOSE"):
+            emoji = "💥"
+        else:
+            emoji = "✅"
         if "OPEN" in a["action"]:
             lines.append(f"{emoji} {a['action']} {a['symbol']} — Hebel {a.get('leverage')}x, Score {a.get('score')}/100, Einsatz {a.get('margin_eur')} €")
         else:

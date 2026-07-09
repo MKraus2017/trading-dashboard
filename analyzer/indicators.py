@@ -119,3 +119,67 @@ def volume_trend(volumes: List[float], period: int = 20) -> float:
     last = volumes[-1]
     avg = sum(volumes[-period:]) / period
     return last / avg if avg else 1.0
+
+
+def adx(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> List[float]:
+    """Average Directional Index (Wilder). Misst Trendstaerke (0-100), unabhaengig von
+    Richtung. Standard-Baustein bewaehrter TradingView-Strategien (z.B. Supertrend+ADX):
+    ADX < 20-25 = schwacher/seitwaertsgerichteter Markt -> Trendfolge-Signale unzuverlaessig.
+    ADX > 25 = klarer Trend -> Trendfolge-Signale (EMA/MACD) sind vertrauenswuerdiger."""
+    n = len(closes)
+    if n < period * 2:
+        return [None] * n
+
+    plus_dm = [0.0]
+    minus_dm = [0.0]
+    trs = [highs[0] - lows[0]]
+    for i in range(1, n):
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+        plus_dm.append(up_move if (up_move > down_move and up_move > 0) else 0.0)
+        minus_dm.append(down_move if (down_move > up_move and down_move > 0) else 0.0)
+        tr1 = highs[i] - lows[i]
+        tr2 = abs(highs[i] - closes[i - 1])
+        tr3 = abs(lows[i] - closes[i - 1])
+        trs.append(max(tr1, tr2, tr3))
+
+    # Wilder-Smoothing (wie ATR) fuer +DM, -DM, TR
+    def _wilder_smooth(vals: List[float], period: int) -> List[float]:
+        if len(vals) < period:
+            return [None] * len(vals)
+        out = [None] * (period - 1)
+        seed = sum(vals[:period])
+        out.append(seed)
+        for i in range(period, len(vals)):
+            out.append(out[-1] - (out[-1] / period) + vals[i])
+        return out
+
+    smoothed_tr = _wilder_smooth(trs, period)
+    smoothed_plus_dm = _wilder_smooth(plus_dm, period)
+    smoothed_minus_dm = _wilder_smooth(minus_dm, period)
+
+    dx_vals: List[float] = []
+    for i in range(n):
+        tr_i = smoothed_tr[i]
+        pdm_i = smoothed_plus_dm[i]
+        mdm_i = smoothed_minus_dm[i]
+        if tr_i is None or pdm_i is None or mdm_i is None or tr_i == 0:
+            dx_vals.append(None)
+            continue
+        plus_di = 100 * pdm_i / tr_i
+        minus_di = 100 * mdm_i / tr_i
+        di_sum = plus_di + minus_di
+        dx = 100 * abs(plus_di - minus_di) / di_sum if di_sum else 0.0
+        dx_vals.append(dx)
+
+    # ADX = Wilder-Glaettung von DX ueber 'period'
+    clean_dx = [v for v in dx_vals if v is not None]
+    if len(clean_dx) < period:
+        return [None] * n
+    adx_vals = [None] * (period - 1)
+    seed = sum(clean_dx[:period]) / period
+    adx_vals.append(seed)
+    for i in range(period, len(clean_dx)):
+        adx_vals.append((adx_vals[-1] * (period - 1) + clean_dx[i]) / period)
+
+    return [None] * (n - len(adx_vals)) + adx_vals

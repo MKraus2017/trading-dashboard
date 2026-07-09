@@ -9,7 +9,7 @@ from analyzer import indicators, okx_client
 
 
 def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: float,
-              rr_ratio: float, max_leverage: int) -> dict:
+              rr_ratio: float, max_leverage: int, use_adx_filter: bool = True) -> dict:
     closes = candles["closes"]
     highs = candles["highs"]
     lows = candles["lows"]
@@ -23,6 +23,7 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
     macd_line, signal_line = _macd["macd"], _macd["signal"]
     bb = indicators.bollinger(closes, 20, 2)
     atr_all = indicators.atr(highs, lows, closes, 14)
+    adx_all = indicators.adx(highs, lows, closes, 14) if use_adx_filter else [None] * len(closes)
 
     trades = []
     position = None
@@ -60,6 +61,15 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
             score += 10
         elif price >= bb["upper"][i]:
             score -= 10
+
+        adx_val = adx_all[i]
+        if use_adx_filter and adx_val is not None:
+            if adx_val < 20:
+                score = 50 + (score - 50) * 0.4
+            elif adx_val >= 25:
+                direction_sign = 1 if score >= 50 else -1
+                score += direction_sign * min((adx_val - 25) * 0.2, 8)
+
         score = max(0, min(100, score))
 
         direction = None
@@ -113,11 +123,15 @@ def run_crypto_backtest(days: int = 180) -> dict:
     """Testet mehrere Parameter-Varianten über alle Krypto-Symbole und liefert
     die beste Kombination + Vergleichstabelle."""
     variants = [
-        {"name": "Baseline (Score 65, SL 1.5x ATR, RR 1.8, Lev 10)", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10},
-        {"name": "Konservativ (Score 70, SL 2x ATR, RR 2.0, Lev 5)", "score_threshold": 70, "sl_atr_mult": 2.0, "rr_ratio": 2.0, "max_leverage": 5},
-        {"name": "Eng (Score 65, SL 1x ATR, RR 1.5, Lev 10)", "score_threshold": 65, "sl_atr_mult": 1.0, "rr_ratio": 1.5, "max_leverage": 10},
-        {"name": "Hohe Schwelle (Score 75, SL 1.5x ATR, RR 2.5, Lev 8)", "score_threshold": 75, "sl_atr_mult": 1.5, "rr_ratio": 2.5, "max_leverage": 8},
-        {"name": "Niedriger Hebel (Score 65, SL 1.5x ATR, RR 1.8, Lev 3)", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 3},
+        {"name": "⭐ Aktueller Standard: Eng + ADX-Filter (Score 65, SL 1x ATR, RR 1.5, Lev 10)", "score_threshold": 65, "sl_atr_mult": 1.0, "rr_ratio": 1.5, "max_leverage": 10, "use_adx_filter": True},
+        {"name": "Eng ohne ADX-Filter (Score 65, SL 1x ATR, RR 1.5, Lev 10)", "score_threshold": 65, "sl_atr_mult": 1.0, "rr_ratio": 1.5, "max_leverage": 10, "use_adx_filter": False},
+        {"name": "Baseline (Score 65, SL 1.5x ATR, RR 1.8, Lev 10)", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10, "use_adx_filter": False},
+        {"name": "Baseline + ADX-Filter", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10, "use_adx_filter": True},
+        {"name": "Konservativ (Score 70, SL 2x ATR, RR 2.0, Lev 5)", "score_threshold": 70, "sl_atr_mult": 2.0, "rr_ratio": 2.0, "max_leverage": 5, "use_adx_filter": False},
+        {"name": "Konservativ + ADX-Filter", "score_threshold": 70, "sl_atr_mult": 2.0, "rr_ratio": 2.0, "max_leverage": 5, "use_adx_filter": True},
+        {"name": "Hohe Schwelle (Score 75, SL 1.5x ATR, RR 2.5, Lev 8)", "score_threshold": 75, "sl_atr_mult": 1.5, "rr_ratio": 2.5, "max_leverage": 8, "use_adx_filter": False},
+        {"name": "Hohe Schwelle + ADX-Filter", "score_threshold": 75, "sl_atr_mult": 1.5, "rr_ratio": 2.5, "max_leverage": 8, "use_adx_filter": True},
+        {"name": "Niedriger Hebel (Score 65, SL 1.5x ATR, RR 1.8, Lev 3)", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 3, "use_adx_filter": False},
     ]
 
     symbols = [item["symbol"] for item in config.get_crypto_universe()]
@@ -132,12 +146,11 @@ def run_crypto_backtest(days: int = 180) -> dict:
         agg_trades = 0
         agg_pnl = 0.0
         agg_wins = 0
-        gross_profit = 0.0
-        gross_loss = 0.0001
         per_symbol = {}
         for sym, candles in candle_cache.items():
             r = _simulate(sym, candles, variant["score_threshold"], variant["sl_atr_mult"],
-                          variant["rr_ratio"], variant["max_leverage"])
+                          variant["rr_ratio"], variant["max_leverage"],
+                          use_adx_filter=variant.get("use_adx_filter", False))
             per_symbol[sym] = r
             if r.get("trades", 0) > 0:
                 agg_trades += r["trades"]

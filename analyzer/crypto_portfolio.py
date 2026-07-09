@@ -118,7 +118,9 @@ def _close_position(p: dict, pos: dict, price: float, reason: str, liquidated: b
 
 
 def evaluate_crypto_portfolio(user_id: int) -> dict:
-    """Bewertet alle offenen Positionen mit Live-Preisen: SL/TP/Liquidation pruefen."""
+    """Bewertet alle offenen Positionen mit Live-Preisen: SL/TP/Liquidation pruefen.
+    Enthaelt einen Totalverlust-Schutz (Circuit Breaker): bei zu hohem Drawdown werden
+    neue Trades gesperrt bzw. bei kritischem Drawdown alle offenen Positionen notfallgeschlossen."""
     p = get_crypto_portfolio(user_id)
     positions = p.get("positions", [])
     remaining = []
@@ -168,7 +170,45 @@ def evaluate_crypto_portfolio(user_id: int) -> dict:
     unrealized_total = sum(pos.get("unrealized_eur", 0) for pos in remaining)
     total_value = round(p["cash"] + total_margin_in_positions + unrealized_total, 2)
     p["total_value"] = total_value
-    p["total_return_pct"] = round((total_value - p.get("start_capital", config.CRYPTO_START_CAPITAL)) / p.get("start_capital", config.CRYPTO_START_CAPITAL) * 100, 2)
+    start_capital = p.get("start_capital", config.CRYPTO_START_CAPITAL)
+    p["total_return_pct"] = round((total_value - start_capital) / start_capital * 100, 2)
+
+    # --- Totalverlust-Schutz (Circuit Breaker) ---
+    drawdown_pct = round((start_capital - total_value) / start_capital * 100, 2) if start_capital else 0
+    p["drawdown_pct"] = max(drawdown_pct, 0)
+    was_halted = p.get("trading_halted", False)
+
+    if drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
+        # Kritischer Drawdown: alle verbleibenden Positionen notfallschliessen
+        if p["positions"]:
+            for pos in list(p["positions"]):
+                ticker = okx_client.fetch_ticker(pos["symbol"])
+                close_price = ticker["last"] if ticker else pos.get("last_price", pos["entry_price"])
+                trade = _close_position(p, pos, close_price,
+                                         f"NOTFALL-STOPP: Depot-Drawdown {drawdown_pct}% >= kritischer Schwelle {config.CRYPTO_CRITICAL_DRAWDOWN_PCT}%",
+                                         liquidated=False)
+                events.append({"type": "emergency_close", "symbol": pos["symbol"],
+                                "msg": trade["close_reason"], "trade": trade})
+            p["positions"] = []
+        p["trading_halted"] = True
+        if not was_halted:
+            events.append({"type": "circuit_breaker_critical", "symbol": "DEPOT",
+                            "msg": f"🚨 NOTFALL-STOPP: Krypto-Depot bei {drawdown_pct}% Drawdown. Alle Positionen geschlossen, Handel pausiert.",
+                            "trade": None})
+    elif drawdown_pct >= config.CRYPTO_MAX_DRAWDOWN_PCT:
+        p["trading_halted"] = True
+        if not was_halted:
+            events.append({"type": "circuit_breaker", "symbol": "DEPOT",
+                            "msg": f"⚠️ Krypto-Handel PAUSIERT: Depot bei {drawdown_pct}% Drawdown (Schwelle {config.CRYPTO_MAX_DRAWDOWN_PCT}%). Keine neuen Positionen, bestehende laufen normal weiter.",
+                            "trade": None})
+    else:
+        p["trading_halted"] = False
+
+    # Nach Notfallschliessung Depotwert neu berechnen
+    if drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
+        total_value = p["cash"]
+        p["total_value"] = round(total_value, 2)
+        p["total_return_pct"] = round((total_value - start_capital) / start_capital * 100, 2)
 
     p.setdefault("value_history", []).append({"date": _now(), "value": total_value})
     if len(p["value_history"]) > 2000:

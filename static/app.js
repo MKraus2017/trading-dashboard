@@ -1036,7 +1036,13 @@ async function loadCryptoPortfolio() {
       return;
     }
     const p = data.portfolio;
+    const haltedBanner = p.trading_halted
+      ? `<div class="no-data" style="color:#f85149;background:rgba(248,81,73,0.1);border:1px solid #f85149;padding:10px;border-radius:6px;margin-bottom:12px;">
+           🚨 <b>Handel pausiert</b> — Drawdown ${p.drawdown_pct || 0}% erreicht (Totalverlust-Schutz aktiv). Keine neuen Positionen, bis sich das Depot erholt.
+         </div>`
+      : '';
     summaryEl.innerHTML = `
+      ${haltedBanner}
       <div class="summary-card"><div class="label">Depotwert</div><div class="value">${fmtEur(p.total_value ?? p.cash)}</div></div>
       <div class="summary-card"><div class="label">Cash (frei)</div><div class="value">${fmtEur(p.cash)}</div></div>
       <div class="summary-card"><div class="label">Rendite</div><div class="value ${(p.total_return_pct||0) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${(p.total_return_pct||0).toFixed(2)}%</div></div>

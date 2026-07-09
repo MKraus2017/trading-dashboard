@@ -57,6 +57,7 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
     bb_upper = bb["upper"][-1]
     bb_lower = bb["lower"][-1]
     atr = indicators.atr(highs, lows, closes, 14)[-1]
+    adx_val = indicators.adx(highs, lows, closes, 14)[-1]
 
     if ema20 is None or ema50 is None or rsi is None or atr is None:
         return None
@@ -82,6 +83,20 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
     elif latest >= bb_upper:
         score -= 10; details.append("Preis an oberem Bollinger-Band")
 
+    # ADX-Trendfilter (bewaehrter Baustein, z.B. Supertrend+ADX auf TradingView):
+    # bei schwachem/seitwaertsgerichtetem Markt (ADX < 20) werden Trendfolge-Signale
+    # gedaempft, weil EMA/MACD dort am haeufigsten Fehlsignale produzieren.
+    if adx_val is not None:
+        if adx_val < 20:
+            # Signal Richtung 50 (neutral) ziehen -> schwaechere Konfidenz, kleinerer Hebel
+            score = 50 + (score - 50) * 0.4
+            details.append(f"ADX {round(adx_val,1)} (schwacher Trend, Signal gedaempft)")
+        elif adx_val >= 25:
+            # Klarer Trend bestaetigt das Signal -> leichter Bonus in Signal-Richtung
+            direction_sign = 1 if score >= 50 else -1
+            score += direction_sign * min((adx_val - 25) * 0.2, 8)
+            details.append(f"ADX {round(adx_val,1)} (starker Trend, Signal bestaetigt)")
+
     score = max(0, min(100, score))
 
     if score >= config.CRYPTO_BUY_SCORE_THRESHOLD:
@@ -93,8 +108,8 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
 
     leverage = _leverage_from_signal(score, vola) if direction != "HALTEN" else 1
 
-    sl_distance = atr * 1.5
-    tp_distance = atr * config.CRYPTO_MIN_RR_RATIO * 1.5
+    sl_distance = atr * config.CRYPTO_SL_ATR_MULT
+    tp_distance = atr * config.CRYPTO_SL_ATR_MULT * config.CRYPTO_MIN_RR_RATIO
     if direction == "LONG":
         stop_loss = round(latest - sl_distance, 6)
         take_profit = round(latest + tp_distance, 6)

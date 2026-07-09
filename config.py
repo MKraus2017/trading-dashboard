@@ -95,9 +95,16 @@ CRYPTO_MAX_POSITION_PCT = 0.30     # max. 30 % des Krypto-Depots pro Position (M
 CRYPTO_MIN_POSITION_EUR = 50.00
 CRYPTO_CASH_RESERVE_PCT = 0.15
 CRYPTO_DEFAULT_STOP_PCT = 0.04     # 4 % Gegenbewegung vom Entry (auf Basispreis, nicht auf Margin)
-CRYPTO_MIN_RR_RATIO = 1.8
+CRYPTO_SL_ATR_MULT = 1.0          # Backtest 180T/10 Symbole 4H: SL 1x ATR + ADX-Filter => PnL +80.1% (Win-Rate 46.6%)
+CRYPTO_MIN_RR_RATIO = 1.5          # Backtest 180T: RR 1.5 mit engem SL + ADX schlaegt alle anderen Kombinationen
+CRYPTO_USE_ADX_FILTER = True      # ADX-Trendfilter aktiv (bewaehrt: Eng+ADX = +80.1% vs. Eng ohne ADX = +26.3%)
 CRYPTO_BUY_SCORE_THRESHOLD = 65
 CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR echter Liquidation geschlossen
+
+# Totalverlust-Schutz (Circuit Breaker): stoppt neue Trades automatisch, wenn das
+# Krypto-Depot zu tief faellt. Schuetzt vor Komplettverlust des virtuellen Kapitals.
+CRYPTO_MAX_DRAWDOWN_PCT = 50.0    # Bei Depotwert <= 50% des Startkapitals: Handel pausieren
+CRYPTO_CRITICAL_DRAWDOWN_PCT = 25.0  # Bei <= 25%: zusaetzlich alle offenen Positionen sofort schliessen
 
 # Analyse-Fenster: alle 2h, nur 07-23 Uhr deutscher Zeit (Positions-Ueberwachung laeuft aber 24/7)
 CRYPTO_ANALYSIS_START_HOUR = 7
