@@ -202,7 +202,34 @@ def get_conn():
     os.makedirs(DB_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    _ensure_crypto_tables(conn)
     return conn
+
+
+def _ensure_crypto_tables(conn):
+    """Selbstheilende Absicherung: falls eine wiederhergestellte/alte DB die neuen
+    Krypto-Tabellen nicht kennt (z.B. nach Restore eines alten Backups auf Render),
+    werden sie hier zusaetzlich sichergestellt. Guenstig, da CREATE TABLE IF NOT EXISTS."""
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_portfolios (
+                user_id INTEGER PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_backtest_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                run_at TEXT NOT NULL,
+                params TEXT NOT NULL,
+                results TEXT NOT NULL,
+                applied INTEGER DEFAULT 0
+            );
+        """)
+    except sqlite3.OperationalError:
+        pass
 
 
 def init_db():
