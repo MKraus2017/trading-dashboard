@@ -85,3 +85,45 @@ def get_symbol_name(symbol: str) -> str:
         if item["symbol"] == symbol:
             return item["name"]
     return symbol
+
+
+# --- Krypto-Testbereich (separates virtuelles Depot, OKX-Live-Preise) ---
+CRYPTO_START_CAPITAL = 1_000.00
+CRYPTO_MAX_LEVERAGE = 10           # Hartes Cap; Bot waehlt Hebel selbst je nach Signal-Konfidenz/Volatilitaet
+CRYPTO_MAX_POSITIONS = 4
+CRYPTO_MAX_POSITION_PCT = 0.30     # max. 30 % des Krypto-Depots pro Position (Margin-Einsatz)
+CRYPTO_MIN_POSITION_EUR = 50.00
+CRYPTO_CASH_RESERVE_PCT = 0.15
+CRYPTO_DEFAULT_STOP_PCT = 0.04     # 4 % Gegenbewegung vom Entry (auf Basispreis, nicht auf Margin)
+CRYPTO_MIN_RR_RATIO = 1.8
+CRYPTO_BUY_SCORE_THRESHOLD = 65
+CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR echter Liquidation geschlossen
+
+# Analyse-Fenster: alle 2h, nur 07-23 Uhr deutscher Zeit (Positions-Ueberwachung laeuft aber 24/7)
+CRYPTO_ANALYSIS_START_HOUR = 7
+CRYPTO_ANALYSIS_END_HOUR = 23
+
+CRYPTO_UNIVERSE = [
+    {"symbol": "BTC", "name": "Bitcoin"},
+    {"symbol": "ETH", "name": "Ethereum"},
+    {"symbol": "SOL", "name": "Solana"},
+    {"symbol": "XRP", "name": "Ripple"},
+    {"symbol": "BNB", "name": "BNB"},
+    {"symbol": "ADA", "name": "Cardano"},
+    {"symbol": "DOGE", "name": "Dogecoin"},
+    {"symbol": "AVAX", "name": "Avalanche"},
+    {"symbol": "LINK", "name": "Chainlink"},
+    {"symbol": "DOT", "name": "Polkadot"},
+]
+
+
+def get_crypto_universe():
+    return CRYPTO_UNIVERSE
+
+
+def get_crypto_symbol_name(symbol: str) -> str:
+    for item in CRYPTO_UNIVERSE:
+        if item["symbol"] == symbol.upper():
+            return item["name"]
+    return symbol.upper()
+

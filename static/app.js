@@ -3,13 +3,14 @@ let currentRecs = [];
 let universeData = [];
 
 function showTab(name) {
-  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen'];
+  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen', 'krypto'];
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'real') renderSymbolSelect();
+  if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
 }
 
 function showLoading(on) {
@@ -1011,3 +1012,229 @@ async function runRealBacktest() {
     btn.textContent = '🧪 Backtest auf reale Positionen';
   }
 }
+
+// --- Krypto-Tab (separates virtuelles Depot, OKX Live-Preise) ---
+
+function fmtEur(v) {
+  if (v === null || v === undefined) return '–';
+  return v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+async function loadCryptoPortfolio() {
+  const summaryEl = document.getElementById('crypto-summary');
+  const posEl = document.getElementById('crypto-positions');
+  const histEl = document.getElementById('crypto-trade-history');
+  try {
+    const r = await fetch('/api/crypto/portfolio');
+    let data;
+    try { data = await r.json(); } catch (e) {
+      showError('Krypto-Depot: Server-Fehler (kein JSON) — evtl. Timeout.');
+      return;
+    }
+    if (!data.ok) {
+      showError('Krypto-Depot Fehler: ' + (data.error || 'unbekannt'));
+      return;
+    }
+    const p = data.portfolio;
+    summaryEl.innerHTML = `
+      <div class="summary-card"><div class="label">Depotwert</div><div class="value">${fmtEur(p.total_value ?? p.cash)}</div></div>
+      <div class="summary-card"><div class="label">Cash (frei)</div><div class="value">${fmtEur(p.cash)}</div></div>
+      <div class="summary-card"><div class="label">Rendite</div><div class="value ${(p.total_return_pct||0) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${(p.total_return_pct||0).toFixed(2)}%</div></div>
+      <div class="summary-card"><div class="label">Offene Positionen</div><div class="value">${(p.positions||[]).length}</div></div>
+    `;
+
+    if (data.events && data.events.length) {
+      const closedMsgs = data.events.map(e => `${e.type === 'liquidation' ? '💥' : '✅'} ${e.symbol}: ${e.msg}`).join('<br>');
+      posEl.insertAdjacentHTML('afterbegin', `<div class="no-data" style="color:#d29922;">${closedMsgs}</div>`);
+    }
+
+    const positions = p.positions || [];
+    if (!positions.length) {
+      posEl.innerHTML = '<div class="no-data">Keine offenen Krypto-Positionen.</div>';
+    } else {
+      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einsatz</th><th>Entry</th><th>Aktuell</th><th>P&L</th><th>Liquidation</th></tr>';
+      positions.forEach(pos => {
+        const pnlCls = (pos.unrealized_pct||0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+        const dirEmoji = pos.direction === 'LONG' ? '🟢' : '🔴';
+        html += `<tr>
+          <td>${pos.symbol}</td>
+          <td>${dirEmoji} ${pos.direction}</td>
+          <td>${pos.leverage}x</td>
+          <td>${fmtEur(pos.margin_eur)}</td>
+          <td>${pos.entry_price}</td>
+          <td>${pos.last_price}</td>
+          <td class="${pnlCls}">${(pos.unrealized_pct||0).toFixed(2)}% (${fmtEur(pos.unrealized_eur)})</td>
+          <td style="color:#f85149;">${pos.liquidation_price}</td>
+        </tr>`;
+      });
+      html += '</table>';
+      posEl.innerHTML = html;
+    }
+
+    const trades = (p.trades || []).slice().reverse().slice(0, 30);
+    if (!trades.length) {
+      histEl.innerHTML = '<div class="no-data">Noch keine geschlossenen Krypto-Trades.</div>';
+    } else {
+      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Grund</th><th>Geschlossen</th></tr>';
+      trades.forEach(t => {
+        const pnlCls = (t.pnl_eur||0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+        const liqTag = t.liquidated ? ' 💥' : '';
+        html += `<tr>
+          <td>${t.symbol}</td>
+          <td>${t.direction}</td>
+          <td>${t.leverage}x</td>
+          <td>${t.entry_price}</td>
+          <td>${t.exit_price}</td>
+          <td class="${pnlCls}">${fmtEur(t.pnl_eur)} (${t.pnl_pct}%)${liqTag}</td>
+          <td style="font-size:12px;color:#8b949e;">${t.close_reason || ''}</td>
+          <td style="font-size:12px;">${new Date(t.closed_at).toLocaleString('de-DE')}</td>
+        </tr>`;
+      });
+      html += '</table>';
+      histEl.innerHTML = html;
+    }
+  } catch (e) {
+    showError('Fehler beim Laden des Krypto-Depots: ' + e.message);
+  }
+}
+
+async function resetCryptoDepot() {
+  if (!confirm('Krypto-Depot wirklich auf 1.000 € zurücksetzen? Alle offenen Positionen und die Trade-Historie gehen verloren.')) return;
+  try {
+    const r = await fetch('/api/crypto/reset', { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      loadCryptoPortfolio();
+    } else {
+      showError('Reset fehlgeschlagen: ' + (data.error || 'unbekannt'));
+    }
+  } catch (e) {
+    showError('Fehler beim Zurücksetzen: ' + e.message);
+  }
+}
+
+async function runCryptoAnalysis(dryRun) {
+  const btn = dryRun ? document.getElementById('crypto-dry-btn') : document.getElementById('crypto-live-btn');
+  const recsEl = document.getElementById('crypto-recommendations');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analysiere...';
+  showLoading(true);
+  showError('');
+  try {
+    const r = await fetch(`/api/crypto/auto_trade?dry_run=${dryRun}`, { method: 'POST' });
+    let data;
+    try { data = await r.json(); } catch (e) {
+      showError('Krypto-Analyse: Server-Fehler (kein JSON) — evtl. Timeout.');
+      return;
+    }
+    if (!data.ok) {
+      showError('Krypto-Analyse Fehler: ' + (data.error || 'unbekannt'));
+      return;
+    }
+    const suggestions = (data.recommendations && data.recommendations.suggestions) || [];
+    if (!suggestions.length) {
+      recsEl.innerHTML = '<div class="no-data">Keine klaren Signale aktuell.</div>';
+    } else {
+      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Score</th><th>Hebel</th><th>Preis</th><th>SL</th><th>TP</th><th>Details</th></tr>';
+      suggestions.forEach(s => {
+        const dirEmoji = s.direction === 'LONG' ? '🟢' : (s.direction === 'SHORT' ? '🔴' : '🟡');
+        html += `<tr>
+          <td>${s.symbol} (${s.name})</td>
+          <td>${dirEmoji} ${s.direction}</td>
+          <td>${s.score}/100</td>
+          <td>${s.leverage}x</td>
+          <td>${s.price}</td>
+          <td>${s.stop_loss ?? '–'}</td>
+          <td>${s.take_profit ?? '–'}</td>
+          <td style="font-size:12px;color:#8b949e;">${(s.details||[]).join(', ')}</td>
+        </tr>`;
+      });
+      html += '</table>';
+      recsEl.innerHTML = html;
+    }
+
+    if (data.actions && data.actions.length) {
+      const actionsText = data.actions.map(a => `${a.action} ${a.symbol}`).join(', ');
+      recsEl.insertAdjacentHTML('beforebegin', `<div class="no-data" style="color:#3fb950;">${dryRun ? '🧪 Probelauf-Ergebnis' : '✅ Ausgeführte Aktionen'}: ${actionsText}</div>`);
+    }
+    if (!dryRun) loadCryptoPortfolio();
+  } catch (e) {
+    showError('Fehler bei Krypto-Analyse: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = dryRun ? '🧪 Signale anzeigen (Probelauf)' : '✅ Analyse & Auto-Handel';
+    showLoading(false);
+  }
+}
+
+async function runCryptoBacktest() {
+  const btn = document.getElementById('crypto-backtest-btn');
+  const days = document.getElementById('crypto-backtest-days').value;
+  const resultEl = document.getElementById('crypto-backtest-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Backtest läuft (kann 1-2 Min dauern)...';
+  showLoading(true);
+  showError('');
+  try {
+    const r = await fetch(`/api/crypto/backtest?days=${days}`, { method: 'POST' });
+    let data;
+    try { data = await r.json(); } catch (e) {
+      showError('Krypto-Backtest: Server-Fehler (kein JSON) — evtl. Timeout.');
+      return;
+    }
+    if (!data.ok) {
+      resultEl.innerHTML = `<div class="no-data">❌ ${data.error || 'Backtest fehlgeschlagen'}</div>`;
+      return;
+    }
+    let html = `<div class="no-data" style="color:#3fb950;">💡 ${data.recommendation}</div>`;
+    html += `<table><tr><th>Variante</th><th>Trades</th><th>Win-Rate</th><th>Gesamt-PnL</th></tr>`;
+    (data.variants || []).forEach((v, i) => {
+      const isBest = data.best && v.name === data.best.name;
+      const pnlCls = v.total_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg';
+      html += `<tr style="${isBest ? 'background:rgba(63,185,80,0.1);font-weight:600;' : ''}">
+        <td>${isBest ? '⭐ ' : ''}${v.name}</td>
+        <td>${v.total_trades}</td>
+        <td>${v.win_rate}%</td>
+        <td class="${pnlCls}">${v.total_pnl_pct}%</td>
+      </tr>`;
+    });
+    html += '</table>';
+    resultEl.innerHTML = html;
+    loadCryptoBacktestHistory();
+  } catch (e) {
+    resultEl.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🧪 Backtest jetzt ausführen';
+    showLoading(false);
+  }
+}
+
+async function loadCryptoBacktestHistory() {
+  const el = document.getElementById('crypto-backtest-history');
+  try {
+    const r = await fetch('/api/crypto/backtest_history');
+    const data = await r.json();
+    if (!data.ok || !data.history || !data.history.length) {
+      el.innerHTML = '<div class="no-data">Noch keine Backtest-Läufe gespeichert.</div>';
+      return;
+    }
+    let html = '<table><tr><th>Datum</th><th>Zeitraum</th><th>Beste Variante</th><th>Win-Rate</th><th>PnL</th></tr>';
+    data.history.forEach(h => {
+      const best = h.results && h.results.best;
+      const pnlCls = best && best.total_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg';
+      html += `<tr>
+        <td style="font-size:12px;">${new Date(h.run_at).toLocaleString('de-DE')}</td>
+        <td>${h.params.days} Tage</td>
+        <td style="font-size:12px;">${best ? best.name : '–'}</td>
+        <td>${best ? best.win_rate + '%' : '–'}</td>
+        <td class="${pnlCls}">${best ? best.total_pnl_pct + '%' : '–'}</td>
+      </tr>`;
+    });
+    html += '</table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="no-data">❌ Fehler beim Laden der Historie: ${e.message}</div>`;
+  }
+}
+

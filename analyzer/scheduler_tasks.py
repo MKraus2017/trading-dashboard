@@ -685,3 +685,57 @@ def morning_report(notify: bool = True) -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "buy_recommendations": len(buy_recs),
     }
+
+
+# --- Krypto-Bot (separat, alle 2h nur 07-23 Uhr; Positions-Ueberwachung 24/7) ---
+
+def crypto_monitor_positions(notify: bool = True) -> dict:
+    """Bewertet offene Krypto-Positionen (SL/TP/Liquidation). Läuft haeufig, 24/7."""
+    from analyzer import crypto_portfolio
+    total_events = 0
+    for user_id in _get_active_users():
+        try:
+            res = crypto_portfolio.evaluate_crypto_portfolio(user_id)
+            events = res.get("events", [])
+            total_events += len(events)
+            if notify and events:
+                token, chat_id = _user_telegram_cfg(user_id)
+                if chat_id:
+                    lines = ["🪙 <b>Krypto-Position geschlossen</b>", ""]
+                    for ev in events:
+                        emoji = "💥" if ev["type"] == "liquidation" else "✅"
+                        pnl = ev["trade"].get("pnl_eur")
+                        lines.append(f"{emoji} {ev['symbol']}: {ev['msg']} ({pnl:+.2f} €)" if pnl is not None else f"{emoji} {ev['symbol']}: {ev['msg']}")
+                    telegram._send_message("\n".join(lines), token=token, chat_id=chat_id)
+        except Exception as e:
+            print(f"[crypto_monitor_positions] user_id={user_id} error: {e}")
+    return {"task": "crypto_monitor_positions", "timestamp": datetime.now(timezone.utc).isoformat(), "events": total_events}
+
+
+def crypto_analysis(notify: bool = True, auto_trade: bool = True) -> dict:
+    """Neue Krypto-Signale + ggf. Auto-Trades. Nur 07-23 Uhr deutscher Zeit (alle 2h)."""
+    now_cet = _now_cet()
+    if not (config.CRYPTO_ANALYSIS_START_HOUR <= now_cet.hour < config.CRYPTO_ANALYSIS_END_HOUR):
+        return {"task": "crypto_analysis", "skipped": True, "reason": "Außerhalb 7-23 Uhr Analyse-Fenster"}
+
+    from analyzer import crypto_auto_trader
+    total_actions = []
+    for user_id in _get_active_users():
+        try:
+            settings = db_store.get_settings(user_id)
+            do_trade = auto_trade and settings.get("auto_trade_enabled", True)
+            result = crypto_auto_trader.run_crypto_auto_trading(user_id, dry_run=not do_trade)
+            total_actions.extend({"user_id": user_id, **a} for a in result.get("actions", []))
+            if notify:
+                token, chat_id = _user_telegram_cfg(user_id)
+                if chat_id:
+                    crypto_auto_trader.notify_crypto_actions(user_id, result, token=token, chat_id=chat_id)
+        except Exception as e:
+            print(f"[crypto_analysis] user_id={user_id} error: {e}")
+
+    return {
+        "task": "crypto_analysis",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "auto_trade": auto_trade,
+        "actions": total_actions,
+    }

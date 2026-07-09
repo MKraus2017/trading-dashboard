@@ -775,6 +775,108 @@ def api_scheduler_morning_report():
     return jsonify(scheduler_tasks.morning_report(notify=True))
 
 
+# --- Krypto-Bot Endpunkte (separates virtuelles Depot) ---
+
+@app.route("/api/crypto/portfolio")
+@login_required
+def api_crypto_portfolio():
+    from analyzer import crypto_portfolio
+    uid = get_current_user_id()
+    try:
+        res = crypto_portfolio.evaluate_crypto_portfolio(uid)
+        return jsonify({"ok": True, "portfolio": res["portfolio"], "events": res["events"]})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/crypto/reset", methods=["POST"])
+@login_required
+def api_crypto_reset():
+    from analyzer import crypto_portfolio
+    uid = get_current_user_id()
+    p = crypto_portfolio.reset_crypto_portfolio(uid)
+    return jsonify({"ok": True, "portfolio": p})
+
+
+@app.route("/api/crypto/recommendations")
+@login_required
+def api_crypto_recommendations():
+    from analyzer import crypto_signals
+    try:
+        recs = crypto_signals.generate_crypto_recommendations()
+        return jsonify({"ok": True, **recs})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/crypto/auto_trade", methods=["POST"])
+@login_required
+def api_crypto_auto_trade():
+    from analyzer import crypto_auto_trader
+    uid = get_current_user_id()
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+    try:
+        result = crypto_auto_trader.run_crypto_auto_trading(uid, dry_run=dry_run)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/crypto/backtest", methods=["GET", "POST"])
+@login_required
+def api_crypto_backtest():
+    from analyzer import crypto_backtester
+    uid = get_current_user_id()
+    days = int(request.args.get("days", 180))
+    try:
+        result = crypto_backtester.run_crypto_backtest(days=days)
+        db_store.save_crypto_backtest_run(uid, {"days": days}, result, applied=False)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/crypto/backtest_history")
+@login_required
+def api_crypto_backtest_history():
+    uid = get_current_user_id()
+    history = db_store.get_crypto_backtest_history(uid, limit=20)
+    return jsonify({"ok": True, "history": history})
+
+
+@app.route("/api/scheduler/crypto_analysis", methods=["POST"])
+def api_scheduler_crypto_analysis():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    auto_trade = request.args.get("auto_trade", "true").lower() == "true"
+    try:
+        return jsonify(scheduler_tasks.crypto_analysis(notify=True, auto_trade=auto_trade))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduler/crypto_monitor", methods=["POST"])
+def api_scheduler_crypto_monitor():
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    try:
+        return jsonify(scheduler_tasks.crypto_monitor_positions(notify=True))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # --- Startup migration & default user safety ---
 # Stelle sicher, dass Restore VOR dem potenziellen Anlegen eines Default-Users läuft.
 # (restore_db_backup() wurde bereits beim Import von db_store ausgeführt.)

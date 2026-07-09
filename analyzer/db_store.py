@@ -244,6 +244,28 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+        # Separates virtuelles Krypto-Depot (unabhaengig vom Aktien-Portfolio)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_portfolios (
+                user_id INTEGER PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+        # Backtest-/Selbstoptimierungs-Historie fuer den Krypto-Bot
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_backtest_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                run_at TEXT NOT NULL,
+                params TEXT NOT NULL,
+                results TEXT NOT NULL,
+                applied INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+
 
 def _now() -> str:
     return datetime.utcnow().isoformat()
@@ -396,6 +418,68 @@ def save_portfolio(user_id: int, p: dict):
         )
     # Kopie der DB sofort ins Git-Repo/auf Disk, aber asynchron, damit der Request nicht blockiert.
     backup_db()
+
+
+# --- Krypto-Depot (separat, unabhaengig vom Aktien-Portfolio) ---
+
+def _default_crypto_portfolio():
+    return {
+        "cash": config.CRYPTO_START_CAPITAL,
+        "start_capital": config.CRYPTO_START_CAPITAL,
+        "positions": [],       # offene Hebel-Positionen (long/short, virtuell)
+        "trades": [],          # geschlossene Trades (Historie)
+        "value_history": [{"date": _now(), "value": config.CRYPTO_START_CAPITAL}],
+    }
+
+
+def load_crypto_portfolio(user_id: int) -> Optional[dict]:
+    if not user_id:
+        return None
+    with get_conn() as conn:
+        row = conn.execute("SELECT data FROM crypto_portfolios WHERE user_id = ?", (user_id,)).fetchone()
+        if row and row["data"]:
+            return json.loads(row["data"])
+    return None
+
+
+def save_crypto_portfolio(user_id: int, p: dict):
+    if not user_id:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO crypto_portfolios (user_id, data, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            (user_id, json.dumps(p, default=str), _now())
+        )
+    backup_db()
+
+
+def save_crypto_backtest_run(user_id: int, params: dict, results: dict, applied: bool = False):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO crypto_backtest_runs (user_id, run_at, params, results, applied) VALUES (?, ?, ?, ?, ?)",
+            (user_id, _now(), json.dumps(params, default=str), json.dumps(results, default=str), 1 if applied else 0)
+        )
+    backup_db()
+
+
+def get_crypto_backtest_history(user_id: int, limit: int = 20) -> List[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, run_at, params, results, applied FROM crypto_backtest_runs "
+            "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"],
+            "run_at": r["run_at"],
+            "params": json.loads(r["params"]),
+            "results": json.loads(r["results"]),
+            "applied": bool(r["applied"]),
+        })
+    return out
 
 
 def save_settings(user_id: int, settings: dict):
