@@ -625,7 +625,12 @@ def _scheduler_auth():
 def api_scheduler_refresh_prices():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    return jsonify(scheduler_tasks.refresh_prices())
+    try:
+        return jsonify(scheduler_tasks.refresh_prices())
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/scheduler/market_analysis", methods=["POST"])
@@ -654,7 +659,12 @@ def api_scheduler_daily_summary():
 def api_scheduler_portfolio_report():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    return jsonify(scheduler_tasks.portfolio_report(notify=True))
+    try:
+        return jsonify(scheduler_tasks.portfolio_report(notify=True))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/send_recommendations_telegram", methods=["POST"])

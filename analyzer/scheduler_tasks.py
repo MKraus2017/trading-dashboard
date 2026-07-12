@@ -577,8 +577,13 @@ def portfolio_report(notify: bool = True) -> dict:
         markets.append("🇺🇸 USA")
     market_str = ", ".join(markets) if markets else "🌙 Keine Börsen geöffnet"
 
-    # Empfehlungen einmal generieren und allen Nutzern mitteilen
-    top_recs = signals.generate_recommendations().get("suggestions", [])[:5]
+    # Empfehlungen einmal generieren und allen Nutzern mitteilen (defensiv: bei Yahoo-Fehlern
+    # oder Timeouts trotzdem einen Report ohne Empfehlungen senden statt komplett zu crashen)
+    try:
+        top_recs = signals.generate_recommendations().get("suggestions", [])[:5]
+    except Exception as e:
+        print(f"[portfolio_report] generate_recommendations failed: {e}")
+        top_recs = []
 
     for user_id in _get_active_users():
         settings = db_store.get_settings(user_id)
