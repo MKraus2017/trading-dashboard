@@ -12,7 +12,7 @@ on:
 jobs:
   refresh_prices:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '*/5 * * * *'
+    if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Refresh prices
         env:
@@ -37,7 +37,7 @@ jobs:
 
   market_analysis:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '*/30 * * * *'
+    if: github.event.schedule == '*/30 * * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Market analysis
         env:
@@ -62,7 +62,7 @@ jobs:
 
   llm_analysis:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 */2 * * *'
+    if: github.event.schedule == '0 */2 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: LLM analysis + auto-trade
         env:
@@ -87,7 +87,7 @@ jobs:
 
   portfolio_report:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 5,8,11,14,17,20 * * *'
+    if: github.event.schedule == '0 5,8,11,14,17,20 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Portfolio report
         env:
@@ -102,7 +102,7 @@ jobs:
 
   daily_summary:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '15 22 * * *'
+    if: github.event.schedule == '15 22 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Daily summary
         env:
