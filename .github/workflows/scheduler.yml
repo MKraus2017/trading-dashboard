@@ -21,7 +21,7 @@ jobs:
           curl -X POST \
             --max-time 25 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/refresh_prices" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Crypto position monitor (SL/TP/Liquidation, 24/7)
@@ -31,7 +31,7 @@ jobs:
           curl -X POST \
             --max-time 25 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/crypto_monitor" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
@@ -46,7 +46,7 @@ jobs:
           curl -X POST \
             --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/market_analysis" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Real positions urgent alert
@@ -56,7 +56,7 @@ jobs:
           curl -X POST \
             --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/real_positions_alert" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
@@ -71,7 +71,7 @@ jobs:
           curl -X POST \
             --max-time 120 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/llm_analysis?auto_trade=true" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Crypto analysis + auto-trade (nur 07-23 Uhr, Backend prueft Fenster)
@@ -81,7 +81,7 @@ jobs:
           curl -X POST \
             --max-time 120 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/crypto_analysis?auto_trade=true" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
@@ -96,7 +96,7 @@ jobs:
           curl -X POST \
             --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/portfolio_report" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
 
@@ -111,6 +111,6 @@ jobs:
           curl -X POST \
             --max-time 140 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/daily_summary" \
-            -H "Authorization: Bearer ***" \
+            -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
