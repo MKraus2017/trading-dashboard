@@ -62,6 +62,7 @@ def open_position(user_id: int, symbol: str, direction: str, margin_eur: float,
     size = notional / entry_price  # Menge in Coin
 
     liq_price = _liquidation_price(entry_price, leverage, direction, config.CRYPTO_LIQUIDATION_BUFFER_PCT)
+    sl_dist = abs(entry_price - stop_loss) if stop_loss else entry_price * config.CRYPTO_DEFAULT_STOP_PCT
 
     pos = {
         "id": f"{symbol}_{int(time.time()*1000)}",
@@ -73,13 +74,16 @@ def open_position(user_id: int, symbol: str, direction: str, margin_eur: float,
         "size": size,
         "entry_price": entry_price,
         "stop_loss": stop_loss,
+        "initial_sl_dist": sl_dist,     # fuer Trailing-Stop-Berechnung, aendert sich nicht mehr
         "take_profit": take_profit,
         "liquidation_price": liq_price,
         "opened_at": _now(),
+        "opened_at_ts": time.time(),
         "reason": reason,
         "last_price": entry_price,
         "unrealized_pct": 0.0,
         "unrealized_eur": 0.0,
+        "trailing_active": False,
     }
     p["cash"] = round(p["cash"] - margin_eur, 2)
     p["positions"].append(pos)
@@ -138,6 +142,21 @@ def evaluate_crypto_portfolio(user_id: int) -> dict:
         pos["unrealized_pct"] = round(pnl_pct_leveraged, 2)
         pos["unrealized_eur"] = round(pos["margin_eur"] * (pnl_pct_leveraged / 100.0), 2)
 
+        # Trailing-Stop: ab Aktivierungsschwelle SL zugunsten der Position nachziehen (nie zurueck).
+        # Sichert gehebelte Gewinne aktiv, statt nur auf ein fixes Take-Profit zu warten.
+        if config.CRYPTO_USE_TRAILING_STOP and pnl_pct_leveraged >= config.CRYPTO_TRAILING_ACTIVATE_PCT:
+            trail_dist = pos.get("initial_sl_dist", price * config.CRYPTO_DEFAULT_STOP_PCT) * config.CRYPTO_TRAILING_TIGHTEN_FACTOR
+            if direction == "LONG":
+                new_sl = price - trail_dist
+                if pos.get("stop_loss") is None or new_sl > pos["stop_loss"]:
+                    pos["stop_loss"] = round(new_sl, 6)
+                    pos["trailing_active"] = True
+            else:
+                new_sl = price + trail_dist
+                if pos.get("stop_loss") is None or new_sl < pos["stop_loss"]:
+                    pos["stop_loss"] = round(new_sl, 6)
+                    pos["trailing_active"] = True
+
         triggered = False
         reason = None
         liquidated = False
@@ -151,12 +170,20 @@ def evaluate_crypto_portfolio(user_id: int) -> dict:
             (direction == "LONG" and price <= pos["stop_loss"]) or
             (direction == "SHORT" and price >= pos["stop_loss"])
         ):
-            triggered, reason = True, f"Stop-Loss {pos['stop_loss']} erreicht"
+            sl_label = "Trailing-Stop" if pos.get("trailing_active") else "Stop-Loss"
+            triggered, reason = True, f"{sl_label} {pos['stop_loss']} erreicht"
         elif pos.get("take_profit") and (
             (direction == "LONG" and price >= pos["take_profit"]) or
             (direction == "SHORT" and price <= pos["take_profit"])
         ):
             triggered, reason = True, f"Take-Profit {pos['take_profit']} erreicht"
+        elif (
+            (time.time() - pos.get("opened_at_ts", time.time())) / 3600.0 >= config.CRYPTO_MAX_HOLD_HOURS
+            and pnl_pct_leveraged < config.CRYPTO_TIME_EXIT_MIN_PROFIT_PCT
+        ):
+            # Zeit-Exit: verhindert totes Kapital in Hebel-Positionen ohne klare Bewegung
+            hours_held = round((time.time() - pos.get("opened_at_ts", time.time())) / 3600.0, 1)
+            triggered, reason = True, f"Zeit-Exit nach {hours_held}h ({config.CRYPTO_MAX_HOLD_HOURS}h Limit, Gewinn {round(pnl_pct_leveraged,1)}% < {config.CRYPTO_TIME_EXIT_MIN_PROFIT_PCT}%)"
 
         if triggered:
             trade = _close_position(p, pos, price, reason, liquidated=liquidated)

@@ -95,11 +95,26 @@ CRYPTO_MAX_POSITION_PCT = 0.30     # max. 30 % des Krypto-Depots pro Position (M
 CRYPTO_MIN_POSITION_EUR = 50.00
 CRYPTO_CASH_RESERVE_PCT = 0.15
 CRYPTO_DEFAULT_STOP_PCT = 0.04     # 4 % Gegenbewegung vom Entry (auf Basispreis, nicht auf Margin)
-CRYPTO_SL_ATR_MULT = 1.0          # Backtest 180T/10 Symbole 4H: SL 1x ATR + ADX-Filter => PnL +80.1% (Win-Rate 46.6%)
-CRYPTO_MIN_RR_RATIO = 1.5          # Backtest 180T: RR 1.5 mit engem SL + ADX schlaegt alle anderen Kombinationen
+CRYPTO_SL_ATR_MULT = 0.9          # Backtest 180T/10 Symbole 4H (+ADX+Trailing+ZeitExit): SL 0.9x ATR => PnL +155% (Win-Rate 57.5%)
+CRYPTO_MIN_RR_RATIO = 1.0          # Backtest 180T: RR 1.0 mit Trailing-Stop schlaegt RR 1.2-3.0 (Trailing sichert Gewinne statt fixem TP)
 CRYPTO_USE_ADX_FILTER = True      # ADX-Trendfilter aktiv (bewaehrt: Eng+ADX = +80.1% vs. Eng ohne ADX = +26.3%)
-CRYPTO_BUY_SCORE_THRESHOLD = 65
+CRYPTO_BUY_SCORE_THRESHOLD = 63   # Backtest: Score>=63 robuster als 65 (mehr Trades, 7/10 Symbole profitabel, kein Overfit auf 1 Symbol)
 CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR echter Liquidation geschlossen
+
+# Trailing-Stop: sichert Gewinne bei Hebel-Positionen aktiv, statt nur auf fixes TP zu warten.
+# Aktiviert ab X% gehebeltem Gewinn, zieht dann nach (nie zurueck), Distanz = urspruengliche
+# SL-Distanz (ATR-basiert) * Faktor - je hoeher der Hebel, desto empfindlicher reagiert das
+# Nachziehen auf Kursbewegungen (das ist gewollt: gehebelte Gewinne schneller sichern).
+CRYPTO_TRAILING_ACTIVATE_PCT = 30.0   # ab 30% gehebeltem Gewinn Trailing aktivieren
+CRYPTO_TRAILING_TIGHTEN_FACTOR = 0.6  # Trailing-Distanz = 60% der urspruenglichen SL-Distanz (enger als initialer SL)
+CRYPTO_USE_TRAILING_STOP = True       # Live-Monitoring zieht SL bei Gewinn nach (bewaehrt im Backtest)
+
+# Zeit-Exit: verhindert "totes Kapital" bei Hebel-Positionen. Bei Krypto ist eine lange
+# Haltedauer ohne klare Bewegung ein Risiko (Funding-Kosten, Volatilitaets-Regime-Wechsel,
+# gebundene Margin fuer bessere Signale). Position wird nach X Stunden geschlossen, wenn der
+# gehebelte Gewinn nicht mindestens Y% betraegt.
+CRYPTO_MAX_HOLD_HOURS = 48.0          # max. 48h halten (Analyse-Kerzen sind 4H -> 12 Kerzen)
+CRYPTO_TIME_EXIT_MIN_PROFIT_PCT = 5.0  # nach 48h: schliessen, wenn gehebelter Gewinn < 5%
 
 # Totalverlust-Schutz (Circuit Breaker): stoppt neue Trades automatisch, wenn das
 # Krypto-Depot zu tief faellt. Schuetzt vor Komplettverlust des virtuellen Kapitals.

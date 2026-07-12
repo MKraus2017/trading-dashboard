@@ -1058,10 +1058,13 @@ async function loadCryptoPortfolio() {
     if (!positions.length) {
       posEl.innerHTML = '<div class="no-data">Keine offenen Krypto-Positionen.</div>';
     } else {
-      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einsatz</th><th>Entry</th><th>Aktuell</th><th>P&L</th><th>Liquidation</th></tr>';
+      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einsatz</th><th>Entry</th><th>Aktuell</th><th>P&L</th><th>SL</th><th>Liquidation</th><th>Gehalten</th></tr>';
       positions.forEach(pos => {
         const pnlCls = (pos.unrealized_pct||0) >= 0 ? 'pnl-pos' : 'pnl-neg';
         const dirEmoji = pos.direction === 'LONG' ? '🟢' : '🔴';
+        const trailTag = pos.trailing_active ? ' 🔒' : '';
+        const heldHours = pos.opened_at_ts ? Math.round((Date.now()/1000 - pos.opened_at_ts) / 3600 * 10) / 10 : null;
+        const heldStr = heldHours !== null ? `${heldHours}h` : '—';
         html += `<tr>
           <td>${pos.symbol}</td>
           <td>${dirEmoji} ${pos.direction}</td>
@@ -1070,7 +1073,9 @@ async function loadCryptoPortfolio() {
           <td>${pos.entry_price}</td>
           <td>${pos.last_price}</td>
           <td class="${pnlCls}">${(pos.unrealized_pct||0).toFixed(2)}% (${fmtEur(pos.unrealized_eur)})</td>
+          <td>${pos.stop_loss ?? '—'}${trailTag}</td>
           <td style="color:#f85149;">${pos.liquidation_price}</td>
+          <td>${heldStr}</td>
         </tr>`;
       });
       html += '</table>';
