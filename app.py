@@ -910,5 +910,19 @@ def health():
     return jsonify({"ok": True, "status": "running"})
 
 
+@app.route("/api/debug/outbound_ip", methods=["GET"])
+def api_debug_outbound_ip():
+    """Zeigt die tatsaechliche ausgehende IP dieses Render-Servers (fuer OKX-Whitelist).
+    Fragt einen externen Echo-Dienst ab, der die Quell-IP des Requests zurueckgibt."""
+    import urllib.request
+    import json as _json
+    try:
+        with urllib.request.urlopen("https://api.ipify.org?format=json", timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+            return jsonify({"ok": True, "outbound_ip": data.get("ip")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
