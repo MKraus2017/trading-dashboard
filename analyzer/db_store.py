@@ -228,6 +228,32 @@ def _ensure_crypto_tables(conn):
                 applied INTEGER DEFAULT 0
             );
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS okx_spot_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                inst_id TEXT NOT NULL,
+                amount_base REAL NOT NULL,
+                entry_price REAL NOT NULL,
+                amount_usdc REAL NOT NULL,
+                stop_loss REAL,
+                take_profit REAL,
+                initial_sl_dist REAL,
+                trailing_active INTEGER DEFAULT 0,
+                buy_order_id TEXT,
+                opened_at TEXT NOT NULL,
+                opened_at_ts REAL NOT NULL,
+                reason TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
+                closed_at TEXT,
+                exit_price REAL,
+                sell_order_id TEXT,
+                close_reason TEXT,
+                pnl_usdc REAL,
+                pnl_pct REAL
+            );
+        """)
     except sqlite3.OperationalError:
         pass
 
@@ -590,6 +616,67 @@ def get_settings(user_id: int) -> dict:
         print(f"[get_settings] Error: {e}")
         # Falls Settings-Table nicht existiert, Defaults zurückgeben
     return defaults
+
+
+# --- OKX Spot Positionen (ECHTES GELD, kein Hebel) ---
+
+def create_okx_spot_position(user_id: int, symbol: str, inst_id: str, amount_base: float,
+                              entry_price: float, amount_usdc: float, stop_loss: float,
+                              take_profit: float, initial_sl_dist: float, buy_order_id: str,
+                              reason: str = "") -> int:
+    import time as _time
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO okx_spot_positions
+            (user_id, symbol, inst_id, amount_base, entry_price, amount_usdc, stop_loss,
+             take_profit, initial_sl_dist, buy_order_id, opened_at, opened_at_ts, reason, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+        """, (user_id, symbol.upper(), inst_id, amount_base, entry_price, amount_usdc, stop_loss,
+              take_profit, initial_sl_dist, buy_order_id, now, _time.time(), reason))
+        backup_db()
+        return cur.lastrowid
+
+
+def get_open_okx_spot_positions(user_id: int) -> list:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM okx_spot_positions WHERE user_id = ? AND status = 'open' ORDER BY id",
+            (user_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_okx_spot_position(position_id: int, **fields) -> None:
+    if not fields:
+        return
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [position_id]
+    with get_conn() as conn:
+        conn.execute(f"UPDATE okx_spot_positions SET {cols} WHERE id = ?", values)
+        backup_db()
+
+
+def close_okx_spot_position(position_id: int, exit_price: float, sell_order_id: str,
+                             close_reason: str, pnl_usdc: float, pnl_pct: float) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE okx_spot_positions
+            SET status = 'closed', closed_at = ?, exit_price = ?, sell_order_id = ?,
+                close_reason = ?, pnl_usdc = ?, pnl_pct = ?
+            WHERE id = ?
+        """, (now, exit_price, sell_order_id, close_reason, pnl_usdc, pnl_pct, position_id))
+        backup_db()
+
+
+def get_okx_spot_trade_history(user_id: int, limit: int = 50) -> list:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM okx_spot_positions WHERE user_id = ? AND status = 'closed' ORDER BY closed_at DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # --- Migration: alter default user ---

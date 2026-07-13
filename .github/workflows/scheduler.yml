@@ -84,6 +84,16 @@ jobs:
             -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
+      - name: OKX Spot Auto-Trade (ECHTES GELD, kein Hebel)
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
+        run: |
+          curl -X POST \
+            --max-time 120 \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/okx_spot_auto_trade" \
+            -H "Authorization: Bearer $SCHED" \
+            -H "Content-Type: application/json" \
+            --silent --show-error --fail
 
   portfolio_report:
     runs-on: ubuntu-latest

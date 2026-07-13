@@ -11,7 +11,7 @@ function showTab(name) {
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'real') renderSymbolSelect();
   if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
-  if (name === 'okxlive') { loadOkxLive(); }
+  if (name === 'okxlive') { loadOkxLive(); loadOkxSpotHistory(); }
 }
 
 function showLoading(on) {
@@ -1361,3 +1361,72 @@ async function closeOkxPosition(instId, ccy) {
 }
 
 
+
+
+async function runOkxAutoTrade(dryRun) {
+  const resEl = document.getElementById('okxlive-autotrade-result');
+  if (!dryRun && !confirm('ECHTEN Auto-Trade-Zyklus jetzt ausführen?\n\nDer Bot kauft/verkauft automatisch basierend auf aktuellen Signalen mit ECHTEM Geld!')) {
+    return;
+  }
+  resEl.innerHTML = `<div class="no-data">⏳ ${dryRun ? 'Probelauf' : 'Führe echten Auto-Trade aus'}...</div>`;
+  try {
+    const res = await fetch(`/api/okx/auto_trade?dry_run=${dryRun}`, { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) {
+      resEl.innerHTML = `<div class="no-data">❌ ${data.error}</div>`;
+      return;
+    }
+    if (!data.actions.length) {
+      resEl.innerHTML = '<div class="no-data">Keine Aktionen (keine passenden Signale oder Limits erreicht).</div>';
+    } else {
+      let html = '<table><tr><th>Aktion</th><th>Symbol</th><th>Details</th></tr>';
+      data.actions.forEach(a => {
+        let details = '';
+        if (a.action === 'WOULD-BUY' || a.action === 'BOUGHT') details = `${a.amount_usdc} USDC (Score ${a.score})`;
+        else if (a.action === 'SOLD') details = `${a.reason} | P&L: ${a.pnl_usdc.toFixed(2)} USDC (${a.pnl_pct.toFixed(2)}%)`;
+        else if (a.error) details = `Fehler: ${a.error}`;
+        else if (a.reason) details = a.reason;
+        html += `<tr><td>${a.action}</td><td>${a.symbol || '–'}</td><td>${details}</td></tr>`;
+      });
+      html += '</table>';
+      resEl.innerHTML = html;
+    }
+    if (!dryRun) setTimeout(loadOkxLive, 2000);
+  } catch (e) {
+    resEl.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+  }
+}
+
+async function loadOkxSpotHistory() {
+  const el = document.getElementById('okxlive-history');
+  el.innerHTML = '<div class="no-data">⏳ Lade Historie...</div>';
+  try {
+    const res = await fetch('/api/okx/spot_history');
+    const data = await res.json();
+    if (!data.ok) {
+      el.innerHTML = `<div class="no-data">❌ ${data.error}</div>`;
+      return;
+    }
+    let html = '';
+    if (data.open_positions.length) {
+      html += '<div class="section-title" style="font-size:14px;">Offene automatisierte Positionen</div>';
+      html += '<table><tr><th>Symbol</th><th>Einstieg</th><th>Menge</th><th>Investiert</th><th>SL</th><th>TP</th></tr>';
+      data.open_positions.forEach(p => {
+        html += `<tr><td>${p.symbol}</td><td>${p.entry_price}</td><td>${p.amount_base}</td><td>${p.amount_usdc} USDC</td><td>${p.stop_loss || '–'}</td><td>${p.take_profit || '–'}</td></tr>`;
+      });
+      html += '</table>';
+    }
+    if (data.history.length) {
+      html += '<div class="section-title" style="font-size:14px;margin-top:12px;">Abgeschlossene Trades</div>';
+      html += '<table><tr><th>Symbol</th><th>Einstieg</th><th>Ausstieg</th><th>Grund</th><th>P&L</th></tr>';
+      data.history.forEach(t => {
+        const pnlCls = t.pnl_usdc >= 0 ? 'positive' : 'negative';
+        html += `<tr><td>${t.symbol}</td><td>${t.entry_price}</td><td>${t.exit_price}</td><td>${t.close_reason}</td><td class="${pnlCls}">${t.pnl_usdc.toFixed(2)} USDC (${t.pnl_pct.toFixed(2)}%)</td></tr>`;
+      });
+      html += '</table>';
+    }
+    el.innerHTML = html || '<div class="no-data">Noch keine automatisierten Trades.</div>';
+  } catch (e) {
+    el.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+  }
+}

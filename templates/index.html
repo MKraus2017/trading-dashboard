@@ -223,10 +223,25 @@
         <button class="refresh-btn" style="background:#3fb950;" onclick="buyOkxSpot()">🟢 Kaufen</button>
       </div>
 
+      <div class="section-title" style="margin-top:24px;">🤖 Automatisiertes Trading (ECHTES GELD)</div>
+      <p style="color:#8b949e;margin-bottom:12px;">
+        Bot kauft automatisch LONG-Signale (Score ≥63), Positionsgröße skaliert mit Signalstärke
+        (50-250 USDC), max. 70% des Guthabens gleichzeitig investiert. Verkauf bei SL/TP/Trailing/Zeit-Exit.
+        Läuft automatisch alle 2h über den Scheduler - hier kannst du zusätzlich manuell auslösen.
+      </p>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="refresh-btn" onclick="runOkxAutoTrade(true)">🧪 Probelauf (dry-run)</button>
+        <button class="refresh-btn" style="background:#f85149;" onclick="runOkxAutoTrade(false)">✅ Jetzt ausführen (ECHTES GELD)</button>
+      </div>
+      <div id="okxlive-autotrade-result" style="margin-bottom:16px;"></div>
+
       <div class="section-title" style="margin-top:24px;">📂 Echte Krypto-Bestände</div>
       <div id="okxlive-positions"></div>
+
+      <div class="section-title" style="margin-top:24px;">📜 Trade-Historie (automatisiert + manuell)</div>
+      <div id="okxlive-history"></div>
     </div>
   </div>
-<script src="/static/app.js?v=23"></script>
+<script src="/static/app.js?v=24"></script>
 </body>
 </html>

@@ -1067,5 +1067,90 @@ def api_okx_open_position():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/okx/auto_trade", methods=["POST"])
+@login_required
+def api_okx_auto_trade():
+    """Fuehrt einen kompletten automatisierten Spot-Trading-Zyklus aus: bewertet offene
+    echte Positionen (SL/TP/Trailing/Zeit-Exit) und prueft neue Signale fuer Kaeufe.
+    dry_run=true zeigt nur was passieren wuerde, ohne echte Order."""
+    from analyzer import okx_spot_autotrader, okx_trading_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+    uid = get_current_user_id()
+    try:
+        result = okx_spot_autotrader.run_okx_spot_auto_trade(uid, dry_run=dry_run)
+        if result.get("ok") and not dry_run and result.get("actions"):
+            try:
+                from analyzer import telegram as telegram_client
+                settings = db_store.get_settings(uid)
+                token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+                chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+                real_actions = [a for a in result["actions"] if a["action"] in ("BOUGHT", "SOLD")]
+                if chat_id and real_actions:
+                    lines = ["🤖 <b>OKX Spot Auto-Trade (ECHTES GELD)</b>"]
+                    for a in real_actions:
+                        if a["action"] == "BOUGHT":
+                            lines.append(f"🟢 GEKAUFT: {a['symbol']} für {a['amount_usdc']} USDC (Score {a['score']})")
+                        else:
+                            lines.append(f"🔴 VERKAUFT: {a['symbol']} - {a['reason']} (P&L: {a['pnl_usdc']:+.2f} USDC / {a['pnl_pct']:+.2f}%)")
+                    telegram_client._send_message("\n".join(lines), token=token, chat_id=chat_id)
+            except Exception:
+                pass
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/okx/spot_history", methods=["GET"])
+@login_required
+def api_okx_spot_history():
+    """Historie der abgeschlossenen echten Spot-Trades."""
+    uid = get_current_user_id()
+    try:
+        history = db_store.get_okx_spot_trade_history(uid)
+        open_positions = db_store.get_open_okx_spot_positions(uid)
+        return jsonify({"ok": True, "history": history, "open_positions": open_positions})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduler/okx_spot_auto_trade", methods=["POST"])
+def api_scheduler_okx_spot_auto_trade():
+    """Scheduler-Endpunkt (GitHub Actions) fuer automatisiertes OKX-Spot-Trading."""
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    from analyzer import okx_spot_autotrader, okx_trading_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    try:
+        uid = 1  # Single-User-System, Default-User
+        result = okx_spot_autotrader.run_okx_spot_auto_trade(uid, dry_run=False)
+        if result.get("ok") and result.get("actions"):
+            try:
+                from analyzer import telegram as telegram_client
+                settings = db_store.get_settings(uid)
+                token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+                chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+                real_actions = [a for a in result["actions"] if a["action"] in ("BOUGHT", "SOLD")]
+                if chat_id and real_actions:
+                    lines = ["🤖 <b>OKX Spot Auto-Trade (ECHTES GELD)</b>"]
+                    for a in real_actions:
+                        if a["action"] == "BOUGHT":
+                            lines.append(f"🟢 GEKAUFT: {a['symbol']} für {a['amount_usdc']} USDC (Score {a['score']})")
+                        else:
+                            lines.append(f"🔴 VERKAUFT: {a['symbol']} - {a['reason']} (P&L: {a['pnl_usdc']:+.2f} USDC / {a['pnl_pct']:+.2f}%)")
+                    telegram_client._send_message("\n".join(lines), token=token, chat_id=chat_id)
+            except Exception:
+                pass
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
