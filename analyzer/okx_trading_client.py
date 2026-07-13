@@ -20,12 +20,23 @@ import hashlib
 import hmac
 import json
 import os
-import urllib.request
-import urllib.error
+import requests
 from datetime import datetime, timezone
 from typing import Optional, Dict
 
-OKX_BASE = "https://www.okx.com"
+# WICHTIG: OKX betreibt regional getrennte Backends. EU/EWR-regulierte Konten
+# (erkennbar an der Login-Domain my.okx.com) laufen NICHT ueber www.okx.com -
+# API-Keys aus einem solchen Konto werden dort mit "API key doesn't exist" (50119)
+# abgelehnt. Verifiziert per Live-Test: www.okx.com -> 401, my.okx.com -> 200.
+OKX_BASE = "https://my.okx.com"
+
+# Realistischer Browser-User-Agent ist notwendig: OKX/Cloudflare blockt den
+# Standard-User-Agent von Pythons urllib/requests mit Cloudflare Error 1010
+# (Bot-Fingerprint-Erkennung), unabhaengig von der Quell-IP. Verifiziert durch
+# identischen 403/1010-Fehler von 4 unterschiedlichen IPs (Sandbox, Render,
+# VPN, Heim-IP) - erst mit Browser-User-Agent + requests-Lib kam eine echte
+# API-Antwort durch.
+_BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
 def _get_credentials():
@@ -65,26 +76,26 @@ def _request(method: str, path: str, body: dict = None, demo: bool = False) -> d
         "OK-ACCESS-TIMESTAMP": timestamp,
         "OK-ACCESS-PASSPHRASE": passphrase,
         "Content-Type": "application/json",
+        "User-Agent": _BROWSER_UA,
     }
     if demo:
         headers["x-simulated-trading"] = "1"
 
     url = OKX_BASE + path
-    data = body_str.encode() if body_str else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read().decode())
-            if result.get("code") != "0":
-                return {"ok": False, "error": result.get("msg", "Unbekannter OKX-Fehler"), "code": result.get("code"), "raw": result}
-            return {"ok": True, "data": result.get("data", [])}
-    except urllib.error.HTTPError as e:
+        if method == "GET":
+            resp = requests.get(url, headers=headers, timeout=15)
+        else:
+            resp = requests.post(url, headers=headers, data=body_str, timeout=15)
         try:
-            err_body = json.loads(e.read().decode())
-            return {"ok": False, "error": err_body.get("msg", str(e)), "code": err_body.get("code"), "http_status": e.code}
-        except Exception:
-            return {"ok": False, "error": f"HTTP {e.code}: {e.reason}", "http_status": e.code}
-    except Exception as e:
+            result = resp.json()
+        except ValueError:
+            return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}", "http_status": resp.status_code}
+        if result.get("code") != "0":
+            return {"ok": False, "error": result.get("msg", "Unbekannter OKX-Fehler"), "code": result.get("code"),
+                    "http_status": resp.status_code, "raw": result}
+        return {"ok": True, "data": result.get("data", [])}
+    except requests.RequestException as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -104,7 +115,7 @@ def get_balance(ccy: str = "USDT") -> dict:
     details = res["data"][0].get("details", []) if res["data"] else []
     for d in details:
         if d.get("ccy") == ccy:
-            return {"ok": True, "ccy": ccy, "available": float(d.get("availBal", 0)), "total": float(d.get("bal", 0))}
+            return {"ok": True, "ccy": ccy, "available": float(d.get("availBal", 0) or 0), "total": float(d.get("eq", 0) or 0)}
     return {"ok": True, "ccy": ccy, "available": 0.0, "total": 0.0}
 
 
@@ -113,8 +124,8 @@ def get_all_balances() -> dict:
     if not res.get("ok"):
         return res
     details = res["data"][0].get("details", []) if res["data"] else []
-    balances = [{"ccy": d.get("ccy"), "available": float(d.get("availBal", 0)), "total": float(d.get("bal", 0))}
-                for d in details if float(d.get("bal", 0)) > 0]
+    balances = [{"ccy": d.get("ccy"), "available": float(d.get("availBal", 0) or 0), "total": float(d.get("eq", 0) or 0)}
+                for d in details if float(d.get("eq", 0) or 0) > 0]
     return {"ok": True, "balances": balances}
 
 
