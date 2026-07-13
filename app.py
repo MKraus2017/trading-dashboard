@@ -924,5 +924,17 @@ def api_debug_outbound_ip():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/debug/okx_connection_test", methods=["GET"])
+@login_required
+def api_debug_okx_connection_test():
+    """Testet die OKX-Trading-API-Verbindung von diesem Render-Server aus (Balance-Abfrage,
+    reiner Read-Zugriff, keine Order). Login-geschuetzt, da echte Account-Daten sichtbar sind."""
+    from analyzer import okx_trading_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX_API_KEY/OKX_SECRET_KEY/OKX_PASSPHRASE nicht gesetzt"}), 400
+    res = okx_trading_client.get_all_balances()
+    return jsonify(res)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
