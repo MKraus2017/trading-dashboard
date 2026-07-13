@@ -1032,8 +1032,9 @@ def api_okx_instrument_info():
 @login_required
 def api_okx_open_position():
     """Kauft ECHTES Krypto per Spot-Order (KEIN Hebel - Futures ist fuer dieses Konto
-    regulatorisch gesperrt, Code 51155). Body: {symbol, amount_usdc}"""
-    from analyzer import okx_trading_client
+    regulatorisch gesperrt, Code 51155). Body: {symbol, amount_usdc}
+    Trackt die Position in der DB, damit sie vom Auto-Trader ueberwacht wird (SL/TP/Trailing)."""
+    from analyzer import okx_trading_client, crypto_signals
     if not okx_trading_client.has_trading_credentials():
         return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
     data = request.get_json(silent=True) or {}
@@ -1048,6 +1049,31 @@ def api_okx_open_position():
         res["inst_id"] = inst_id
 
         if res.get("ok"):
+            # Position tracken, damit der Auto-Trader sie ueberwacht (SL/TP/Trailing/Zeit-Exit)
+            try:
+                import time as _time
+                _time.sleep(2)
+                holding = okx_trading_client.get_spot_holdings(symbol)
+                amount_base = holding.get("available", 0) if holding.get("ok") else 0
+                analysis = crypto_signals.analyze_crypto_symbol(symbol)
+                entry_price = analysis["price"] if analysis else (float(amount_usdc) / amount_base if amount_base else 0)
+                stop_loss = analysis.get("stop_loss") if analysis else None
+                take_profit = analysis.get("take_profit") if analysis else None
+                sl_dist = abs(entry_price - stop_loss) if stop_loss else entry_price * config.CRYPTO_DEFAULT_STOP_PCT
+                uid = get_current_user_id()
+                db_store.create_okx_spot_position(
+                    user_id=uid, symbol=symbol, inst_id=inst_id, amount_base=amount_base,
+                    entry_price=entry_price, amount_usdc=float(amount_usdc), stop_loss=stop_loss,
+                    take_profit=take_profit, initial_sl_dist=sl_dist,
+                    buy_order_id=res.get("order_id"), reason="Manueller Kauf über Dashboard"
+                )
+                res["tracked"] = True
+                res["stop_loss"] = stop_loss
+                res["take_profit"] = take_profit
+            except Exception as track_err:
+                print(f"[api_okx_open_position] Tracking fehlgeschlagen: {track_err}")
+                res["tracked"] = False
+
             try:
                 from analyzer import telegram as telegram_client
                 uid = get_current_user_id()
@@ -1056,7 +1082,8 @@ def api_okx_open_position():
                 chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
                 if chat_id:
                     telegram_client._send_message(
-                        f"🟢 <b>ECHTER OKX-Spot-Kauf</b>\n{inst_id}\nBetrag: {amount_usdc} USDC",
+                        f"🟢 <b>ECHTER OKX-Spot-Kauf</b>\n{inst_id}\nBetrag: {amount_usdc} USDC\n"
+                        f"{'✅ Wird automatisch überwacht (SL/TP)' if res.get('tracked') else '⚠️ NICHT automatisch überwacht'}",
                         token=token, chat_id=chat_id)
             except Exception:
                 pass
@@ -1064,6 +1091,44 @@ def api_okx_open_position():
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/okx/track_existing_position", methods=["POST"])
+@login_required
+def api_okx_track_existing_position():
+    """Einmaliger Nachtrag: erfasst einen bereits bestehenden (z.B. manuell gekauften,
+    noch nicht getrackten) Spot-Bestand in der Ueberwachungs-DB, damit SL/TP/Trailing
+    greifen. Body: {symbol, amount_usdc (urspruenglich investiert)}"""
+    from analyzer import okx_trading_client, crypto_signals
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    data = request.get_json(silent=True) or {}
+    symbol = data.get("symbol")
+    amount_usdc = data.get("amount_usdc")
+    if not (symbol and amount_usdc):
+        return jsonify({"ok": False, "error": "symbol und amount_usdc erforderlich"}), 400
+    try:
+        holding = okx_trading_client.get_spot_holdings(symbol)
+        if not holding.get("ok") or holding["available"] <= 0:
+            return jsonify({"ok": False, "error": f"Kein {symbol}-Bestand gefunden"}), 400
+        amount_base = holding["available"]
+        entry_price = float(amount_usdc) / amount_base
+        analysis = crypto_signals.analyze_crypto_symbol(symbol)
+        stop_loss = analysis.get("stop_loss") if analysis and analysis.get("stop_loss") else round(entry_price * (1 - config.CRYPTO_DEFAULT_STOP_PCT), 6)
+        take_profit = analysis.get("take_profit") if analysis and analysis.get("take_profit") else round(entry_price * (1 + config.CRYPTO_DEFAULT_STOP_PCT * config.CRYPTO_MIN_RR_RATIO), 6)
+        sl_dist = abs(entry_price - stop_loss)
+        inst_id = okx_trading_client.to_spot_inst_id(symbol, quote="USDC")
+        uid = get_current_user_id()
+        pid = db_store.create_okx_spot_position(
+            user_id=uid, symbol=symbol, inst_id=inst_id, amount_base=amount_base,
+            entry_price=entry_price, amount_usdc=float(amount_usdc), stop_loss=stop_loss,
+            take_profit=take_profit, initial_sl_dist=sl_dist,
+            buy_order_id="manual-untracked", reason="Nachtraeglich erfasst (bestehender Bestand)"
+        )
+        return jsonify({"ok": True, "position_id": pid, "entry_price": entry_price,
+                         "stop_loss": stop_loss, "take_profit": take_profit})
+    except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -1119,7 +1184,8 @@ def api_okx_spot_history():
 
 @app.route("/api/scheduler/okx_spot_auto_trade", methods=["POST"])
 def api_scheduler_okx_spot_auto_trade():
-    """Scheduler-Endpunkt (GitHub Actions) fuer automatisiertes OKX-Spot-Trading."""
+    """Scheduler-Endpunkt (GitHub Actions) fuer automatisiertes OKX-Spot-Trading.
+    Fuehrt sowohl Positions-Monitoring (SL/TP/Trailing) als auch neue Kaeufe aus."""
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
     from analyzer import okx_spot_autotrader, okx_trading_client
@@ -1142,6 +1208,40 @@ def api_scheduler_okx_spot_auto_trade():
                             lines.append(f"🟢 GEKAUFT: {a['symbol']} für {a['amount_usdc']} USDC (Score {a['score']})")
                         else:
                             lines.append(f"🔴 VERKAUFT: {a['symbol']} - {a['reason']} (P&L: {a['pnl_usdc']:+.2f} USDC / {a['pnl_pct']:+.2f}%)")
+                    telegram_client._send_message("\n".join(lines), token=token, chat_id=chat_id)
+            except Exception:
+                pass
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduler/okx_spot_monitor", methods=["POST"])
+def api_scheduler_okx_spot_monitor():
+    """Scheduler-Endpunkt: NUR Positions-Monitoring (SL/TP/Trailing/Zeit-Exit),
+    KEINE neuen Kaeufe. Laeuft alle 5 Min (wie crypto_monitor), damit SL/TP zeitnah
+    ausgeloest werden statt erst alle 2h beim naechsten Signal-Zyklus."""
+    if not _scheduler_auth():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    from analyzer import okx_spot_autotrader, okx_trading_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": True, "skipped": True, "reason": "OKX-Credentials nicht gesetzt"})
+    try:
+        uid = 1
+        result = okx_spot_autotrader.evaluate_okx_spot_positions(uid)
+        sold = [a for a in result.get("actions", []) if a["action"] == "SOLD"]
+        if sold:
+            try:
+                from analyzer import telegram as telegram_client
+                settings = db_store.get_settings(uid)
+                token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+                chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+                if chat_id:
+                    lines = ["🤖 <b>OKX Spot Position automatisch verkauft (ECHTES GELD)</b>"]
+                    for a in sold:
+                        lines.append(f"🔴 {a['symbol']} - {a['reason']} (P&L: {a['pnl_usdc']:+.2f} USDC / {a['pnl_pct']:+.2f}%)")
                     telegram_client._send_message("\n".join(lines), token=token, chat_id=chat_id)
             except Exception:
                 pass

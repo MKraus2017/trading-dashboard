@@ -34,6 +34,16 @@ jobs:
             -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
             --silent --show-error --fail
+      - name: OKX Spot position monitor (SL/TP/Trailing, ECHTES GELD, 24/7)
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
+        run: |
+          curl -X POST \
+            --max-time 60 \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/okx_spot_monitor" \
+            -H "Authorization: Bearer $SCHED" \
+            -H "Content-Type: application/json" \
+            --silent --show-error --fail
 
   market_analysis:
     runs-on: ubuntu-latest
