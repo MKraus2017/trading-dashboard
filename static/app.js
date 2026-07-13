@@ -1288,21 +1288,25 @@ async function loadOkxLive() {
     } else if (!posRes.positions.length) {
       posEl.innerHTML = '<div class="no-data">Keine echten Krypto-Bestände (nur Spot, kein Hebel-Trading möglich).</div>';
     } else {
-      let html = '<table><tr><th>Symbol</th><th>Menge</th><th>Live-Preis</th><th>Wert (USDC)</th><th></th></tr>';
-      posRes.positions.forEach(p => {
-        html += `<tr>
-          <td>${p.ccy}</td>
-          <td>${p.amount.toFixed(6)}</td>
-          <td>${p.live_price ? p.live_price.toFixed(4) : '–'}</td>
-          <td>${p.value_usdc ? p.value_usdc.toFixed(2) : '–'}</td>
-          <td><button class="refresh-btn" style="background:#f85149;" onclick="closeOkxPosition('${p.inst_id}','${p.ccy}')">🔴 Verkaufen</button></td>
-        </tr>`;
-      });
-      html += '</table>';
-      posEl.innerHTML = html;
-    }
-  } catch (e) {
-    balEl.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+      let html = '<table><tr><th>Symbol</th><th>Menge</th><th>Einstieg</th><th>Live-Preis</th><th>Wert (USDC)</th><th>P&L</th><th></th></tr>';
+            posRes.positions.forEach(p => {
+              const pnlCls = p.pnl_usdc === null ? '' : (p.pnl_usdc >= 0 ? 'positive' : 'negative');
+              const pnlText = p.pnl_usdc === null ? '–' : `${p.pnl_usdc >= 0 ? '+' : ''}${p.pnl_usdc.toFixed(2)} USDC (${p.pnl_pct >= 0 ? '+' : ''}${p.pnl_pct.toFixed(2)}%)`;
+              html += `<tr>
+                <td>${p.ccy}${!p.tracked ? ' ⚠️' : ''}</td>
+                <td>${p.amount.toFixed(6)}</td>
+                <td>${p.entry_price ? p.entry_price.toFixed(4) : '–'}</td>
+                <td>${p.live_price ? p.live_price.toFixed(4) : '–'}</td>
+                <td>${p.value_usdc ? p.value_usdc.toFixed(2) : '–'}</td>
+                <td class="${pnlCls}">${pnlText}</td>
+                <td><button class="refresh-btn" style="background:#f85149;" onclick="closeOkxPosition('${p.inst_id}','${p.ccy}')">🔴 Verkaufen</button></td>
+              </tr>`;
+            });
+            html += '</table>';
+            posEl.innerHTML = html;
+          }
+        } catch (e) {
+          balEl.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
   }
 }
 

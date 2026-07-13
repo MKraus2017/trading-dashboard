@@ -953,7 +953,8 @@ def api_okx_balance():
 @app.route("/api/okx/positions", methods=["GET"])
 @login_required
 def api_okx_positions():
-    """Zeigt echte Spot-Bestaende (kein Hebel) inkl. aktuellem Marktwert.
+    """Zeigt echte Spot-Bestaende (kein Hebel) inkl. aktuellem Marktwert und P&L
+    (Prozent + Betrag), sofern die Position getrackt ist (Entry-Preis bekannt).
     Filtert USDC/EUR/Fiat raus - nur tatsaechliche Krypto-Bestaende."""
     from analyzer import okx_trading_client, okx_client
     if not okx_trading_client.has_trading_credentials():
@@ -963,6 +964,10 @@ def api_okx_positions():
         if not res.get("ok"):
             return jsonify(res)
         fiat = {"USDC", "USDT", "EUR", "USD"}
+
+        uid = get_current_user_id()
+        tracked = {p["symbol"]: p for p in db_store.get_open_okx_spot_positions(uid)}
+
         holdings = []
         for b in res["balances"]:
             ccy = b["ccy"]
@@ -973,11 +978,27 @@ def api_okx_positions():
             value_usdc = (live_price * b["available"]) if live_price else None
             if value_usdc is not None and value_usdc < 1.0:
                 continue  # Staub-Bestaende (<1 USDC) ausblenden
+
+            entry = tracked.get(ccy)
+            pnl_pct = None
+            pnl_usdc = None
+            entry_price = None
+            if entry and live_price:
+                entry_price = entry["entry_price"]
+                pnl_pct = round((live_price - entry_price) / entry_price * 100, 2) if entry_price else None
+                pnl_usdc = round(entry["amount_base"] * (live_price - entry_price), 4) if entry_price else None
+
             holdings.append({
                 "ccy": ccy,
                 "amount": b["available"],
                 "live_price": live_price,
                 "value_usdc": value_usdc,
+                "entry_price": entry_price,
+                "pnl_pct": pnl_pct,
+                "pnl_usdc": pnl_usdc,
+                "tracked": entry is not None,
+                "stop_loss": entry.get("stop_loss") if entry else None,
+                "take_profit": entry.get("take_profit") if entry else None,
                 "inst_id": okx_trading_client.to_spot_inst_id(ccy, quote="USDC"),
             })
         return jsonify({"ok": True, "positions": holdings})
