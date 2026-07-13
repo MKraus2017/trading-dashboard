@@ -1014,5 +1014,59 @@ def api_okx_instrument_info():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/okx/open_position", methods=["POST"])
+@login_required
+def api_okx_open_position():
+    """Eroeffnet eine ECHTE Perpetual-Futures-Position mit echtem Geld.
+    Body: {symbol, direction ('LONG'/'SHORT'), margin_usdc, leverage}"""
+    from analyzer import okx_trading_client, okx_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    data = request.get_json(silent=True) or {}
+    symbol = data.get("symbol")
+    direction = data.get("direction")
+    margin_usdc = data.get("margin_usdc")
+    leverage = data.get("leverage")
+    if not (symbol and direction in ("LONG", "SHORT") and margin_usdc and leverage):
+        return jsonify({"ok": False, "error": "symbol, direction (LONG/SHORT), margin_usdc, leverage erforderlich"}), 400
+
+    try:
+        inst_id = okx_trading_client.to_swap_inst_id(symbol)
+        ticker = okx_client.fetch_ticker(symbol)
+        if not ticker:
+            return jsonify({"ok": False, "error": f"Konnte Live-Preis fuer {symbol} nicht laden"}), 500
+        mark_price = ticker["last"]
+
+        contracts = okx_trading_client.contracts_from_margin(inst_id, float(margin_usdc), int(leverage), mark_price)
+        if contracts is None:
+            return jsonify({"ok": False, "error": "Konnte Kontraktanzahl nicht berechnen (Instrument-Info fehlt)"}), 500
+
+        side = "buy" if direction == "LONG" else "sell"
+        res = okx_trading_client.place_futures_order(inst_id, side, contracts, int(leverage))
+        res["inst_id"] = inst_id
+        res["contracts"] = contracts
+        res["mark_price"] = mark_price
+
+        if res.get("ok"):
+            try:
+                from analyzer import telegram as telegram_client
+                uid = get_current_user_id()
+                settings = db_store.get_settings(uid)
+                token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+                chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+                if chat_id:
+                    telegram_client._send_message(
+                        f"🟢 <b>ECHTE OKX-Position eröffnet</b>\n{inst_id} {direction} {leverage}x\n"
+                        f"Margin: {margin_usdc} USDC | Kontrakte: {contracts} | Preis: {mark_price}",
+                        token=token, chat_id=chat_id)
+            except Exception:
+                pass
+        return jsonify(res)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
