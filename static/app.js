@@ -3,7 +3,7 @@ let currentRecs = [];
 let universeData = [];
 
 function showTab(name) {
-  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen', 'krypto'];
+  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen', 'krypto', 'okxlive'];
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
@@ -11,6 +11,7 @@ function showTab(name) {
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'real') renderSymbolSelect();
   if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
+  if (name === 'okxlive') { loadOkxLive(); }
 }
 
 function showLoading(on) {
@@ -1248,4 +1249,87 @@ async function loadCryptoBacktestHistory() {
     el.innerHTML = `<div class="no-data">❌ Fehler beim Laden der Historie: ${e.message}</div>`;
   }
 }
+
+// --- OKX Live-Handel (ECHTES GELD) ---
+
+async function loadOkxLive() {
+  const summaryEl = document.getElementById('okxlive-summary');
+  const balEl = document.getElementById('okxlive-balance');
+  const posEl = document.getElementById('okxlive-positions');
+  balEl.innerHTML = '<div class="no-data">⏳ Lade echtes OKX-Konto...</div>';
+  posEl.innerHTML = '';
+  try {
+    const [balRes, posRes] = await Promise.all([
+      fetch('/api/okx/balance').then(r => r.json()),
+      fetch('/api/okx/positions').then(r => r.json()),
+    ]);
+
+    if (!balRes.ok) {
+      balEl.innerHTML = `<div class="no-data">❌ ${balRes.error || 'Fehler beim Laden des Guthabens'}</div>`;
+      summaryEl.innerHTML = '';
+    } else {
+      const usdc = balRes.balances.find(b => b.ccy === 'USDC' || b.ccy === 'USDT');
+      summaryEl.innerHTML = `
+        <div class="summary-card"><div class="label">Verfügbares Guthaben</div><div class="value">${usdc ? usdc.available.toFixed(2) + ' ' + usdc.ccy : '–'}</div></div>
+        <div class="summary-card"><div class="label">Offene echte Positionen</div><div class="value">${posRes.ok ? posRes.positions.length : '–'}</div></div>
+      `;
+      let html = '<table><tr><th>Currency</th><th>Verfügbar</th><th>Gesamt</th></tr>';
+      balRes.balances.forEach(b => {
+        html += `<tr><td>${b.ccy}</td><td>${b.available.toFixed(6)}</td><td>${b.total.toFixed(6)}</td></tr>`;
+      });
+      html += '</table>';
+      balEl.innerHTML = html;
+    }
+
+    if (!posRes.ok) {
+      posEl.innerHTML = `<div class="no-data">❌ ${posRes.error || 'Fehler beim Laden der Positionen'}</div>`;
+    } else if (!posRes.positions.length) {
+      posEl.innerHTML = '<div class="no-data">Keine offenen echten Positionen.</div>';
+    } else {
+      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einstieg</th><th>Live-Preis</th><th>P&L</th><th>Liquidation</th><th></th></tr>';
+      posRes.positions.forEach(p => {
+        const pnlCls = p.unrealized_pnl >= 0 ? 'positive' : 'negative';
+        html += `<tr>
+          <td>${p.inst_id.replace('-USDT-SWAP', '')}</td>
+          <td>${p.side === 'LONG' ? '🟢 LONG' : '🔴 SHORT'}</td>
+          <td>${p.leverage}x</td>
+          <td>${p.entry_price.toFixed(4)}</td>
+          <td>${(p.live_price || p.mark_price).toFixed(4)}</td>
+          <td class="${pnlCls}">${p.unrealized_pnl.toFixed(2)} USDC (${p.unrealized_pnl_pct.toFixed(2)}%)</td>
+          <td>${p.liquidation_price.toFixed(4)}</td>
+          <td><button class="refresh-btn" style="background:#f85149;" onclick="closeOkxPosition('${p.inst_id}','${p.side}',${p.size_contracts})">🔴 Schließen</button></td>
+        </tr>`;
+      });
+      html += '</table>';
+      posEl.innerHTML = html;
+    }
+  } catch (e) {
+    balEl.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+  }
+}
+
+async function closeOkxPosition(instId, side, sizeContracts) {
+  if (!confirm(`ECHTE Position wirklich schließen?\n${instId} (${side}, ${sizeContracts} Kontrakte)\n\nDies platziert eine echte Market-Order mit echtem Geld!`)) {
+    return;
+  }
+  try {
+    const res = await fetch('/api/okx/close_position', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inst_id: instId, side: side, size_contracts: sizeContracts }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('okxlive-positions').insertAdjacentHTML('afterbegin',
+        `<div class="no-data" style="color:#3fb950;">✅ Order platziert (ID: ${data.order_id})</div>`);
+      setTimeout(loadOkxLive, 2000);
+    } else {
+      document.getElementById('okxlive-positions').insertAdjacentHTML('afterbegin',
+        `<div class="no-data" style="color:#f85149;">❌ Fehler: ${data.error}</div>`);
+    }
+  } catch (e) {
+    alert('Fehler: ' + e.message);
+  }
+}
+
 

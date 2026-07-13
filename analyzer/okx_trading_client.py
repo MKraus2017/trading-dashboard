@@ -242,3 +242,25 @@ def get_order_status(inst_id: str, order_id: str) -> dict:
         "avg_price": float(o.get("avgPx", 0) or 0),
         "fee": float(o.get("fee", 0) or 0),
     }
+
+
+def contracts_from_margin(inst_id: str, margin_usdt: float, leverage: int, mark_price: float) -> Optional[float]:
+    """Rechnet Margin (USDT) + Hebel + aktueller Preis in eine gueltige Kontraktanzahl um,
+    gerundet auf die OKX lot_size. Gibt None zurueck wenn Instrument-Info nicht lesbar."""
+    info = get_instrument_info(inst_id)
+    if not info.get("ok"):
+        return None
+    ct_val = info["ct_val"]
+    lot_size = info["lot_size"] or info["min_size"]
+    min_size = info["min_size"]
+    if ct_val <= 0 or mark_price <= 0:
+        return None
+    notional = margin_usdt * leverage
+    raw_contracts = notional / (ct_val * mark_price)
+    if lot_size > 0:
+        contracts = round(raw_contracts / lot_size) * lot_size
+    else:
+        contracts = raw_contracts
+    if contracts < min_size:
+        contracts = min_size
+    return round(contracts, 8)

@@ -936,5 +936,83 @@ def api_debug_okx_connection_test():
     return jsonify(res)
 
 
+# --- Live-OKX-Trading (ECHTES GELD) ---
+
+@app.route("/api/okx/balance", methods=["GET"])
+@login_required
+def api_okx_balance():
+    from analyzer import okx_trading_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    try:
+        return jsonify(okx_trading_client.get_all_balances())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/okx/positions", methods=["GET"])
+@login_required
+def api_okx_positions():
+    from analyzer import okx_trading_client, okx_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    try:
+        res = okx_trading_client.get_positions()
+        if res.get("ok"):
+            # Aktuellen Live-Preis pro Position ergaenzen (mark_price von OKX ist oft leicht verzoegert)
+            for p in res["positions"]:
+                symbol = p["inst_id"].replace("-USDT-SWAP", "")
+                ticker = okx_client.fetch_ticker(symbol)
+                if ticker:
+                    p["live_price"] = ticker["last"]
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/okx/close_position", methods=["POST"])
+@login_required
+def api_okx_close_position():
+    """Schliesst eine ECHTE offene Futures-Position komplett (Market-Order, reduceOnly)."""
+    from analyzer import okx_trading_client
+    if not okx_trading_client.has_trading_credentials():
+        return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
+    data = request.get_json(silent=True) or {}
+    inst_id = data.get("inst_id")
+    side = data.get("side")
+    size_contracts = data.get("size_contracts")
+    if not (inst_id and side and size_contracts):
+        return jsonify({"ok": False, "error": "inst_id, side und size_contracts erforderlich"}), 400
+    try:
+        res = okx_trading_client.close_position(inst_id, side, float(size_contracts))
+        if res.get("ok"):
+            try:
+                from analyzer import telegram as telegram_client
+                uid = get_current_user_id()
+                settings = db_store.get_settings(uid)
+                token = settings.get("telegram_bot_token") or config.TELEGRAM_BOT_TOKEN
+                chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
+                if chat_id:
+                    telegram_client._send_message(
+                        f"🔴 <b>ECHTE OKX-Position manuell geschlossen</b>\n{inst_id} ({side}, {size_contracts} Kontrakte)",
+                        token=token, chat_id=chat_id)
+            except Exception:
+                pass
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/okx/instrument_info", methods=["GET"])
+@login_required
+def api_okx_instrument_info():
+    from analyzer import okx_trading_client
+    inst_id = request.args.get("inst_id", "BTC-USDT-SWAP")
+    try:
+        return jsonify(okx_trading_client.get_instrument_info(inst_id))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
