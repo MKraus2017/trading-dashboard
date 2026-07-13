@@ -953,19 +953,34 @@ def api_okx_balance():
 @app.route("/api/okx/positions", methods=["GET"])
 @login_required
 def api_okx_positions():
+    """Zeigt echte Spot-Bestaende (kein Hebel) inkl. aktuellem Marktwert.
+    Filtert USDC/EUR/Fiat raus - nur tatsaechliche Krypto-Bestaende."""
     from analyzer import okx_trading_client, okx_client
     if not okx_trading_client.has_trading_credentials():
         return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
     try:
-        res = okx_trading_client.get_positions()
-        if res.get("ok"):
-            # Aktuellen Live-Preis pro Position ergaenzen (mark_price von OKX ist oft leicht verzoegert)
-            for p in res["positions"]:
-                symbol = p["inst_id"].replace("-USDT-SWAP", "")
-                ticker = okx_client.fetch_ticker(symbol)
-                if ticker:
-                    p["live_price"] = ticker["last"]
-        return jsonify(res)
+        res = okx_trading_client.get_all_balances()
+        if not res.get("ok"):
+            return jsonify(res)
+        fiat = {"USDC", "USDT", "EUR", "USD"}
+        holdings = []
+        for b in res["balances"]:
+            ccy = b["ccy"]
+            if ccy in fiat or b["available"] <= 0:
+                continue
+            ticker = okx_client.fetch_ticker(ccy)
+            live_price = ticker["last"] if ticker else None
+            value_usdc = (live_price * b["available"]) if live_price else None
+            if value_usdc is not None and value_usdc < 1.0:
+                continue  # Staub-Bestaende (<1 USDC) ausblenden
+            holdings.append({
+                "ccy": ccy,
+                "amount": b["available"],
+                "live_price": live_price,
+                "value_usdc": value_usdc,
+                "inst_id": okx_trading_client.to_spot_inst_id(ccy, quote="USDC"),
+            })
+        return jsonify({"ok": True, "positions": holdings})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -973,18 +988,17 @@ def api_okx_positions():
 @app.route("/api/okx/close_position", methods=["POST"])
 @login_required
 def api_okx_close_position():
-    """Schliesst eine ECHTE offene Futures-Position komplett (Market-Order, reduceOnly)."""
+    """Verkauft einen ECHTEN Spot-Bestand komplett (Market-Order)."""
     from analyzer import okx_trading_client
     if not okx_trading_client.has_trading_credentials():
         return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
     data = request.get_json(silent=True) or {}
     inst_id = data.get("inst_id")
-    side = data.get("side")
-    size_contracts = data.get("size_contracts")
-    if not (inst_id and side and size_contracts):
-        return jsonify({"ok": False, "error": "inst_id, side und size_contracts erforderlich"}), 400
+    ccy = data.get("ccy")
+    if not (inst_id and ccy):
+        return jsonify({"ok": False, "error": "inst_id und ccy erforderlich"}), 400
     try:
-        res = okx_trading_client.close_position(inst_id, side, float(size_contracts))
+        res = okx_trading_client.sell_spot_all(inst_id, ccy)
         if res.get("ok"):
             try:
                 from analyzer import telegram as telegram_client
@@ -994,7 +1008,7 @@ def api_okx_close_position():
                 chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
                 if chat_id:
                     telegram_client._send_message(
-                        f"🔴 <b>ECHTE OKX-Position manuell geschlossen</b>\n{inst_id} ({side}, {size_contracts} Kontrakte)",
+                        f"🔴 <b>ECHTER OKX-Spot-Verkauf</b>\n{inst_id}\nKompletter Bestand verkauft",
                         token=token, chat_id=chat_id)
             except Exception:
                 pass
@@ -1017,35 +1031,21 @@ def api_okx_instrument_info():
 @app.route("/api/okx/open_position", methods=["POST"])
 @login_required
 def api_okx_open_position():
-    """Eroeffnet eine ECHTE Perpetual-Futures-Position mit echtem Geld.
-    Body: {symbol, direction ('LONG'/'SHORT'), margin_usdc, leverage}"""
-    from analyzer import okx_trading_client, okx_client
+    """Kauft ECHTES Krypto per Spot-Order (KEIN Hebel - Futures ist fuer dieses Konto
+    regulatorisch gesperrt, Code 51155). Body: {symbol, amount_usdc}"""
+    from analyzer import okx_trading_client
     if not okx_trading_client.has_trading_credentials():
         return jsonify({"ok": False, "error": "OKX-Credentials nicht gesetzt"}), 400
     data = request.get_json(silent=True) or {}
     symbol = data.get("symbol")
-    direction = data.get("direction")
-    margin_usdc = data.get("margin_usdc")
-    leverage = data.get("leverage")
-    if not (symbol and direction in ("LONG", "SHORT") and margin_usdc and leverage):
-        return jsonify({"ok": False, "error": "symbol, direction (LONG/SHORT), margin_usdc, leverage erforderlich"}), 400
+    amount_usdc = data.get("amount_usdc")
+    if not (symbol and amount_usdc):
+        return jsonify({"ok": False, "error": "symbol und amount_usdc erforderlich"}), 400
 
     try:
-        inst_id = okx_trading_client.to_swap_inst_id(symbol)
-        ticker = okx_client.fetch_ticker(symbol)
-        if not ticker:
-            return jsonify({"ok": False, "error": f"Konnte Live-Preis fuer {symbol} nicht laden"}), 500
-        mark_price = ticker["last"]
-
-        contracts = okx_trading_client.contracts_from_margin(inst_id, float(margin_usdc), int(leverage), mark_price)
-        if contracts is None:
-            return jsonify({"ok": False, "error": "Konnte Kontraktanzahl nicht berechnen (Instrument-Info fehlt)"}), 500
-
-        side = "buy" if direction == "LONG" else "sell"
-        res = okx_trading_client.place_futures_order(inst_id, side, contracts, int(leverage))
+        inst_id = okx_trading_client.to_spot_inst_id(symbol, quote="USDC")
+        res = okx_trading_client.place_spot_order(inst_id, "buy", amount_quote=float(amount_usdc))
         res["inst_id"] = inst_id
-        res["contracts"] = contracts
-        res["mark_price"] = mark_price
 
         if res.get("ok"):
             try:
@@ -1056,8 +1056,7 @@ def api_okx_open_position():
                 chat_id = settings.get("telegram_chat_id") or config.TELEGRAM_CHAT_ID
                 if chat_id:
                     telegram_client._send_message(
-                        f"🟢 <b>ECHTE OKX-Position eröffnet</b>\n{inst_id} {direction} {leverage}x\n"
-                        f"Margin: {margin_usdc} USDC | Kontrakte: {contracts} | Preis: {mark_price}",
+                        f"🟢 <b>ECHTER OKX-Spot-Kauf</b>\n{inst_id}\nBetrag: {amount_usdc} USDC",
                         token=token, chat_id=chat_id)
             except Exception:
                 pass

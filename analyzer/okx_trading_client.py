@@ -264,3 +264,92 @@ def contracts_from_margin(inst_id: str, margin_usdt: float, leverage: int, mark_
     if contracts < min_size:
         contracts = min_size
     return round(contracts, 8)
+
+
+# --- SPOT Trading (kein Hebel) ---
+# WICHTIG: Dieses OKX-Konto (EU/EWR-reguliert ueber my.okx.com) hat KEINE
+# Perpetual-Futures-Berechtigung - jede Order auf *-USDT-SWAP/*-USDC-SWAP wird mit
+# Fehlercode 51155 "local compliance restrictions" abgelehnt (verifiziert fuer
+# BTC, ETH, BNB, ADA, DOT, SOL, XRP, DOGE - ausnahmslos alle). Nur Spot-Trading
+# (tdMode=cash, kein Hebel) ist erlaubt - verifiziert per echter Test-Order.
+
+def to_spot_inst_id(symbol: str, quote: str = "USDC") -> str:
+    """Normalisiert z.B. 'BTC' -> 'BTC-USDC' (Spot-Paar). quote='USDC' da das Konto
+    in USDC gehalten wird (848 USDC statt USDT)."""
+    symbol = symbol.upper()
+    if "-" in symbol:
+        return symbol
+    return f"{symbol}-{quote}"
+
+
+def get_spot_instrument_info(inst_id: str) -> dict:
+    """Spot-Instrument-Spezifikation (Mindestgroesse, Schrittgroesse)."""
+    res = _request("GET", f"/api/v5/public/instruments?instType=SPOT&instId={inst_id}")
+    if not res.get("ok") or not res["data"]:
+        return res
+    i = res["data"][0]
+    return {
+        "ok": True,
+        "inst_id": inst_id,
+        "min_size": float(i.get("minSz", 0)),
+        "lot_size": float(i.get("lotSz", 0)),
+        "tick_size": float(i.get("tickSz", 0)),
+    }
+
+
+def place_spot_order(inst_id: str, side: str, amount_quote: float = None, amount_base: float = None,
+                      order_type: str = "market") -> dict:
+    """Platziert eine ECHTE Spot-Order (kein Hebel, tdMode=cash).
+
+    inst_id: z.B. 'BTC-USDC'
+    side: 'buy' oder 'sell'
+    amount_quote: Kaufbetrag in Quote-Currency (z.B. USDC) - nur bei side='buy' + market
+    amount_base: Menge in Base-Currency (z.B. BTC-Menge) - bei side='sell' erforderlich
+    """
+    if side not in ("buy", "sell"):
+        return {"ok": False, "error": "side muss 'buy' oder 'sell' sein"}
+
+    body = {
+        "instId": inst_id,
+        "tdMode": "cash",
+        "side": side,
+        "ordType": order_type,
+    }
+    if side == "buy" and order_type == "market" and amount_quote:
+        body["sz"] = str(amount_quote)
+        body["tgtCcy"] = "quote_ccy"
+    elif amount_base:
+        body["sz"] = str(amount_base)
+    else:
+        return {"ok": False, "error": "amount_quote (buy+market) oder amount_base (sell) erforderlich"}
+
+    res = _request("POST", "/api/v5/trade/order", body=body)
+    if res.get("ok") and res["data"]:
+        order = res["data"][0]
+        return {
+            "ok": order.get("sCode") == "0",
+            "order_id": order.get("ordId"),
+            "client_order_id": order.get("clOrdId"),
+            "error": order.get("sMsg") if order.get("sCode") != "0" else None,
+        }
+    return res
+
+
+def get_spot_holdings(base_ccy: str) -> dict:
+    """Aktueller Bestand einer Base-Currency (z.B. wie viel BTC gehalten wird)."""
+    res = _request("GET", f"/api/v5/account/balance?ccy={base_ccy}")
+    if not res.get("ok"):
+        return res
+    details = res["data"][0].get("details", []) if res["data"] else []
+    for d in details:
+        if d.get("ccy") == base_ccy:
+            return {"ok": True, "ccy": base_ccy, "available": float(d.get("availBal", 0) or 0), "total": float(d.get("eq", 0) or 0)}
+    return {"ok": True, "ccy": base_ccy, "available": 0.0, "total": 0.0}
+
+
+def sell_spot_all(inst_id: str, base_ccy: str) -> dict:
+    """Verkauft den gesamten verfuegbaren Bestand einer Position (Market-Order)."""
+    holding = get_spot_holdings(base_ccy)
+    if not holding.get("ok") or holding["available"] <= 0:
+        return {"ok": False, "error": f"Kein verfuegbarer {base_ccy}-Bestand zum Verkaufen"}
+    return place_spot_order(inst_id, "sell", amount_base=holding["available"])
