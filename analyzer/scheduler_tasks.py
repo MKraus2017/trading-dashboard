@@ -84,7 +84,11 @@ def market_analysis(notify: bool = True) -> dict:
     if not market_hours.is_any_trading_hours():
         return {"task": "market_analysis", "skipped": True, "reason": "Außerhalb der Handelszeiten"}
 
-    recs = signals.generate_recommendations()
+    try:
+        recs = signals.generate_recommendations()
+    except Exception as e:
+        print(f"[market_analysis] generate_recommendations failed: {e}")
+        recs = {"suggestions": []}
 
     if notify:
         for user_id in _get_active_users():

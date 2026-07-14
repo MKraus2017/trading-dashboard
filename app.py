@@ -637,7 +637,12 @@ def api_scheduler_refresh_prices():
 def api_scheduler_market_analysis():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    return jsonify(scheduler_tasks.market_analysis(notify=True))
+    try:
+        return jsonify(scheduler_tasks.market_analysis(notify=True))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/scheduler/llm_analysis", methods=["POST"])
@@ -645,14 +650,24 @@ def api_scheduler_llm_analysis():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
     auto_trade = request.args.get("auto_trade", "true").lower() == "true"
-    return jsonify(scheduler_tasks.llm_analysis(auto_trade=auto_trade, notify=True))
+    try:
+        return jsonify(scheduler_tasks.llm_analysis(auto_trade=auto_trade, notify=True))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/scheduler/daily_summary", methods=["POST"])
 def api_scheduler_daily_summary():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    return jsonify(scheduler_tasks.daily_summary())
+    try:
+        return jsonify(scheduler_tasks.daily_summary())
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/scheduler/portfolio_report", methods=["POST"])
@@ -775,14 +790,24 @@ def api_backtest_real():
 def api_scheduler_real_positions_alert():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    return jsonify(scheduler_tasks.real_positions_report(only_urgent=True))
+    try:
+        return jsonify(scheduler_tasks.real_positions_report(only_urgent=True))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/scheduler/morning_report", methods=["POST"])
 def api_scheduler_morning_report():
     if not _scheduler_auth():
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    return jsonify(scheduler_tasks.morning_report(notify=True))
+    try:
+        return jsonify(scheduler_tasks.morning_report(notify=True))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # --- Krypto-Bot Endpunkte (separates virtuelles Depot) ---
