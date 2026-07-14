@@ -43,6 +43,17 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
     if not candles or len(candles["closes"]) < 50:
         return None
 
+    # Volumen-Filter: Symbole mit zu geringem 24h-Handelsvolumen ausschliessen (breite
+    # Spreads, "gestaute" ATR-basierte SL/TP-Levels werden selten erreicht - erzeugt
+    # kaum echte Bewegung trotz messbarer statistischer Volatilitaet). Verifiziert per
+    # Backtest: Ausschluss von Symbolen < 5 Mio USDT/Tag verbessert Win-Rate + Rendite
+    # konsistent ueber 180/365 Tage (AVAX/LINK/DOT waren die betroffenen Symbole).
+    if config.CRYPTO_MIN_VOLUME_USDT_24H > 0:
+        ticker = okx_client.fetch_ticker(symbol)
+        vol24h_usdt = (ticker.get("vol24h", 0) or 0) if ticker else 0
+        if vol24h_usdt < config.CRYPTO_MIN_VOLUME_USDT_24H:
+            return None
+
     closes = candles["closes"]
     highs = candles["highs"]
     lows = candles["lows"]

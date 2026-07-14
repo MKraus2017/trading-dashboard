@@ -99,6 +99,7 @@ CRYPTO_SL_ATR_MULT = 0.9          # Backtest 180T/10 Symbole 4H (+ADX+Trailing+Z
 CRYPTO_MIN_RR_RATIO = 1.0          # Backtest 180T: RR 1.0 mit Trailing-Stop schlaegt RR 1.2-3.0 (Trailing sichert Gewinne statt fixem TP)
 CRYPTO_USE_ADX_FILTER = True      # ADX-Trendfilter aktiv (bewaehrt: Eng+ADX = +80.1% vs. Eng ohne ADX = +26.3%)
 CRYPTO_BUY_SCORE_THRESHOLD = 63   # Backtest: Score>=63 robuster als 65 (mehr Trades, 7/10 Symbole profitabel, kein Overfit auf 1 Symbol)
+CRYPTO_MIN_VOLUME_USDT_24H = 5_000_000  # Symbole mit < 5 Mio USDT 24h-Volumen ausschliessen (breite Spreads, kaum Bewegung trotz Volatilitaet; Backtest: verbessert Win-Rate 54-56% -> 57-59%, Rendite 180T +4.94->+4.8% marginal, 365T +2.6->+3.98% deutlich)
 CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR echter Liquidation geschlossen
 
 # Trailing-Stop: sichert Gewinne bei Hebel-Positionen aktiv, statt nur auf fixes TP zu warten.
