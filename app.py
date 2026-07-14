@@ -1178,6 +1178,22 @@ def api_okx_track_existing_position():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/okx/portfolio_backtest", methods=["GET"])
+@login_required
+def api_okx_portfolio_backtest():
+    """Portfolio-Backtest fuer OKX Spot Auto-Trading (kein Hebel): vergleicht
+    verschiedene Positionsgroessen-/Konzentrations-Strategien auf historischen Daten."""
+    from analyzer import okx_spot_backtester
+    days = int(request.args.get("days", 180))
+    try:
+        result = okx_spot_backtester.run_okx_spot_portfolio_backtest(days=days, start_capital=848.0)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/okx/auto_trade", methods=["POST"])
 @login_required
 def api_okx_auto_trade():

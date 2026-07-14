@@ -1434,3 +1434,35 @@ async function loadOkxSpotHistory() {
     el.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
   }
 }
+
+
+async function runOkxBacktest(days) {
+  const el = document.getElementById('okxlive-backtest-result');
+  el.innerHTML = `<div class="no-data">⏳ Backtest über ${days} Tage läuft (kann 5-15s dauern)...</div>`;
+  try {
+    const res = await fetch(`/api/okx/portfolio_backtest?days=${days}`);
+    const data = await res.json();
+    if (!data.ok) {
+      el.innerHTML = `<div class="no-data">❌ ${data.error}</div>`;
+      return;
+    }
+    let html = `<p style="color:#8b949e;">${data.recommendation}</p>`;
+    html += '<table><tr><th>Strategie</th><th>Trades</th><th>Win-Rate</th><th>Rendite</th><th>Max. Drawdown</th><th>Ø Trade (USDC)</th></tr>';
+    data.strategies.forEach(s => {
+      const isBest = s === data.best;
+      const retCls = s.total_return_pct >= 0 ? 'positive' : 'negative';
+      html += `<tr style="${isBest ? 'background:#1c2b1c;' : ''}">
+        <td>${isBest ? '⭐ ' : ''}${s.name}</td>
+        <td>${s.total_trades}</td>
+        <td>${s.win_rate}%</td>
+        <td class="${retCls}">${s.total_return_pct >= 0 ? '+' : ''}${s.total_return_pct}%</td>
+        <td>${s.max_drawdown_pct}%</td>
+        <td>${s.avg_trade_usdc}</td>
+      </tr>`;
+    });
+    html += '</table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+  }
+}

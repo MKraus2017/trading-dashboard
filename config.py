@@ -129,8 +129,8 @@ CRYPTO_ANALYSIS_END_HOUR = 23
 # Positionsgroesse skaliert mit Signal-Konfidenz zwischen MIN und MAX. Nutzer hat
 # explizit entschieden: Bot waehlt Groesse selbst je nach Signalstaerke, mit hartem
 # Gesamtlimit als Sicherheitsnetz.
-OKX_SPOT_MIN_TRADE_USDC = 50.0
-OKX_SPOT_MAX_TRADE_USDC = 250.0
+OKX_SPOT_MIN_TRADE_USDC = 75.0
+OKX_SPOT_MAX_TRADE_USDC = 300.0
 OKX_SPOT_MAX_POSITIONS = 4
 OKX_SPOT_MAX_TOTAL_INVESTED_PCT = 0.70  # max. 70% des verfuegbaren USDC-Guthabens gleichzeitig investiert
 
