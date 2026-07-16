@@ -58,7 +58,7 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 140 \
+            --max-time 260 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/market_analysis" \
             -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
@@ -69,7 +69,7 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 140 \
+            --max-time 260 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/real_positions_alert" \
             -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
@@ -118,11 +118,12 @@ jobs:
     if: github.event.schedule == '12 5,8,11,14,17,20 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Portfolio report
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 140 \
+            --max-time 260 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/portfolio_report" \
             -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
@@ -137,7 +138,7 @@ jobs:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
           curl -X POST \
-            --max-time 140 \
+            --max-time 260 \
             "https://trading-dashboard-6n5w.onrender.com/api/scheduler/daily_summary" \
             -H "Authorization: Bearer $SCHED" \
             -H "Content-Type: application/json" \
