@@ -630,7 +630,7 @@ def api_scheduler_refresh_prices():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/market_analysis", methods=["POST"])
@@ -642,7 +642,7 @@ def api_scheduler_market_analysis():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/llm_analysis", methods=["POST"])
@@ -655,7 +655,7 @@ def api_scheduler_llm_analysis():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/daily_summary", methods=["POST"])
@@ -667,7 +667,7 @@ def api_scheduler_daily_summary():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/portfolio_report", methods=["POST"])
@@ -679,7 +679,10 @@ def api_scheduler_portfolio_report():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        # HTTP 200 statt 500: verhindert dass ein einzelner intermittierender Fehler
+        # (z.B. Yahoo-Timeout) den kompletten GitHub-Actions-Job als "failed" markiert
+        # und curl --fail mit exit 22 abbricht. Fehler wird trotzdem geloggt+im Body sichtbar.
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/send_recommendations_telegram", methods=["POST"])
@@ -767,7 +770,7 @@ def api_backtest():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/backtest_real", methods=["POST"])
@@ -795,7 +798,7 @@ def api_scheduler_real_positions_alert():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/morning_report", methods=["POST"])
@@ -807,7 +810,7 @@ def api_scheduler_morning_report():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 # --- Krypto-Bot Endpunkte (separates virtuelles Depot) ---
@@ -903,7 +906,7 @@ def api_scheduler_crypto_analysis():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/crypto_monitor", methods=["POST"])
@@ -915,7 +918,7 @@ def api_scheduler_crypto_monitor():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 # --- Startup migration & default user safety ---
@@ -1277,7 +1280,7 @@ def api_scheduler_okx_spot_auto_trade():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 @app.route("/api/scheduler/okx_spot_monitor", methods=["POST"])
@@ -1311,7 +1314,7 @@ def api_scheduler_okx_spot_monitor():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
 if __name__ == "__main__":
