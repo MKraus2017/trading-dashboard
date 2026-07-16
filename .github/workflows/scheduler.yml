@@ -15,6 +15,7 @@ jobs:
     if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Refresh prices
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -25,6 +26,7 @@ jobs:
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Crypto position monitor (SL/TP/Liquidation, 24/7)
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -35,6 +37,7 @@ jobs:
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: OKX Spot position monitor (SL/TP/Trailing, ECHTES GELD, 24/7)
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -50,6 +53,7 @@ jobs:
     if: github.event.schedule == '2,32 * * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Market analysis
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -60,6 +64,7 @@ jobs:
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Real positions urgent alert
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -75,6 +80,7 @@ jobs:
     if: github.event.schedule == '7 */2 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - name: LLM analysis + auto-trade
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -85,6 +91,7 @@ jobs:
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: Crypto analysis + auto-trade (nur 07-23 Uhr, Backend prueft Fenster)
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
@@ -95,6 +102,7 @@ jobs:
             -H "Content-Type: application/json" \
             --silent --show-error --fail
       - name: OKX Spot Auto-Trade (ECHTES GELD, kein Hebel)
+        continue-on-error: true
         env:
           SCHED: ${{ secrets.SCHEDULER_API_KEY }}
         run: |
