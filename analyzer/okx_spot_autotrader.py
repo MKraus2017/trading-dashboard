@@ -39,6 +39,19 @@ def _total_invested_usdc(user_id: int) -> float:
     return sum(p["amount_usdc"] for p in positions)
 
 
+def _is_btc_risk_off() -> bool:
+    """V2: BTC-Risk-off-Filter. Blockiert neue Kaeufe bei starkem BTC-Abwaertsmarkt,
+    um Altcoin-Trades in breiten Markt-Selloffs zu vermeiden (externe Review-Empfehlung,
+    per Backtest mit Fees verifiziert: 365T-Rendite +0.49% -> +1.28%)."""
+    if not config.CRYPTO_BTC_RISKOFF_FILTER_ENABLED:
+        return False
+    ticker = okx_client.fetch_ticker("BTC")
+    if not ticker:
+        return False  # bei fehlenden Daten nicht blockieren (fail-open)
+    change_24h = ticker.get("change_pct", 0) or 0
+    return change_24h < config.CRYPTO_BTC_RISKOFF_THRESHOLD_PCT
+
+
 def run_okx_spot_auto_trade(user_id: int, dry_run: bool = False) -> dict:
     """Fuehrt einen kompletten Zyklus aus: 1) offene Positionen bewerten (SL/TP/Trailing/
     Zeit-Exit pruefen, ggf. verkaufen), 2) neue LONG-Signale pruefen und ggf. kaufen."""
@@ -69,7 +82,14 @@ def run_okx_spot_auto_trade(user_id: int, dry_run: bool = False) -> dict:
     reference_capital = available_usdc + total_invested
     max_total_allowed = reference_capital * config.OKX_SPOT_MAX_TOTAL_INVESTED_PCT
 
+    btc_risk_off = _is_btc_risk_off()
+    if btc_risk_off:
+        actions.append({"action": "SKIP-BTC-RISKOFF", "symbol": "MARKET",
+                         "reason": f"BTC 24h-Change unter {config.CRYPTO_BTC_RISKOFF_THRESHOLD_PCT}% - keine neuen Kaeufe"})
+
     for sig in long_signals:
+        if btc_risk_off:
+            break
         if sig["symbol"] in open_symbols:
             continue  # Kein Pyramiding - pro Symbol nur eine offene Position
         if len(open_positions) >= config.OKX_SPOT_MAX_POSITIONS:

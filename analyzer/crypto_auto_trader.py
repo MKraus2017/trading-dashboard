@@ -7,7 +7,7 @@ des verfügbaren Cash (CRYPTO_MAX_POSITION_PCT).
 from typing import Dict
 
 import config
-from analyzer import crypto_portfolio, crypto_signals, telegram
+from analyzer import crypto_portfolio, crypto_signals, okx_client, telegram
 
 
 def run_crypto_auto_trading(user_id: int, dry_run: bool = False) -> dict:
@@ -41,7 +41,19 @@ def run_crypto_auto_trading(user_id: int, dry_run: bool = False) -> dict:
     recs = crypto_signals.generate_crypto_recommendations()
     held_symbols = {pos["symbol"] for pos in p.get("positions", [])}
 
+    # V2: BTC-Risk-off-Filter (siehe okx_spot_autotrader._is_btc_risk_off) - global fuer
+    # beide Systeme uebernommen, verhindert neue Positionen in breiten Markt-Selloffs
+    btc_risk_off = False
+    if config.CRYPTO_BTC_RISKOFF_FILTER_ENABLED:
+        btc_ticker = okx_client.fetch_ticker("BTC")
+        if btc_ticker and (btc_ticker.get("change_pct", 0) or 0) < config.CRYPTO_BTC_RISKOFF_THRESHOLD_PCT:
+            btc_risk_off = True
+            actions.append({"symbol": "MARKET", "action": "SKIP-BTC-RISKOFF",
+                             "reason": f"BTC 24h-Change unter {config.CRYPTO_BTC_RISKOFF_THRESHOLD_PCT}% - keine neuen Positionen"})
+
     for sig in recs.get("suggestions", []):
+        if btc_risk_off:
+            break
         symbol = sig["symbol"]
         if symbol in held_symbols:
             continue  # bereits offene Position auf diesem Symbol - kein Pyramiding

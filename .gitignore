@@ -11,3 +11,6 @@ data/backups/
 !data/backup/
 !data/backup/*.db
 !data/backup/.gitkeep
+review_export/
+review_export.zip
+OKX_TRADING_SCHEMA_REVIEW.md

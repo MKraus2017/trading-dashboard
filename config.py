@@ -95,10 +95,10 @@ CRYPTO_MAX_POSITION_PCT = 0.30     # max. 30 % des Krypto-Depots pro Position (M
 CRYPTO_MIN_POSITION_EUR = 50.00
 CRYPTO_CASH_RESERVE_PCT = 0.15
 CRYPTO_DEFAULT_STOP_PCT = 0.04     # 4 % Gegenbewegung vom Entry (auf Basispreis, nicht auf Margin)
-CRYPTO_SL_ATR_MULT = 0.9          # Backtest 180T/10 Symbole 4H (+ADX+Trailing+ZeitExit): SL 0.9x ATR => PnL +155% (Win-Rate 57.5%)
-CRYPTO_MIN_RR_RATIO = 1.0          # Backtest 180T: RR 1.0 mit Trailing-Stop schlaegt RR 1.2-3.0 (Trailing sichert Gewinne statt fixem TP)
+CRYPTO_SL_ATR_MULT = 1.1          # V2 (Fees/Slippage-Backtest 90/180/365T): SL 1.1x ATR + RR 1.4 + Score 66 schlaegt SL 0.9x/RR 1.0/Score 63 konsistent NACH realistischen OKX-Fees (0.08%+0.05% Slippage/Seite) - alte Werte waren ohne Fees getestet und dort profitabel, nach Fees aber defizitaer (-2.6% auf 365T)
+CRYPTO_MIN_RR_RATIO = 1.4          # V2: RR 1.0 war nach Fees zu knapp (siehe CRYPTO_SL_ATR_MULT-Kommentar). RR 1.4 verifiziert profitabel ueber 90/180/365T MIT Fees eingerechnet
 CRYPTO_USE_ADX_FILTER = True      # ADX-Trendfilter aktiv (bewaehrt: Eng+ADX = +80.1% vs. Eng ohne ADX = +26.3%)
-CRYPTO_BUY_SCORE_THRESHOLD = 63   # Backtest: Score>=63 robuster als 65 (mehr Trades, 7/10 Symbole profitabel, kein Overfit auf 1 Symbol)
+CRYPTO_BUY_SCORE_THRESHOLD = 66   # V2: von 63 auf 66 erhoeht (externe Review-Empfehlung, mit Fees verifiziert) - weniger, aber selektivere Trades ueberleben Handelskosten besser
 CRYPTO_MIN_VOLUME_USDT_24H = 5_000_000  # Symbole mit < 5 Mio USDT 24h-Volumen ausschliessen (breite Spreads, kaum Bewegung trotz Volatilitaet; Backtest: verbessert Win-Rate 54-56% -> 57-59%, Rendite 180T +4.94->+4.8% marginal, 365T +2.6->+3.98% deutlich)
 CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR echter Liquidation geschlossen
 
@@ -106,16 +106,16 @@ CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR ec
 # Aktiviert ab X% gehebeltem Gewinn, zieht dann nach (nie zurueck), Distanz = urspruengliche
 # SL-Distanz (ATR-basiert) * Faktor - je hoeher der Hebel, desto empfindlicher reagiert das
 # Nachziehen auf Kursbewegungen (das ist gewollt: gehebelte Gewinne schneller sichern).
-CRYPTO_TRAILING_ACTIVATE_PCT = 30.0   # ab 30% gehebeltem Gewinn Trailing aktivieren
-CRYPTO_TRAILING_TIGHTEN_FACTOR = 0.6  # Trailing-Distanz = 60% der urspruenglichen SL-Distanz (enger als initialer SL)
+CRYPTO_TRAILING_ACTIVATE_PCT = 4.0    # V2: von 30% auf 4% gesenkt - 30% war fuer gehebelte Positionen kalibriert (dort = ~3-6% Basiskursbewegung bei 5-10x Hebel), bei Spot (kein Hebel) griff der Trailing-Stop bei 30% praktisch NIE (bisherige echte Trades max. +1.53%). Backtest 90/180/365T mit Fees: 4%/0.85 verifiziert konsistent besser als 30%/0.6
+CRYPTO_TRAILING_TIGHTEN_FACTOR = 0.85  # V2: von 0.6 auf 0.85 (weniger eng nachziehen, da Aktivierung jetzt viel frueher erfolgt)
 CRYPTO_USE_TRAILING_STOP = True       # Live-Monitoring zieht SL bei Gewinn nach (bewaehrt im Backtest)
 
 # Zeit-Exit: verhindert "totes Kapital" bei Hebel-Positionen. Bei Krypto ist eine lange
 # Haltedauer ohne klare Bewegung ein Risiko (Funding-Kosten, Volatilitaets-Regime-Wechsel,
 # gebundene Margin fuer bessere Signale). Position wird nach X Stunden geschlossen, wenn der
 # gehebelte Gewinn nicht mindestens Y% betraegt.
-CRYPTO_MAX_HOLD_HOURS = 48.0          # max. 48h halten (Analyse-Kerzen sind 4H -> 12 Kerzen)
-CRYPTO_TIME_EXIT_MIN_PROFIT_PCT = 5.0  # nach 48h: schliessen, wenn gehebelter Gewinn < 5%
+CRYPTO_MAX_HOLD_HOURS = 72.0          # V2: von 48h auf 72h erhoeht (externe Review-Empfehlung, mit Fees verifiziert)
+CRYPTO_TIME_EXIT_MIN_PROFIT_PCT = 1.5  # V2: von 5.0% auf 1.5% gesenkt (nach Fees ist bereits kleiner Gewinn "gut genug" zum Halten)
 
 # Totalverlust-Schutz (Circuit Breaker): stoppt neue Trades automatisch, wenn das
 # Krypto-Depot zu tief faellt. Schuetzt vor Komplettverlust des virtuellen Kapitals.
@@ -134,6 +134,13 @@ OKX_SPOT_MIN_TRADE_USDC = 75.0
 OKX_SPOT_MAX_TRADE_USDC = 300.0
 OKX_SPOT_MAX_POSITIONS = 4
 OKX_SPOT_MAX_TOTAL_INVESTED_PCT = 0.70  # max. 70% des verfuegbaren USDC-Guthabens gleichzeitig investiert
+
+# V2: BTC-Risk-off-Filter (externe Review-Empfehlung, mit Fees verifiziert) - blockiert
+# neue Kaeufe bei starkem BTC-Abwaertsmarkt, um Altcoin-Trades in breiten Selloffs zu
+# vermeiden. Backtest 365T: bringt Rendite von +0.49% auf +1.28% (bei 90/180T neutral,
+# da kein Risk-off-Ereignis im Testfenster - kein Nachteil in ruhigen Phasen).
+CRYPTO_BTC_RISKOFF_FILTER_ENABLED = True
+CRYPTO_BTC_RISKOFF_THRESHOLD_PCT = -4.0  # keine neuen Kaeufe wenn BTC 24h-Change < -4%
 
 CRYPTO_UNIVERSE = [
     {"symbol": "BTC", "name": "Bitcoin"},
