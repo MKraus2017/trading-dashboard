@@ -109,6 +109,14 @@ CRYPTO_LIQUIDATION_BUFFER_PCT = 0.02  # Sicherheitsabstand: Position wird VOR ec
 CRYPTO_TRAILING_ACTIVATE_PCT = 4.0    # V2: von 30% auf 4% gesenkt - 30% war fuer gehebelte Positionen kalibriert (dort = ~3-6% Basiskursbewegung bei 5-10x Hebel), bei Spot (kein Hebel) griff der Trailing-Stop bei 30% praktisch NIE (bisherige echte Trades max. +1.53%). Backtest 90/180/365T mit Fees: 4%/0.85 verifiziert konsistent besser als 30%/0.6
 CRYPTO_TRAILING_TIGHTEN_FACTOR = 0.85  # V2: von 0.6 auf 0.85 (weniger eng nachziehen, da Aktivierung jetzt viel frueher erfolgt)
 CRYPTO_USE_TRAILING_STOP = True       # Live-Monitoring zieht SL bei Gewinn nach (bewaehrt im Backtest)
+# GEPRUEFT UND VERWORFEN (Nutzeranfrage "SL waehrend Trade kontinuierlich/frueher hochziehen"):
+# 2-Stufen-Break-even-Lock (SL auf Entry+Puffer schon ab kleinem Zwischengewinn, z.B. +1-3.5%,
+# VOR dem eigentlichen ATR-Trailing bei 4%) wurde mit Fees ueber 90/180/365T getestet - bei
+# JEDER getesteten Schwelle (0.5% bis 3.5%) und JEDEM Puffer (0.02% bis 0.15%) war das Ergebnis
+# gleich oder schlechter als ohne Break-even-Stufe (z.B. 365T: 1.79% -> 1.75% bestenfalls, teils
+# bis -0.85%). Grund: viele Trades zeigen einen kurzen Zwischengewinn, pullbacken dann normal
+# zurueck Richtung Entry, bevor sie WEITER Richtung Take-Profit laufen - ein frueher Break-even-
+# Lock stoppt diese Trades im normalen Pullback aus, bevor sie ihr Potenzial erreichen.
 
 # Zeit-Exit: verhindert "totes Kapital" bei Hebel-Positionen. Bei Krypto ist eine lange
 # Haltedauer ohne klare Bewegung ein Risiko (Funding-Kosten, Volatilitaets-Regime-Wechsel,
