@@ -141,11 +141,39 @@ def run_okx_spot_auto_trade(user_id: int, dry_run: bool = False) -> dict:
 def evaluate_okx_spot_positions(user_id: int) -> dict:
     """Prueft alle offenen echten Spot-Positionen auf SL/TP/Trailing/Zeit-Exit und
     verkauft bei Bedarf. Analog zur virtuellen Krypto-Portfolio-Logik, aber ohne
-    Hebel/Liquidation - reine Kauf/Verkauf-Entscheidung."""
+    Hebel/Liquidation - reine Kauf/Verkauf-Entscheidung.
+
+    Reconciliation: Der Nutzer handelt bewusst auch direkt auf OKX (z.B. manuelles
+    Nachziehen von Stop-Loss-Orders). Bevor SL/TP/Trailing geprueft wird, wird daher
+    zuerst verglichen, ob der getrackte Bestand noch tatsaechlich auf OKX vorhanden
+    ist - falls die Position extern (ausserhalb unseres Systems) bereits verkauft
+    wurde, wird sie hier automatisch als 'closed_external' markiert statt fehlerhaft
+    weiterzulaufen oder eine bereits leere Position erneut verkaufen zu wollen."""
     positions = db_store.get_open_okx_spot_positions(user_id)
     actions = []
 
     for pos in positions:
+        # --- Reconciliation: stimmt der getrackte Bestand noch mit OKX ueberein? ---
+        holding = okx_trading_client.get_spot_holdings(pos["symbol"])
+        actual_amount = holding.get("available", 0) if holding.get("ok") else None
+        # Toleranz 5%: kleine Abweichungen durch Rundung/Gebuehren sind normal.
+        # Fehlt der Bestand groesstenteils (< 10% des getrackten), wurde extern verkauft.
+        if actual_amount is not None and pos["amount_base"] > 0 and actual_amount < pos["amount_base"] * 0.10:
+            ticker = okx_client.fetch_ticker(pos["symbol"])
+            last_price = ticker["last"] if ticker else pos["entry_price"]
+            entry = pos["entry_price"]
+            approx_pnl_pct = (last_price - entry) / entry * 100 if entry else None
+            approx_pnl_usdc = pos["amount_base"] * (last_price - entry) if entry else None
+            db_store.close_okx_spot_position(
+                pos["id"], exit_price=last_price, sell_order_id="external",
+                close_reason="Extern verkauft (Bestand auf OKX nicht mehr vorhanden - manueller Trade ausserhalb des Systems erkannt, PnL approximiert anhand letztem Live-Preis, da echter Verkaufspreis unbekannt)",
+                pnl_usdc=round(approx_pnl_usdc, 4) if approx_pnl_usdc is not None else None,
+                pnl_pct=round(approx_pnl_pct, 2) if approx_pnl_pct is not None else None
+            )
+            actions.append({"action": "RECONCILED-EXTERNAL-CLOSE", "symbol": pos["symbol"],
+                             "reason": "Position wurde ausserhalb des Systems (z.B. manuell auf OKX) bereits verkauft - DB-Tracking korrigiert"})
+            continue
+
         ticker = okx_client.fetch_ticker(pos["symbol"])
         if not ticker:
             continue
