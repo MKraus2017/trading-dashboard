@@ -8,10 +8,27 @@ import config
 from analyzer import indicators, okx_client
 
 
+def _round_trip_cost_pct(leverage: int, fee_pct: float, slippage_pct: float) -> float:
+    """Gesamtkosten eines Trades (Entry+Exit) in Prozentpunkten, ausgedrueckt in
+    denselben Einheiten wie pnl_pct_leveraged (also bereits mit Hebel multipliziert,
+    da Fees auf das Notional-Volumen anfallen, nicht auf die Margin). Bei Hebel 10x
+    kosten 0.13%/Seite Fee+Slippage also 10x mehr relativ zur Margin als bei Spot."""
+    cost_per_side = fee_pct + slippage_pct
+    return cost_per_side * 2 * 100 * leverage
+
+
 def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: float,
               rr_ratio: float, max_leverage: int, use_adx_filter: bool = True,
               use_trailing_stop: bool = False, use_time_exit: bool = False,
-              bar_hours: float = 4.0) -> dict:
+              bar_hours: float = 4.0, fee_pct: float = None, slippage_pct: float = None) -> dict:
+    # Fee/Slippage-Defaults zentral aus config.py - vorher wurden hier IMMER 0%
+    # angenommen, obwohl Parameter-Kommentare an anderer Stelle im Repo "mit Fees
+    # verifiziert" behaupteten. getattr() mit Fallback, falls config.py (noch) nicht
+    # gepatcht wurde, damit dieses Modul nicht hart bricht.
+    if fee_pct is None:
+        fee_pct = getattr(config, "CRYPTO_TAKER_FEE_PCT", 0.0008)
+    if slippage_pct is None:
+        slippage_pct = getattr(config, "CRYPTO_SLIPPAGE_PCT", 0.0005)
     closes = candles["closes"]
     highs = candles["highs"]
     lows = candles["lows"]
@@ -59,8 +76,11 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
             hit_time = use_time_exit and max_hold_bars and bars_held >= max_hold_bars and pnl_pct_now < config.CRYPTO_TIME_EXIT_MIN_PROFIT_PCT
 
             if hit_sl or hit_tp or hit_time:
-                pnl_pct_leveraged = move_pct_now * position["leverage"] * 100
-                trades.append({"pnl_pct": pnl_pct_leveraged, "won": pnl_pct_leveraged > 0, "days_held": bars_held,
+                pnl_pct_leveraged_gross = move_pct_now * position["leverage"] * 100
+                cost_pct = _round_trip_cost_pct(position["leverage"], fee_pct, slippage_pct)
+                pnl_pct_leveraged_net = pnl_pct_leveraged_gross - cost_pct
+                trades.append({"pnl_pct": pnl_pct_leveraged_net, "pnl_pct_gross": round(pnl_pct_leveraged_gross, 3),
+                               "cost_pct": round(cost_pct, 3), "won": pnl_pct_leveraged_net > 0, "days_held": bars_held,
                                "exit_reason": "time" if hit_time and not (hit_sl or hit_tp) else ("tp" if hit_tp else "sl")})
                 position = None
             continue
@@ -125,7 +145,9 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
     win_rate = len(wins) / len(trades) * 100
     avg_win = sum(t["pnl_pct"] for t in wins) / len(wins) if wins else 0
     avg_loss = sum(t["pnl_pct"] for t in losses) / len(losses) if losses else 0
-    total_pnl_pct = sum(t["pnl_pct"] for t in trades)
+    total_pnl_pct = sum(t["pnl_pct"] for t in trades)               # NETTO (nach Fees/Slippage)
+    total_pnl_pct_gross = sum(t["pnl_pct_gross"] for t in trades)    # BRUTTO (ohne Kosten) - zum Vergleich
+    total_cost_pct = sum(t["cost_pct"] for t in trades)
     gross_profit = sum(t["pnl_pct"] for t in wins) if wins else 0
     gross_loss = abs(sum(t["pnl_pct"] for t in losses)) if losses else 0.0001
     profit_factor = round(gross_profit / gross_loss, 2) if gross_loss else 0
@@ -138,23 +160,47 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
         "avg_win_pct": round(avg_win, 2),
         "avg_loss_pct": round(avg_loss, 2),
         "total_pnl_pct": round(total_pnl_pct, 2),
+        "total_pnl_pct_gross": round(total_pnl_pct_gross, 2),
+        "fees_cost_pct": round(total_cost_pct, 2),
         "profit_factor": profit_factor,
         "avg_hold_bars": round(avg_bars_held, 1),
         "time_exits": time_exits,
     }
 
 
-def run_crypto_backtest(days: int = 180) -> dict:
+def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: float = None) -> dict:
     """Testet mehrere Parameter-Varianten über alle Krypto-Symbole und liefert
-    die beste Kombination + Vergleichstabelle."""
+    die beste Kombination + Vergleichstabelle.
+
+    WICHTIG (Fee-Fix): Alle Varianten werden jetzt mit echten Handelskosten
+    gerechnet (Default aus config.CRYPTO_TAKER_FEE_PCT/CRYPTO_SLIPPAGE_PCT).
+    Jedes Ergebnis enthaelt total_pnl_pct (NETTO, nach Kosten) UND
+    total_pnl_pct_gross (ohne Kosten) zum direkten Vergleich - vorher wurde
+    hier immer mit 0% Kosten gerechnet, obwohl Parameter-Kommentare an
+    anderer Stelle im Repo "mit Fees verifiziert" behaupteten.
+
+    Die Varianten mit Hebel >1x sind NUR fuer das virtuelle gehebelte
+    Krypto-Depot relevant - das echte OKX-Konto handelt ausschliesslich
+    Spot ohne Hebel (siehe okx_spot_backtester.py fuer die direkt
+    uebertragbare Simulation). Die Variante "Spot-realistisch" hier (Hebel 1x)
+    dient nur als grobe Orientierung auf 4H-Basis; fuer die tatsaechliche
+    Auto-Trade-Entscheidung ist okx_spot_backtester.py massgeblich.
+    """
+    if fee_pct is None:
+        fee_pct = getattr(config, "CRYPTO_TAKER_FEE_PCT", 0.0008)
+    if slippage_pct is None:
+        slippage_pct = getattr(config, "CRYPTO_SLIPPAGE_PCT", 0.0005)
+
     variants = [
-        {"name": "⭐ Aktueller Standard: SL 0.9x+ADX+Trailing+ZeitExit (Score 63, RR 1.0, Lev 10)", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
-        {"name": "Ohne Trailing/ZeitExit (Score 63, SL 0.9x, RR 1.0, ADX)", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": False},
-        {"name": "Nur ZeitExit, ohne Trailing (Score 63, SL 0.9x, RR 1.0)", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": True},
-        {"name": "Vorheriger Standard: Eng + ADX (Score 65, SL 1x ATR, RR 1.5, kein Trailing/ZeitExit)", "score_threshold": 65, "sl_atr_mult": 1.0, "rr_ratio": 1.5, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": False},
-        {"name": "Baseline (Score 65, SL 1.5x ATR, RR 1.8, Lev 10, keine Filter)", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10, "use_adx_filter": False, "use_trailing_stop": False, "use_time_exit": False},
-        {"name": "Konservativ + alle Filter (Score 70, SL 1.2x, RR 1.2, Lev 5)", "score_threshold": 70, "sl_atr_mult": 1.2, "rr_ratio": 1.2, "max_leverage": 5, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
-        {"name": "Niedriger Hebel + alle Filter (Score 63, SL 0.9x, RR 1.0, Lev 3)", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 3, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "⭐ Aktueller Standard: SL 0.9x+ADX+Trailing+ZeitExit (Score 63, RR 1.0, Lev 10) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "Ohne Trailing/ZeitExit (Score 63, SL 0.9x, RR 1.0, ADX) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": False},
+        {"name": "Nur ZeitExit, ohne Trailing (Score 63, SL 0.9x, RR 1.0) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": True},
+        {"name": "Vorheriger Standard: Eng + ADX (Score 65, SL 1x ATR, RR 1.5, kein Trailing/ZeitExit) [NUR virtuelles Hebel-Depot]", "score_threshold": 65, "sl_atr_mult": 1.0, "rr_ratio": 1.5, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": False},
+        {"name": "Baseline (Score 65, SL 1.5x ATR, RR 1.8, Lev 10, keine Filter) [NUR virtuelles Hebel-Depot]", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10, "use_adx_filter": False, "use_trailing_stop": False, "use_time_exit": False},
+        {"name": "Konservativ + alle Filter (Score 70, SL 1.2x, RR 1.2, Lev 5) [NUR virtuelles Hebel-Depot]", "score_threshold": 70, "sl_atr_mult": 1.2, "rr_ratio": 1.2, "max_leverage": 5, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "Niedriger Hebel + alle Filter (Score 63, SL 0.9x, RR 1.0, Lev 3) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 3, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "🎯 Spot-realistisch (Hebel 1x, Score 63, SL 0.9x, RR 1.0, alle Filter) - naeherungsweise vergleichbar mit echtem OKX-Konto", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 1, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "🎯 Spot-realistisch (Hebel 1x, Score 66, SL 1.1x, RR 1.4, alle Filter) - konservativere Variante", "score_threshold": 66, "sl_atr_mult": 1.1, "rr_ratio": 1.4, "max_leverage": 1, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
     ]
 
     symbols = [item["symbol"] for item in config.get_crypto_universe()]
@@ -168,6 +214,8 @@ def run_crypto_backtest(days: int = 180) -> dict:
     for variant in variants:
         agg_trades = 0
         agg_pnl = 0.0
+        agg_pnl_gross = 0.0
+        agg_fees = 0.0
         agg_wins = 0
         agg_bars = 0.0
         per_symbol = {}
@@ -176,11 +224,14 @@ def run_crypto_backtest(days: int = 180) -> dict:
                           variant["rr_ratio"], variant["max_leverage"],
                           use_adx_filter=variant.get("use_adx_filter", False),
                           use_trailing_stop=variant.get("use_trailing_stop", False),
-                          use_time_exit=variant.get("use_time_exit", False))
+                          use_time_exit=variant.get("use_time_exit", False),
+                          fee_pct=fee_pct, slippage_pct=slippage_pct)
             per_symbol[sym] = r
             if r.get("trades", 0) > 0:
                 agg_trades += r["trades"]
                 agg_pnl += r["total_pnl_pct"]
+                agg_pnl_gross += r.get("total_pnl_pct_gross", r["total_pnl_pct"])
+                agg_fees += r.get("fees_cost_pct", 0)
                 agg_wins += round(r["win_rate"] / 100 * r["trades"])
                 agg_bars += r.get("avg_hold_bars", 0) * r["trades"]
 
@@ -190,7 +241,9 @@ def run_crypto_backtest(days: int = 180) -> dict:
             **variant,
             "total_trades": agg_trades,
             "win_rate": win_rate,
-            "total_pnl_pct": round(agg_pnl, 2),
+            "total_pnl_pct": round(agg_pnl, 2),               # NETTO (nach Fees/Slippage)
+            "total_pnl_pct_gross": round(agg_pnl_gross, 2),    # BRUTTO (ohne Kosten)
+            "fees_cost_pct": round(agg_fees, 2),
             "avg_hold_hours": avg_hold_hours,
             "per_symbol": per_symbol,
         })
@@ -201,11 +254,14 @@ def run_crypto_backtest(days: int = 180) -> dict:
     return {
         "days_tested": days,
         "symbols_tested": list(candle_cache.keys()),
+        "fee_pct_used": fee_pct,
+        "slippage_pct_used": slippage_pct,
         "variants": results,
         "best": best,
         "recommendation": (
             f"Beste Variante: {best['name']} — {best['total_trades']} Trades, "
-            f"Win-Rate {best['win_rate']}%, Gesamt-PnL {best['total_pnl_pct']}%, "
+            f"Win-Rate {best['win_rate']}%, Netto-PnL {best['total_pnl_pct']}% "
+            f"(Brutto {best['total_pnl_pct_gross']}%, Kosten {best['fees_cost_pct']}%), "
             f"Ø Haltedauer {best['avg_hold_hours']}h"
         ) if best and best["total_trades"] > 0 else "Nicht genug Trades für eine verlässliche Aussage.",
     }
