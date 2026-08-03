@@ -87,13 +87,27 @@ def _compute_signals_for_symbol(symbol: str, candles: dict, score_threshold: int
 def _run_portfolio_sim(all_candles: Dict[str, dict], all_signals: Dict[str, List[dict]],
                         start_capital: float, max_positions: int, max_total_invested_pct: float,
                         min_trade_usdc: float, max_trade_usdc: float, score_threshold: int,
-                        bar_hours: float = 4.0) -> dict:
+                        bar_hours: float = 4.0, fee_pct: float = None, slippage_pct: float = None) -> dict:
     """Simuliert echtes Portfolio-Verhalten: begrenztes Kapital, mehrere Symbole
-    gleichzeitig, Positionsgroesse skaliert mit Score, hartes Gesamtlimit."""
+    gleichzeitig, Positionsgroesse skaliert mit Score, hartes Gesamtlimit.
+
+    Fee-Fix: Vorher wurde hier mit 0% Handelskosten gerechnet - jede Order
+    (Kauf UND Verkauf) auf OKX kostet aber real Taker-Fee + Slippage. Beide
+    werden jetzt bei Entry und Exit vom Cash abgezogen (Defaults aus
+    config.CRYPTO_TAKER_FEE_PCT/CRYPTO_SLIPPAGE_PCT), da Spot ungehebelt ist
+    und die Kosten direkt auf den investierten Betrag anfallen (kein
+    Hebel-Multiplikator wie im virtuellen Krypto-Backtester)."""
+    if fee_pct is None:
+        fee_pct = getattr(config, "CRYPTO_TAKER_FEE_PCT", 0.0008)
+    if slippage_pct is None:
+        slippage_pct = getattr(config, "CRYPTO_SLIPPAGE_PCT", 0.0005)
+    cost_per_side = fee_pct + slippage_pct
+
     cash = start_capital
     open_positions = {}  # symbol -> {entry, sl, tp, sl_dist, amount_usdc, amount_base, trailing_active, entry_idx}
     closed_trades = []
     value_history = []
+    total_fees_paid = 0.0
 
     # Zeitlich synchronisierte Iteration ueber alle Symbole (gleiche Kerzenanzahl vorausgesetzt)
     max_len = max(len(c["closes"]) for c in all_candles.values())
@@ -121,13 +135,20 @@ def _run_portfolio_sim(all_candles: Dict[str, dict], all_signals: Dict[str, List
             hit_time = bars_held >= max_hold_bars and pnl_pct < config.CRYPTO_TIME_EXIT_MIN_PROFIT_PCT
 
             if hit_sl or hit_tp or hit_time:
-                proceeds = pos["amount_usdc"] * (1 + pnl_pct / 100.0)
-                cash += proceeds
+                proceeds_gross = pos["amount_usdc"] * (1 + pnl_pct / 100.0)
+                exit_fee = proceeds_gross * cost_per_side
+                proceeds_net = proceeds_gross - exit_fee
+                cash += proceeds_net
+                total_fees_paid += exit_fee + pos.get("entry_fee", 0.0)
+                pnl_usdc_net = proceeds_net - pos["amount_usdc"] - pos.get("entry_fee", 0.0)
+                pnl_pct_net = pnl_usdc_net / pos["amount_usdc"] * 100 if pos["amount_usdc"] else 0
                 closed_trades.append({
-                    "symbol": symbol, "pnl_pct": round(pnl_pct, 2), "pnl_usdc": round(proceeds - pos["amount_usdc"], 2),
-                    "won": pnl_pct > 0, "bars_held": bars_held,
+                    "symbol": symbol, "pnl_pct": round(pnl_pct_net, 2), "pnl_pct_gross": round(pnl_pct, 2),
+                    "pnl_usdc": round(pnl_usdc_net, 2),
+                    "won": pnl_pct_net > 0, "bars_held": bars_held,
                     "exit_reason": "time" if hit_time and not (hit_sl or hit_tp) else ("tp" if hit_tp else "sl"),
                     "amount_usdc": pos["amount_usdc"],
+                    "fees_usdc": round(exit_fee + pos.get("entry_fee", 0.0), 4),
                 })
                 del open_positions[symbol]
 
@@ -154,10 +175,13 @@ def _run_portfolio_sim(all_candles: Dict[str, dict], all_signals: Dict[str, List
             if trade_size < min_trade_usdc:
                 continue
 
+            entry_fee = trade_size * cost_per_side
             cash -= trade_size
+            cash -= entry_fee
             open_positions[symbol] = {
                 "entry": sig["price"], "sl": sig["stop_loss"], "tp": sig["take_profit"],
                 "sl_dist": sig["sl_dist"], "amount_usdc": trade_size, "entry_idx": i,
+                "entry_fee": entry_fee,
             }
             total_invested += trade_size
 
@@ -177,14 +201,23 @@ def _run_portfolio_sim(all_candles: Dict[str, dict], all_signals: Dict[str, List
         candles = all_candles[symbol]
         price = candles["closes"][-1]
         pnl_pct = (price - pos["entry"]) / pos["entry"] * 100
-        proceeds = pos["amount_usdc"] * (1 + pnl_pct / 100.0)
-        cash += proceeds
-        closed_trades.append({"symbol": symbol, "pnl_pct": round(pnl_pct, 2), "pnl_usdc": round(proceeds - pos["amount_usdc"], 2),
-                               "won": pnl_pct > 0, "bars_held": max_len - pos["entry_idx"], "exit_reason": "end_of_test",
-                               "amount_usdc": pos["amount_usdc"]})
+        proceeds_gross = pos["amount_usdc"] * (1 + pnl_pct / 100.0)
+        exit_fee = proceeds_gross * cost_per_side
+        proceeds_net = proceeds_gross - exit_fee
+        cash += proceeds_net
+        total_fees_paid += exit_fee + pos.get("entry_fee", 0.0)
+        pnl_usdc_net = proceeds_net - pos["amount_usdc"] - pos.get("entry_fee", 0.0)
+        pnl_pct_net = pnl_usdc_net / pos["amount_usdc"] * 100 if pos["amount_usdc"] else 0
+        closed_trades.append({"symbol": symbol, "pnl_pct": round(pnl_pct_net, 2), "pnl_pct_gross": round(pnl_pct, 2),
+                               "pnl_usdc": round(pnl_usdc_net, 2),
+                               "won": pnl_pct_net > 0, "bars_held": max_len - pos["entry_idx"], "exit_reason": "end_of_test",
+                               "amount_usdc": pos["amount_usdc"],
+                               "fees_usdc": round(exit_fee + pos.get("entry_fee", 0.0), 4)})
 
     final_value = cash
     total_return_pct = (final_value - start_capital) / start_capital * 100
+    # Brutto-Vergleichswert: was waere die Rendite OHNE jegliche Kosten gewesen
+    total_return_pct_gross = total_return_pct + (total_fees_paid / start_capital * 100)
     wins = [t for t in closed_trades if t["won"]]
     win_rate = len(wins) / len(closed_trades) * 100 if closed_trades else 0
     max_dd = 0.0
@@ -198,7 +231,9 @@ def _run_portfolio_sim(all_candles: Dict[str, dict], all_signals: Dict[str, List
     return {
         "start_capital": start_capital,
         "final_value": round(final_value, 2),
-        "total_return_pct": round(total_return_pct, 2),
+        "total_return_pct": round(total_return_pct, 2),               # NETTO (nach Fees/Slippage)
+        "total_return_pct_gross": round(total_return_pct_gross, 2),    # BRUTTO (ohne Kosten) - zum Vergleich
+        "total_fees_paid_usdc": round(total_fees_paid, 2),
         "total_trades": len(closed_trades),
         "win_rate": round(win_rate, 1),
         "max_drawdown_pct": round(max_dd, 2),
@@ -207,9 +242,20 @@ def _run_portfolio_sim(all_candles: Dict[str, dict], all_signals: Dict[str, List
     }
 
 
-def run_okx_spot_portfolio_backtest(days: int = 180, start_capital: float = 848.0) -> dict:
+def run_okx_spot_portfolio_backtest(days: int = 180, start_capital: float = 848.0,
+                                     fee_pct: float = None, slippage_pct: float = None) -> dict:
     """Vergleicht verschiedene Positionsgroessen-/Konzentrations-Strategien fuer das
-    echte OKX Spot-Portfolio (kein Hebel) auf historischen Daten."""
+    echte OKX Spot-Portfolio (kein Hebel) auf historischen Daten.
+
+    Fee-Fix: rechnet jetzt mit echten Handelskosten (Default aus
+    config.CRYPTO_TAKER_FEE_PCT/CRYPTO_SLIPPAGE_PCT, pro Trade zweimal fällig:
+    Kauf + Verkauf). Jedes Strategie-Ergebnis enthaelt total_return_pct (NETTO)
+    und total_return_pct_gross (ohne Kosten) zum direkten Vergleich."""
+    if fee_pct is None:
+        fee_pct = getattr(config, "CRYPTO_TAKER_FEE_PCT", 0.0008)
+    if slippage_pct is None:
+        slippage_pct = getattr(config, "CRYPTO_SLIPPAGE_PCT", 0.0005)
+
     symbols = [item["symbol"] for item in config.get_crypto_universe()]
     all_candles = {}
     for sym in symbols:
@@ -245,12 +291,14 @@ def run_okx_spot_portfolio_backtest(days: int = 180, start_capital: float = 848.
             all_candles, all_signals, start_capital=start_capital,
             max_positions=strat["max_positions"], max_total_invested_pct=strat["max_pct"],
             min_trade_usdc=strat["min_trade"], max_trade_usdc=strat["max_trade"],
-            score_threshold=score_threshold,
+            score_threshold=score_threshold, fee_pct=fee_pct, slippage_pct=slippage_pct,
         )
         res["name"] = strat["name"]
         res["config"] = strat
         results.append(res)
 
+    # NETTO-Rendite (nach Kosten) entscheidet ueber die Rangfolge - das ist die
+    # einzige Zahl, die fuer eine echte Handelsentscheidung relevant ist.
     results.sort(key=lambda r: r["total_return_pct"], reverse=True)
     best = results[0] if results else None
 
@@ -258,11 +306,16 @@ def run_okx_spot_portfolio_backtest(days: int = 180, start_capital: float = 848.
         "days_tested": days,
         "symbols_tested": list(all_candles.keys()),
         "start_capital": start_capital,
+        "fee_pct_used": fee_pct,
+        "slippage_pct_used": slippage_pct,
         "strategies": results,
         "best": best,
         "recommendation": (
             f"Beste Strategie: {best['name']} — {best['total_trades']} Trades, "
-            f"Win-Rate {best['win_rate']}%, Gesamtrendite {best['total_return_pct']}%, "
-            f"Max. Drawdown {best['max_drawdown_pct']}%"
+            f"Win-Rate {best['win_rate']}%, Netto-Rendite {best['total_return_pct']}% "
+            f"(Brutto {best['total_return_pct_gross']}%, Kosten {best['total_fees_paid_usdc']} USDC), "
+            f"Max. Drawdown {best['max_drawdown_pct']}%. "
+            + ("⚠️ Netto-Rendite ist NEGATIV trotz positiver Brutto-Rendite — Kosten fressen den Edge auf."
+               if best['total_return_pct'] < 0 <= best['total_return_pct_gross'] else "")
         ) if best else "Keine Ergebnisse",
     }
