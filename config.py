@@ -87,6 +87,16 @@ def get_symbol_name(symbol: str) -> str:
     return symbol
 
 
+# --- Handelskosten (WICHTIG: zentral hier definiert, damit Backtests sie NICHT
+#     mehr vergessen koennen - vorher standen diese Annahmen nur in Kommentaren
+#     und flossen nirgends tatsaechlich in crypto_backtester.py / okx_spot_backtester.py
+#     ein, obwohl die Parameter-Kommentare sich darauf beriefen. Werte stammen aus
+#     den bisherigen Kommentaren (0.08% Taker + 0.05% Slippage pro Seite) - VOR
+#     einem erneuten Live-Einsatz gegen die tatsaechliche OKX-Fee-Stufe des eigenen
+#     Kontos pruefen (VIP-Level kann abweichen: https://www.okx.com/fees).
+CRYPTO_TAKER_FEE_PCT = 0.0008       # 0.08 % pro Seite (OKX Spot Taker, Standard-Tier)
+CRYPTO_SLIPPAGE_PCT = 0.0005        # 0.05 % pro Seite (Markt-Order-Slippage-Schaetzung)
+
 # --- Krypto-Testbereich (separates virtuelles Depot, OKX-Live-Preise) ---
 CRYPTO_START_CAPITAL = 1_000.00
 CRYPTO_MAX_LEVERAGE = 10           # Hartes Cap; Bot waehlt Hebel selbst je nach Signal-Konfidenz/Volatilitaet
@@ -184,4 +194,3 @@ def get_crypto_symbol_name(symbol: str) -> str:
         if item["symbol"] == symbol.upper():
             return item["name"]
     return symbol.upper()
-
