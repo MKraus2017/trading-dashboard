@@ -64,6 +64,14 @@ def run_okx_spot_auto_trade(user_id: int, dry_run: bool = False) -> dict:
     if not okx_trading_client.has_trading_credentials():
         return {"ok": False, "error": "OKX-Trading-Credentials nicht gesetzt", "actions": actions}
 
+    # NOTBREMSE: neue ECHTE Kaeufe koennen per Config komplett deaktiviert werden.
+    # Positions-Monitoring/Verkaeufe (Schritt 1 oben) laufen bewusst WEITER, damit
+    # bestehende Positionen weiterhin durch SL/TP/Trailing geschuetzt sind.
+    if not getattr(config, "OKX_SPOT_AUTOTRADE_ENABLED", True):
+        actions.append({"action": "DISABLED", "symbol": "SYSTEM",
+                         "reason": "OKX_SPOT_AUTOTRADE_ENABLED=False - neue Kaeufe sind deaktiviert (Strategie-Edge nicht nachgewiesen). Monitoring/Verkaeufe laufen weiter."})
+        return {"ok": True, "actions": actions, "autotrade_disabled": True}
+
     # --- 2. Neue Signale pruefen ---
     recs = crypto_signals.generate_crypto_recommendations()
     long_signals = [s for s in recs.get("suggestions", []) if s["direction"] == "LONG"]

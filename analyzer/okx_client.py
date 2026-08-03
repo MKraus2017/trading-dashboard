@@ -100,12 +100,27 @@ def fetch_candles(symbol: str, bar: str = "1H", limit: int = 200) -> Optional[di
 
 
 def fetch_history_days(symbol: str, days: int = 365, bar: str = "1D") -> Optional[dict]:
-    """Holt möglichst lange Tagesdaten für Backtesting (OKX begrenzt auf ~300 Kerzen/Request,
-    daher ggf. mehrere Requests mit 'after'-Pagination nötig für > 300 Tage)."""
+    """Holt moeglichst lange Historie fuer Backtesting (OKX begrenzt auf ~300 Kerzen/Request,
+    daher ggf. mehrere Requests mit 'after'-Pagination).
+
+    WICHTIG: 'days' meint tatsaechliche KALENDERTAGE, nicht Kerzen. Die benoetigte
+    Kerzenanzahl wird aus der Bar-Groesse abgeleitet (z.B. 365 Tage bei bar='4H' =
+    365*6 = 2190 Kerzen). Vorher wurde 'days' faelschlich als Kerzenanzahl behandelt,
+    wodurch ein '365-Tage-Backtest' mit 4H-Kerzen real nur ~61 Tage abdeckte."""
     inst_id = to_okx_symbol(symbol)
+
+    # Kerzen pro Tag je Bar-Groesse
+    bars_per_day = {
+        "1m": 1440, "3m": 480, "5m": 288, "15m": 96, "30m": 48,
+        "1H": 24, "2H": 12, "4H": 6, "6H": 4, "12H": 2,
+        "1D": 1, "1W": 1 / 7, "1M": 1 / 30,
+    }
+    per_day = bars_per_day.get(bar, 1)
+    needed_candles = max(1, int(days * per_day))
+
     all_rows: List[list] = []
     after = None
-    remaining = days
+    remaining = needed_candles
     while remaining > 0:
         limit = min(300, remaining)
         path = f"/api/v5/market/history-candles?instId={inst_id}&bar={bar}&limit={limit}"

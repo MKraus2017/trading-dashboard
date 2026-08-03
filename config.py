@@ -135,9 +135,20 @@ CRYPTO_ANALYSIS_START_HOUR = 7
 CRYPTO_ANALYSIS_END_HOUR = 23
 
 # --- OKX Live-Trading ECHTES GELD (Spot, kein Hebel - Futures regulatorisch gesperrt) ---
-# Positionsgroesse skaliert mit Signal-Konfidenz zwischen MIN und MAX. Nutzer hat
-# explizit entschieden: Bot waehlt Groesse selbst je nach Signalstaerke, mit hartem
-# Gesamtlimit als Sicherheitsnetz.
+# !!! NOTBREMSE: Automatisierte ECHTE Kaeufe sind deaktiviert !!!
+# Grund (2026-08-03): Nach Fix eines schweren Backtest-Datenbugs (fetch_history_days
+# interpretierte 'days' als Kerzenanzahl statt Kalendertage -> "365-Tage-Backtests"
+# deckten real nur ~61 Tage ab) zeigte die Neubewertung ueber echte 365 Tage:
+#   - Strategie-Rendite -53% bis -61% (alle Positionsgroessen-Varianten)
+#   - Max. Drawdown 55-64%
+#   - Edge-Test (n=2980 Signale): Forward-Return nach LONG-Signal ist SCHLECHTER als
+#     ein Zufallseinstieg (12h: -0.269% vs -0.120%; 24h: -0.598% vs -0.244%;
+#     72h: -1.257% vs -0.756%) -> die Signal-Engine hat eine NEGATIVE Edge.
+# Positions-Monitoring (SL/TP/Trailing/Verkauf) laeuft weiter, nur NEUE Kaeufe sind
+# blockiert. Erst wieder auf True setzen, wenn eine Strategie ueber echte 365 Tage
+# nachweislich profitabel ist (inkl. Fees/Slippage).
+OKX_SPOT_AUTOTRADE_ENABLED = False
+
 OKX_SPOT_MIN_TRADE_USDC = 75.0
 OKX_SPOT_MAX_TRADE_USDC = 300.0
 OKX_SPOT_MAX_POSITIONS = 4
