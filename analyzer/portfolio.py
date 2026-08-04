@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 import config
-from analyzer import db_store, telegram, yahoo_client
+from analyzer import db_store, indicators, telegram, yahoo_client
 
 PORTFOLIO_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "portfolio.json")
 
@@ -72,6 +72,26 @@ def _total_value(portfolio: dict, prices: Dict[str, float]) -> float:
     return total
 
 
+def _chandelier_stop(symbol: str, highest_price: float) -> Optional[float]:
+    """Berechnet den ATR-basierten Chandelier-Exit-Stop für ein Symbol.
+
+    Stop = höchster Kurs seit Einstieg - ATR(CHANDELIER_PERIOD) * CHANDELIER_MULT.
+    Holt dafür kurze Tageshistorie (2 Monate reichen für ATR-22). Gibt None zurück,
+    falls keine ausreichenden Daten verfügbar sind (dann bleibt der bisherige Stop aktiv).
+    """
+    try:
+        hist = yahoo_client.fetch_yahoo(symbol, interval="1d", range_="2mo")
+        if not hist or len(hist.get("closes", [])) < config.CHANDELIER_PERIOD:
+            return None
+        atr_vals = indicators.atr(hist["highs"], hist["lows"], hist["closes"], config.CHANDELIER_PERIOD)
+        latest_atr = next((a for a in reversed(atr_vals) if a is not None), None)
+        if latest_atr is None:
+            return None
+        return highest_price - latest_atr * config.CHANDELIER_MULT
+    except Exception:
+        return None
+
+
 def evaluate_portfolio(user_id: int) -> dict:
     started = time.time()
     print(f"[Portfolio] evaluate_portfolio started for user {user_id}", flush=True)
@@ -126,17 +146,29 @@ def evaluate_portfolio(user_id: int) -> dict:
             except Exception:
                 pass
 
-        # Trailing-Stop
-        if unrealized_pct >= 25 and "trailing_stop" not in pos:
-            pos["trailing_stop"] = round(price * (1 - config.TRAILING_STOP_PCT), 2)
-            alerts.append({"type": "info", "symbol": symbol, "msg": f"Trailing-Stop aktiviert bei {pos['trailing_stop']} €"})
+        # Trailing-Stop: Chandelier Exit (ATR-basiert, Standard) oder fester Prozentsatz
+        pos["highest_price"] = max(pos.get("highest_price", entry), price)
 
-        if "trailing_stop" in pos and price > pos.get("highest_price", entry) * (1 + config.TRAILING_STOP_PCT * 0.5):
-            pos["highest_price"] = max(pos.get("highest_price", entry), price)
-            new_trailing = round(pos["highest_price"] * (1 - config.TRAILING_STOP_PCT), 2)
-            if new_trailing > pos["trailing_stop"]:
-                pos["trailing_stop"] = new_trailing
-                alerts.append({"type": "info", "symbol": symbol, "msg": f"Trailing-Stop angehoben auf {new_trailing} €"})
+        if getattr(config, "USE_CHANDELIER_EXIT", False):
+            # Aktiv ab Einstieg (nicht erst ab +25 %) - entspricht der gebacktesteten Logik.
+            new_trailing = _chandelier_stop(symbol, pos["highest_price"])
+            if new_trailing is not None:
+                old = pos.get("trailing_stop")
+                if old is None or new_trailing > old:
+                    pos["trailing_stop"] = round(new_trailing, 2)
+                    msg = f"Chandelier-Exit aktiv bei {pos['trailing_stop']} €" if old is None \
+                        else f"Chandelier-Exit angehoben auf {pos['trailing_stop']} €"
+                    alerts.append({"type": "info", "symbol": symbol, "msg": msg})
+        else:
+            if unrealized_pct >= 25 and "trailing_stop" not in pos:
+                pos["trailing_stop"] = round(price * (1 - config.TRAILING_STOP_PCT), 2)
+                alerts.append({"type": "info", "symbol": symbol, "msg": f"Trailing-Stop aktiviert bei {pos['trailing_stop']} €"})
+
+            if "trailing_stop" in pos and price > pos["highest_price"] * (1 + config.TRAILING_STOP_PCT * 0.5):
+                new_trailing = round(pos["highest_price"] * (1 - config.TRAILING_STOP_PCT), 2)
+                if new_trailing > pos["trailing_stop"]:
+                    pos["trailing_stop"] = new_trailing
+                    alerts.append({"type": "info", "symbol": symbol, "msg": f"Trailing-Stop angehoben auf {new_trailing} €"})
 
         triggered = False
         reason = None
