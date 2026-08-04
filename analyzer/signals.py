@@ -11,8 +11,14 @@ from analyzer import indicators, llm_risk, news_client, yahoo_client
 REC_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "recommendations.json")
 
 
-def analyze_symbol(item: dict) -> Optional[dict]:
-    """Analysiert ein einzelnes Symbol und liefert Bewertung + Signal."""
+def analyze_symbol(item: dict, include_news_llm: bool = True) -> Optional[dict]:
+    """Analysiert ein einzelnes Symbol und liefert Bewertung + Signal.
+
+    include_news_llm=False überspringt News-Sentiment und LLM-Risikobewertung
+    (score-neutral, sent_score=0) - für Kontexte, in denen ein stabiler,
+    rein technischer Score gebraucht wird (z.B. Halte-Empfehlung bestehender
+    Positionen), ohne die Volatilität externer News-/LLM-Aufrufe.
+    """
     symbol = item["symbol"]
     name = item.get("name", symbol)
     data = yahoo_client.fetch_yahoo(symbol, interval="1d", range_="6mo")
@@ -154,15 +160,20 @@ def analyze_symbol(item: dict) -> Optional[dict]:
         details.append("Kurs am unteren Bollinger-Band im Aufwärtstrend (Rücksetzer-Chance)")
 
     # 4. News Sentiment (max 20)
-    sentiment = news_client.get_news_sentiment(symbol, name)
-    sent_score = sentiment.get("score", 0)
-    score += int(sent_score * 20)
-    if sent_score > 0.1:
-        details.append(f"Neuigkeiten eher positiv ({sent_score:+.2f})")
-    elif sent_score < -0.1:
-        details.append(f"Neuigkeiten eher negativ ({sent_score:+.2f})")
+    if include_news_llm:
+        sentiment = news_client.get_news_sentiment(symbol, name)
+        sent_score = sentiment.get("score", 0)
+        score += int(sent_score * 20)
+        if sent_score > 0.1:
+            details.append(f"Neuigkeiten eher positiv ({sent_score:+.2f})")
+        elif sent_score < -0.1:
+            details.append(f"Neuigkeiten eher negativ ({sent_score:+.2f})")
+        else:
+            details.append("Neuigkeiten neutral")
     else:
-        details.append("Neuigkeiten neutral")
+        sentiment = {"score": 0.0, "headlines": []}
+        sent_score = 0.0
+        details.append("News/LLM deaktiviert (stabiler technischer Score)")
 
     # --- Signal ableiten ---
     # Long nur bei Trend/Momentum positiv; Verkauf bei deutlichem Abwärtssignal
@@ -200,7 +211,7 @@ def analyze_symbol(item: dict) -> Optional[dict]:
 
     # 5. LLM Risikobewertung (nur für auffällige Kandidaten, reduzierte Kosten)
     llm_risk_result = None
-    if config.OPENROUTER_API_KEY and direction == "KAUF" and score >= getattr(config, "BUY_SCORE_THRESHOLD", 65):
+    if include_news_llm and config.OPENROUTER_API_KEY and direction == "KAUF" and score >= getattr(config, "BUY_SCORE_THRESHOLD", 65):
         llm_risk_result = llm_risk.assess_risk(
             symbol=symbol,
             name=name,
