@@ -36,6 +36,9 @@ TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger s
 USE_CHANDELIER_EXIT = True
 CHANDELIER_MULT = 2.0
 CHANDELIER_PERIOD = 22           # Tage für ATR-Berechnung (Standard-Chandelier-Exit-Periode)
+
+COOLDOWN_HOURS_AFTER_BUY = 24    # Keine VERKAUFEN-Ampel in den ersten X Stunden nach Kauf
+                                  # (verhindert Whipsaw: Kauf -> sofort wieder Verkaufen-Signal)
 MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
 BUY_SCORE_THRESHOLD = 70         # Backtest 1J/28 Symbole: Score>=70 => Profit-Faktor 1.23, Win-Rate 38.1 % (beste Variante)
 BREAKEVEN_AT_PCT = 4.0           # Ab +4 % Gewinn Stop auf Einstiegskurs anheben (Backtest: PF 1.89 statt 1.57)
