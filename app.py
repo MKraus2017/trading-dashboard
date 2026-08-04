@@ -148,14 +148,19 @@ _ADVICE_CACHE_TTL = 10 * 60  # 10 Minuten – Analyse ist teuer (Yahoo-Fetch), m
 
 
 def _cached_symbol_analysis(symbol: str):
-    """Cacht das Ergebnis von _analyze_symbol pro Symbol, um wiederholte
-    Yahoo-Abfragen beim Laden des Portfolios zu vermeiden (Render-Timeout-Schutz)."""
+    """Cacht das Ergebnis von signals.analyze_symbol pro Symbol, um wiederholte
+    Yahoo-Abfragen beim Laden des Portfolios zu vermeiden (Render-Timeout-Schutz).
+
+    Nutzt bewusst dieselbe Scoring-Engine wie die Kauf-Entscheidung
+    (signals.analyze_symbol), damit Kauf- und Halte-Bewertung vergleichbar sind -
+    aber ohne News/LLM (include_news_llm=False), für einen stabilen, rein
+    technischen Score ohne externe Volatilität."""
     now = time.time()
     entry = _ADVICE_CACHE.get(symbol)
     if entry and (now - entry["time"]) < _ADVICE_CACHE_TTL:
         return entry["analysis"]
     try:
-        analysis = scheduler_tasks._analyze_symbol(symbol)
+        analysis = signals.analyze_symbol({"symbol": symbol, "name": symbol}, include_news_llm=False)
     except Exception as e:
         print(f"[_cached_symbol_analysis] Fehler bei {symbol}: {e}")
         analysis = None
@@ -163,11 +168,16 @@ def _cached_symbol_analysis(symbol: str):
     return analysis
 
 
-def _position_advice(symbol: str, pnl_pct: float) -> dict:
+def _position_advice(symbol: str, pnl_pct: float, opened_at: str = None) -> dict:
     """Berechnet eine Ampel-Empfehlung für eine bestehende Position.
 
     Nutzt die technische Analyse (Score) und den aktuellen Gewinn, um
     HALTEN (gelb), VERKAUFEN (rot) oder NACHKAUFEN (grün) zu bestimmen.
+
+    Cooldown: in den ersten COOLDOWN_HOURS_AFTER_BUY Stunden nach Kauf wird
+    keine VERKAUFEN-Empfehlung ausgegeben, um Whipsaw direkt nach dem Einstieg
+    zu vermeiden (Score kann sich kurzfristig leicht verschieben, ohne dass sich
+    am Markt etwas geändert hat).
     """
     analysis = _cached_symbol_analysis(symbol)
 
@@ -186,20 +196,35 @@ def _position_advice(symbol: str, pnl_pct: float) -> dict:
         adjusted -= 10
 
     if adjusted >= 70 and pnl_pct > -5:
-        return {"advice": "NACHKAUFEN", "color": "gruen", "score": score,
-                "reason": "Starkes Signal – Trend intakt"}
+        result = {"advice": "NACHKAUFEN", "color": "gruen", "score": score,
+                   "reason": "Starkes Signal – Trend intakt"}
     elif adjusted >= 55:
-        return {"advice": "HALTEN", "color": "gelb", "score": score,
-                "reason": "Kaufsignal – Position weiterhalten"}
+        result = {"advice": "HALTEN", "color": "gelb", "score": score,
+                   "reason": "Kaufsignal – Position weiterhalten"}
     elif adjusted < 40 and pnl_pct > 30:
-        return {"advice": "VERKAUFEN", "color": "rot", "score": score,
-                "reason": "Schwäche – Gewinn sichern"}
+        result = {"advice": "VERKAUFEN", "color": "rot", "score": score,
+                   "reason": "Schwäche – Gewinn sichern"}
     elif adjusted < 40:
-        return {"advice": "VERKAUFEN", "color": "rot", "score": score,
-                "reason": "Verkaufssignal – Risiko reduzieren"}
+        result = {"advice": "VERKAUFEN", "color": "rot", "score": score,
+                   "reason": "Verkaufssignal – Risiko reduzieren"}
     else:
-        return {"advice": "HALTEN", "color": "gelb", "score": score,
-                "reason": "Neutrales Signal – abwarten"}
+        result = {"advice": "HALTEN", "color": "gelb", "score": score,
+                   "reason": "Neutrales Signal – abwarten"}
+
+    cooldown_h = getattr(config, "COOLDOWN_HOURS_AFTER_BUY", 24)
+    if result["advice"] == "VERKAUFEN" and opened_at and cooldown_h:
+        try:
+            opened = datetime.fromisoformat(opened_at)
+            hours_held = (datetime.utcnow() - opened).total_seconds() / 3600
+            if hours_held < cooldown_h:
+                remaining = round(cooldown_h - hours_held, 1)
+                return {"advice": "HALTEN", "color": "gelb", "score": score,
+                        "reason": f"Cooldown nach Kauf aktiv (noch {remaining}h) – "
+                                  f"Signal wäre sonst VERKAUFEN"}
+        except Exception:
+            pass
+
+    return result
 
 
 def _enrich_position_advice(p: dict) -> dict:
@@ -213,7 +238,7 @@ def _enrich_position_advice(p: dict) -> dict:
         for pos in p.get(key, []):
             pnl_pct = pos.get("unrealized_pct", 0) or 0
             try:
-                pos["advice"] = _position_advice(pos["symbol"], pnl_pct)
+                pos["advice"] = _position_advice(pos["symbol"], pnl_pct, pos.get("opened_at"))
             except Exception as e:
                 print(f"[_enrich_position_advice] Fehler bei {pos.get('symbol')}: {e}")
                 pos["advice"] = {"advice": "HALTEN", "color": "gelb", "score": None,
