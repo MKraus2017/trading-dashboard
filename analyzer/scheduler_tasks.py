@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 import time as _time
 
-from analyzer import auto_trader, db_store, indicators, market_hours, portfolio, signals, telegram, yahoo_client
+from analyzer import auto_trader, db_store, market_hours, portfolio, signals, telegram, yahoo_client
 from analyzer import llm_risk, news_client
 import config
 
@@ -221,61 +221,36 @@ def daily_summary() -> dict:
     return {"task": "daily_summary", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
-def _analyze_symbol(symbol: str):
-    data = yahoo_client.fetch_yahoo(symbol, interval="1d", range_="3mo")
-    if not data.get("closes"):
+def _analyze_symbol(symbol: str, include_news_llm: bool = False):
+    """Analysiert ein Symbol für reale TR-Positionen (Reports/Alerts/Telegram).
+
+    Nutzt jetzt dieselbe Scoring-Engine wie die Kauf-Empfehlungen
+    (signals.analyze_symbol), statt einer separaten, abweichenden Formel -
+    das verhindert dieselbe Kauf/Verkauf-Inkonsistenz, die im virtuellen
+    Depot auftrat (Score, der Kauf sagt, während eine andere Formel für
+    dieselbe Position gleichzeitig Verkauf sagt).
+
+    include_news_llm=False als Default: diese Funktion läuft oft in Batch-
+    Reports über mehrere Positionen, News/LLM pro Symbol wäre langsam und
+    fügt Volatilität hinzu. analyze_real_positions() lädt News/LLM bei Bedarf
+    selbst separat und ausführlicher nach.
+    """
+    result = signals.analyze_symbol(
+        {"symbol": symbol, "name": config.get_symbol_name(symbol)},
+        include_news_llm=include_news_llm,
+    )
+    if not result:
         return None
-    closes = data["closes"]
-    highs = data["highs"]
-    lows = data["lows"]
-    if len(closes) < 50:
-        return None
-    ema20 = indicators.ema(closes, 20)[-1]
-    ema50 = indicators.ema(closes, 50)[-1]
-    rsi = indicators.rsi(closes, 14)[-1]
-    macd_line, signal_line, _ = indicators.macd(closes)
-    bb = indicators.bollinger(closes, 20, 2)
-    bb_upper = bb["upper"]
-    bb_lower = bb["lower"]
-    atr = indicators.atr(highs, lows, closes, 14)[-1]
-    latest = closes[-1]
-
-    details = []
-    if ema20 > ema50:
-        details.append("EMA20 > EMA50 (Trend +)")
-    else:
-        details.append("EMA20 < EMA50 (Trend -)")
-    details.append(f"MACD {'bullish' if macd_line[-1] > signal_line[-1] else 'bearish'}")
-    details.append(f"Bollinger: {'unten' if latest <= bb_lower[-1] else ('oben' if latest >= bb_upper[-1] else 'Mitte')}")
-
-    score = 50
-    if ema20 > ema50:
-        score += 15
-    if rsi < 45:
-        score += 10
-    if macd_line[-1] > signal_line[-1]:
-        score += 10
-    if latest <= bb_lower[-1]:
-        score += 10
-    if rsi > 65:
-        score -= 10
-    if macd_line[-1] < signal_line[-1]:
-        score -= 10
-    if latest >= bb_upper[-1]:
-        score -= 10
-
-    direction = "KAUF" if score >= 60 else ("VERKAUF" if score < 45 else "HALTEN")
-    stop_loss = round(latest - 1.5 * atr, 4)
-    take_profit = round(latest + 2 * atr, 4)
     return {
-        "symbol": symbol,
-        "direction": direction,
-        "score": round(score, 1),
-        "price": round(latest, 2),
-        "currency": data.get("currency", "EUR"),
-        "stop_loss": stop_loss,
-        "take_profit": take_profit,
-        "details": details,
+        "symbol": result["symbol"],
+        "direction": result["direction"],
+        "score": result["score"],
+        "price": result["preis"],
+        "currency": result.get("currency", "EUR"),
+        "trend": result.get("trend"),
+        "stop_loss": result.get("stop_loss"),
+        "take_profit": result.get("take_profit"),
+        "details": result.get("begruendung", "").split("; ") if result.get("begruendung") else [],
     }
 
 
@@ -412,7 +387,7 @@ def analyze_real_positions_llm(user_id: int, notify: bool = True) -> dict:
         if analysis:
             tech["score"] = analysis["score"]
             tech["rsi"] = None
-            tech["ema_trend"] = "bullish" if any("Trend +" in d for d in analysis.get("details", [])) else "bearish"
+            tech["ema_trend"] = "bullish" if analysis.get("trend") == "aufwärts" else "bearish"
             tech["stop_loss"] = analysis["stop_loss"]
             tech["take_profit"] = analysis["take_profit"]
 
