@@ -25,7 +25,17 @@ MAX_POSITION_PCT = 0.20          # max. 20 % des Depotwerts pro Position
 MIN_POSITION_EUR = 500.00        # Mindest-Kaufbetrag pro Trade (kleinere Käufe lohnen nicht)
 CASH_RESERVE_PCT = 0.20          # min. 20 % Cash behalten
 DEFAULT_STOP_PCT = 0.03          # Backtest 1J/28 Symbole: SL 3 % + Score>=70 => Profit-Faktor 1.57, Win-Rate 44 %
-TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger sichern)
+TRAILING_STOP_PCT = 0.08         # 8 % Trailing-Stop bei Gewinn (Gewinne enger sichern) - nur genutzt wenn USE_CHANDELIER_EXIT=False
+
+# Chandelier Exit (ATR-basierter Trailing-Stop) statt fixem Prozent-Trailing.
+# Backtest 1 Jahr / 27 Symbole (04.08.2026): PF 1.90 vs. 1.33 mit festem TRAILING_STOP_PCT,
+# Gesamt-PnL 66.35% vs. 28.25%, Max-Drawdown 4.13% vs. 3.13% (leicht höher, akzeptiert).
+# Multiplikator 2.0 war in der Parameter-Reihe (1.0/1.5/2.0/2.5/3.0) das beste getestete Ergebnis.
+# Wichtig: anders als der feste Trailing-Stop ist der Chandelier Exit ab Einstieg aktiv,
+# nicht erst ab +25% Gewinn - das entspricht genau der gebacktesteten Logik.
+USE_CHANDELIER_EXIT = True
+CHANDELIER_MULT = 2.0
+CHANDELIER_PERIOD = 22           # Tage für ATR-Berechnung (Standard-Chandelier-Exit-Periode)
 MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
 BUY_SCORE_THRESHOLD = 70         # Backtest 1J/28 Symbole: Score>=70 => Profit-Faktor 1.23, Win-Rate 38.1 % (beste Variante)
 BREAKEVEN_AT_PCT = 4.0           # Ab +4 % Gewinn Stop auf Einstiegskurs anheben (Backtest: PF 1.89 statt 1.57)
