@@ -81,8 +81,17 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
                      buy_threshold: int, stop_pct: float, rr_ratio: float,
                      trailing_pct: float,
                      breakeven_at: Optional[float] = None,
-                     time_exit_days: Optional[int] = None) -> List[dict]:
-    """Simuliert Trades für ein Symbol. Liefert Liste abgeschlossener Trades."""
+                     time_exit_days: Optional[int] = None,
+                     use_chandelier: bool = False,
+                     chandelier_period: int = 22,
+                     chandelier_mult: float = 3.0) -> List[dict]:
+    """Simuliert Trades für ein Symbol. Liefert Liste abgeschlossener Trades.
+
+    use_chandelier=True ersetzt den festen Trailing-Stop (trailing_pct) durch einen
+    ATR-basierten Chandelier Exit: Stop = höchstes Hoch seit Einstieg - ATR * Multiplikator.
+    Passt sich damit automatisch an die Volatilität des jeweiligen Symbols/Zeitraums an,
+    statt einen festen Prozentsatz zu nutzen.
+    """
     n = len(closes)
     if n < 80:
         return []
@@ -93,6 +102,7 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
     rsi14 = indicators.rsi(closes, 14)
     macd_data = indicators.macd(closes, 12, 26, 9)
     bb = indicators.bollinger(closes, 20, 2)
+    atr_vals = indicators.atr(highs, lows, closes, chandelier_period) if use_chandelier else None
 
     trades = []
     pos = None  # {entry, stop, tp, trailing, highest, entry_i}
@@ -120,14 +130,24 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
             if breakeven_at and gain_pct >= breakeven_at and pos["stop"] < pos["entry"]:
                 pos["stop"] = pos["entry"]
 
-            # Trailing-Stop aktivieren ab +25 %
-            if gain_pct >= 25 and pos["trailing"] is None:
-                pos["trailing"] = price * (1 - trailing_pct)
-            if pos["trailing"] is not None and price > pos["highest"]:
+            if price > pos["highest"]:
                 pos["highest"] = price
-                new_tr = price * (1 - trailing_pct)
-                if new_tr > pos["trailing"]:
-                    pos["trailing"] = new_tr
+
+            if use_chandelier:
+                # ATR-basierter Chandelier Exit statt fixem Prozent-Trailing.
+                a = atr_vals[i] if atr_vals else None
+                if a is not None:
+                    chandelier_stop = pos["highest"] - a * chandelier_mult
+                    if pos["trailing"] is None or chandelier_stop > pos["trailing"]:
+                        pos["trailing"] = chandelier_stop
+            else:
+                # Fixer Prozent-Trailing-Stop aktiviert ab +25 %
+                if gain_pct >= 25 and pos["trailing"] is None:
+                    pos["trailing"] = price * (1 - trailing_pct)
+                if pos["trailing"] is not None:
+                    new_tr = price * (1 - trailing_pct)
+                    if new_tr > pos["trailing"]:
+                        pos["trailing"] = new_tr
 
             effective_stop = max(pos["stop"], pos["trailing"] or 0)
             if lo is not None and lo <= effective_stop:
@@ -221,6 +241,8 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
         {"name": "Trailing 6 %", **{**current, "trailing_pct": 0.06}},
         {"name": "Ohne Breakeven-Stop", **{**current, "breakeven_at": None}},
         {"name": "Ohne Time-Exit", **{**current, "time_exit_days": None}},
+        {"name": "Chandelier Exit (ATR x3)", **current, "use_chandelier": True},
+        {"name": "Chandelier Exit (ATR x2)", **current, "use_chandelier": True, "chandelier_mult": 2.0},
     ]
 
     results = []
@@ -231,6 +253,8 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
                 d["closes"], d["highs"], d["lows"],
                 v["buy_threshold"], v["stop_pct"], v["rr_ratio"], v["trailing_pct"],
                 breakeven_at=v.get("breakeven_at"), time_exit_days=v.get("time_exit_days"),
+                use_chandelier=v.get("use_chandelier", False),
+                chandelier_mult=v.get("chandelier_mult", 3.0),
             )
             all_trades.extend(trades)
         m = _metrics(all_trades)
