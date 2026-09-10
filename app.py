@@ -913,6 +913,24 @@ def api_crypto_backtest():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/crypto/backtest_multi", methods=["GET", "POST"])
+@login_required
+def api_crypto_backtest_multi():
+    """Backtest über mehrere Zeitfenster (90/180/365 Tage, per ?days=90,180,365 anpassbar)
+    mit Konsistenz-Check - analog zum Mehrperioden-Test beim Aktien-Backtest. Kann 1-2 Min.
+    dauern, da pro Zeitfenster ein voller Varianten-Sweep läuft."""
+    from analyzer import crypto_backtester
+    days_param = request.args.get("days", "90,180,365")
+    try:
+        periods = [int(d.strip()) for d in days_param.split(",") if d.strip()]
+        result = crypto_backtester.run_crypto_backtest_multi(periods=periods)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/crypto/backtest_history")
 @login_required
 def api_crypto_backtest_history():
