@@ -191,16 +191,32 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
     if slippage_pct is None:
         slippage_pct = getattr(config, "CRYPTO_SLIPPAGE_PCT", 0.0005)
 
+    # Live-Konfiguration dynamisch aus config.py lesen statt hartzukodieren - vorher
+    # stand hier fix Score 63/SL 0.9x/RR 1.0 (V1) als "Aktueller Standard", obwohl
+    # config.py laengst auf V2 (Score 66/SL 1.1x/RR 1.4) aktualisiert wurde. Der
+    # Backtest verglich also gegen einen veralteten Strohmann statt gegen das
+    # tatsaechliche Live-Setup (identischer Fehler wie zuvor beim Aktien-Backtester
+    # mit dem Chandelier-Exit).
+    live = {
+        "score_threshold": config.CRYPTO_BUY_SCORE_THRESHOLD,
+        "sl_atr_mult": config.CRYPTO_SL_ATR_MULT,
+        "rr_ratio": config.CRYPTO_MIN_RR_RATIO,
+        "max_leverage": config.CRYPTO_MAX_LEVERAGE,
+        "use_adx_filter": getattr(config, "CRYPTO_USE_ADX_FILTER", True),
+        "use_trailing_stop": getattr(config, "CRYPTO_USE_TRAILING_STOP", True),
+        "use_time_exit": True,
+    }
+
     variants = [
-        {"name": "⭐ Aktueller Standard: SL 0.9x+ADX+Trailing+ZeitExit (Score 63, RR 1.0, Lev 10) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
-        {"name": "Ohne Trailing/ZeitExit (Score 63, SL 0.9x, RR 1.0, ADX) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": False},
-        {"name": "Nur ZeitExit, ohne Trailing (Score 63, SL 0.9x, RR 1.0) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": True},
-        {"name": "Vorheriger Standard: Eng + ADX (Score 65, SL 1x ATR, RR 1.5, kein Trailing/ZeitExit) [NUR virtuelles Hebel-Depot]", "score_threshold": 65, "sl_atr_mult": 1.0, "rr_ratio": 1.5, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": False, "use_time_exit": False},
-        {"name": "Baseline (Score 65, SL 1.5x ATR, RR 1.8, Lev 10, keine Filter) [NUR virtuelles Hebel-Depot]", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10, "use_adx_filter": False, "use_trailing_stop": False, "use_time_exit": False},
+        {"name": f"⭐ Live-Konfiguration (Score {live['score_threshold']}, SL {live['sl_atr_mult']}x, RR {live['rr_ratio']}, Lev {live['max_leverage']}) [NUR virtuelles Hebel-Depot]", **live},
+        {"name": "Ohne Trailing/ZeitExit (sonst Live-Werte) [NUR virtuelles Hebel-Depot]", **{**live, "use_trailing_stop": False, "use_time_exit": False}},
+        {"name": "Nur ZeitExit, ohne Trailing (sonst Live-Werte) [NUR virtuelles Hebel-Depot]", **{**live, "use_trailing_stop": False}},
+        {"name": "Veraltet V1 (Score 63, SL 0.9x, RR 1.0) - vor Fee-Fix, NUR zum Vergleich [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 10, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "Baseline ohne Filter (Score 65, SL 1.5x ATR, RR 1.8, Lev 10, keine Filter) [NUR virtuelles Hebel-Depot]", "score_threshold": 65, "sl_atr_mult": 1.5, "rr_ratio": 1.8, "max_leverage": 10, "use_adx_filter": False, "use_trailing_stop": False, "use_time_exit": False},
         {"name": "Konservativ + alle Filter (Score 70, SL 1.2x, RR 1.2, Lev 5) [NUR virtuelles Hebel-Depot]", "score_threshold": 70, "sl_atr_mult": 1.2, "rr_ratio": 1.2, "max_leverage": 5, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
-        {"name": "Niedriger Hebel + alle Filter (Score 63, SL 0.9x, RR 1.0, Lev 3) [NUR virtuelles Hebel-Depot]", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 3, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
-        {"name": "🎯 Spot-realistisch (Hebel 1x, Score 63, SL 0.9x, RR 1.0, alle Filter) - naeherungsweise vergleichbar mit echtem OKX-Konto", "score_threshold": 63, "sl_atr_mult": 0.9, "rr_ratio": 1.0, "max_leverage": 1, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
-        {"name": "🎯 Spot-realistisch (Hebel 1x, Score 66, SL 1.1x, RR 1.4, alle Filter) - konservativere Variante", "score_threshold": 66, "sl_atr_mult": 1.1, "rr_ratio": 1.4, "max_leverage": 1, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "Niedriger Hebel + Live-Filter (Lev 3, sonst Live-Werte) [NUR virtuelles Hebel-Depot]", **{**live, "max_leverage": 3}},
+        {"name": "🎯 Spot-realistisch (Hebel 1x, sonst Live-Werte) - naeherungsweise vergleichbar mit echtem OKX-Konto", **{**live, "max_leverage": 1}},
+        {"name": "🎯 Spot-realistisch (Hebel 1x, Score 70, SL 1.2x, RR 1.2) - konservativere Variante", "score_threshold": 70, "sl_atr_mult": 1.2, "rr_ratio": 1.2, "max_leverage": 1, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
     ]
 
     symbols = [item["symbol"] for item in config.get_crypto_universe()]
@@ -264,4 +280,56 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
             f"(Brutto {best['total_pnl_pct_gross']}%, Kosten {best['fees_cost_pct']}%), "
             f"Ø Haltedauer {best['avg_hold_hours']}h"
         ) if best and best["total_trades"] > 0 else "Nicht genug Trades für eine verlässliche Aussage.",
+    }
+
+
+def run_crypto_backtest_multi(periods: List[int] = None, fee_pct: float = None, slippage_pct: float = None) -> dict:
+    """Wie run_crypto_backtest, aber über mehrere Zeitfenster (Default 90/180/365 Tage)
+    mit Konsistenz-Check - analog zum Mehrperioden-Test im Aktien-Backtester. Schützt
+    davor, eine Variante zu empfehlen, die nur in EINEM Zeitfenster zufällig gut aussieht
+    (siehe ADX-Fehlalarm mit PF 760 bei nur 4 Trades im Aktien-Backtest).
+
+    Variante gilt als 'konsistent', wenn sie in JEDEM getesteten Zeitfenster
+    mindestens 5 Trades UND ein positives Netto-PnL (nach Kosten) erreicht.
+    """
+    periods = periods or [90, 180, 365]
+    per_period_raw = {d: run_crypto_backtest(days=d, fee_pct=fee_pct, slippage_pct=slippage_pct) for d in periods}
+
+    # Varianten sind pro Aufruf deterministisch (aus config abgeleitet) -> nach Name matchen
+    by_name: Dict[str, Dict[int, dict]] = {}
+    for d, res in per_period_raw.items():
+        for v in res.get("variants", []):
+            by_name.setdefault(v["name"], {})[d] = v
+
+    combined = []
+    for name, per_period in by_name.items():
+        consistent = all(
+            per_period.get(d, {}).get("total_trades", 0) >= 5 and per_period.get(d, {}).get("total_pnl_pct", -1) > 0
+            for d in periods
+        )
+        avg_pnl = round(sum(per_period.get(d, {}).get("total_pnl_pct", 0) for d in periods) / len(periods), 2)
+        total_trades = sum(per_period.get(d, {}).get("total_trades", 0) for d in periods)
+        combined.append({
+            "name": name,
+            "per_period_days": {d: per_period.get(d, {}) for d in periods},
+            "avg_total_pnl_pct": avg_pnl,
+            "total_trades": total_trades,
+            "consistent_across_periods": consistent,
+        })
+
+    eligible = [c for c in combined if c["consistent_across_periods"] and c["total_trades"] >= 10]
+    baseline = next((c for c in combined if c["name"].startswith("⭐")), combined[0] if combined else None)
+    best = max(eligible, key=lambda c: c["avg_total_pnl_pct"]) if eligible else baseline
+
+    note = "Keine Variante war über alle Zeitfenster konsistent profitabel (≥5 Trades, positives Netto-PnL je Fenster) – Vorsicht vor Overfitting." if not eligible else \
+        (f"Beste über ALLE Perioden konsistente Variante: „{best['name']}“ (ø Netto-PnL {best['avg_total_pnl_pct']}%, {best['total_trades']} Trades gesamt)."
+         if baseline and best["name"] != baseline["name"] else
+         f"Live-Konfiguration ist über alle getesteten Zeitfenster konsistent profitabel (ø Netto-PnL {baseline['avg_total_pnl_pct']}%). Keine Änderung nötig." if baseline else "Keine Ergebnisse.")
+
+    return {
+        "periods_days": periods,
+        "baseline": baseline,
+        "variants": combined,
+        "best_variant": best["name"] if best else None,
+        "note": note,
     }
