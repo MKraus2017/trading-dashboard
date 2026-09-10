@@ -14,6 +14,13 @@ from analyzer import indicators, yahoo_client
 
 BACKTEST_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "backtest_result.json")
 
+# Kostenannahme pro Trade-Seite (Kauf ODER Verkauf), analog zur bereits fuer Krypto
+# genutzten Modellierung (config.CRYPTO_TAKER_FEE_PCT/CRYPTO_SLIPPAGE_PCT). Bei
+# Trade Republic fallen i.d.R. keine %-Ordergebuehren an, aber Spread + Slippage
+# bei ETFs/Nebenwerten schon - bisher flossen diese Kosten NICHT in den Aktien-
+# Backtest ein, wodurch Profit-Faktor/Win-Rate zu optimistisch ausfielen.
+STOCK_SLIPPAGE_PCT = 0.0005  # 0,05 % pro Seite (konservative Spread/Slippage-Annahme)
+
 
 def _tech_score(closes: List[float], i: int, ema9, ema20, ema50, rsi14, macd_line, macd_signal, bb_lower) -> tuple:
     """Berechnet den technischen Score am Tag i (Index in closes). Gibt (score, trend) zurück."""
@@ -84,7 +91,10 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
                      time_exit_days: Optional[int] = None,
                      use_chandelier: bool = False,
                      chandelier_period: int = 22,
-                     chandelier_mult: float = 3.0) -> List[dict]:
+                     chandelier_mult: float = 3.0,
+                     use_adx_filter: bool = False,
+                     adx_min: float = 20.0,
+                     slippage_pct: float = 0.0) -> List[dict]:
     """Simuliert Trades für ein Symbol. Liefert Liste abgeschlossener Trades.
 
     use_chandelier=True ersetzt den festen Trailing-Stop (trailing_pct) durch einen
@@ -103,6 +113,7 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
     macd_data = indicators.macd(closes, 12, 26, 9)
     bb = indicators.bollinger(closes, 20, 2)
     atr_vals = indicators.atr(highs, lows, closes, chandelier_period) if use_chandelier else None
+    adx_vals = indicators.adx(highs, lows, closes, 14) if use_adx_filter else None
 
     trades = []
     pos = None  # {entry, stop, tp, trailing, highest, entry_i}
@@ -114,11 +125,16 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
                                        macd_data["macd"], macd_data["signal"], bb["lower"])
             buy = (score >= buy_threshold and trend == "aufwärts") or \
                   (score >= buy_threshold + 8 and trend == "seitwärts")
+            if buy and use_adx_filter:
+                a = adx_vals[i] if adx_vals else None
+                if a is None or a < adx_min:
+                    buy = False
             if buy:
-                stop = price * (1 - stop_pct)
-                tp = price + (price - stop) * rr_ratio
-                pos = {"entry": price, "stop": stop, "tp": tp, "trailing": None,
-                       "highest": price, "entry_i": i}
+                entry_price = price * (1 + slippage_pct)  # Kauf-Slippage: schlechterer Einstieg
+                stop = entry_price * (1 - stop_pct)
+                tp = entry_price + (entry_price - stop) * rr_ratio
+                pos = {"entry": entry_price, "stop": stop, "tp": tp, "trailing": None,
+                       "highest": entry_price, "entry_i": i}
         else:
             lo, hi = lows[i], highs[i]
             exit_price = None
@@ -161,7 +177,8 @@ def _simulate_symbol(closes: List[float], highs: List[float], lows: List[float],
                 reason = "TimeExit"
 
             if exit_price is not None:
-                pnl_pct = (exit_price - pos["entry"]) / pos["entry"] * 100
+                exit_price_net = exit_price * (1 - slippage_pct)  # Verkauf-Slippage: schlechterer Ausstieg
+                pnl_pct = (exit_price_net - pos["entry"]) / pos["entry"] * 100
                 trades.append({
                     "pnl_pct": round(pnl_pct, 2),
                     "days": i - pos["entry_i"],
@@ -213,13 +230,36 @@ def _load_data(symbols: List[str]) -> Dict[str, dict]:
     return data_cache
 
 
-def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
-    """Backtest der aktuellen Strategie + Parameter-Varianten über die Watchlist."""
+def _load_data_period(symbols: List[str], range_: str) -> Dict[str, dict]:
+    data_cache = {}
+    for sym in symbols:
+        try:
+            d = yahoo_client.fetch_yahoo(sym, interval="1d", range_=range_)
+            if d and len(d.get("closes", [])) >= 80:
+                data_cache[sym] = d
+        except Exception:
+            continue
+    return data_cache
+
+
+def run_full_backtest(max_symbols: Optional[int] = None, periods: Optional[List[str]] = None,
+                       apply_costs: bool = True) -> dict:
+    """Backtest der aktuellen Strategie + Parameter-Varianten über die Watchlist.
+
+    periods: Liste von Yahoo-Ranges, z.B. ["1y", "2y"] - Variante gilt nur als
+    'best' wenn sie in ALLEN Perioden konsistent besser ist (schützt vor
+    Überanpassung an ein einzelnes Zeitfenster).
+    apply_costs: bezieht STOCK_SLIPPAGE_PCT pro Trade-Seite mit ein (realistischer,
+    da vorher komplett kostenlos gerechnet wurde).
+    """
     universe = config.get_universe()
     if max_symbols:
         universe = universe[:max_symbols]
+    periods = periods or ["1y", "2y"]
+    symbols = [item["symbol"] for item in universe]
+    slippage = STOCK_SLIPPAGE_PCT if apply_costs else 0.0
 
-    data_cache = _load_data([item["symbol"] for item in universe])
+    period_data = {rng: _load_data_period(symbols, rng) for rng in periods}
 
     current = {
         "buy_threshold": getattr(config, "BUY_SCORE_THRESHOLD", 65),
@@ -237,67 +277,95 @@ def run_full_backtest(max_symbols: Optional[int] = None) -> dict:
         {"name": "RR 1.5:1", **{**current, "rr_ratio": 1.5}},
         {"name": "RR 2.5:1", **{**current, "rr_ratio": 2.5}},
         {"name": f"Selektiver (Score {current['buy_threshold']+5})", **{**current, "buy_threshold": current["buy_threshold"] + 5}},
+        {"name": f"Deutlich selektiver (Score {current['buy_threshold']+10})", **{**current, "buy_threshold": current["buy_threshold"] + 10}},
         {"name": f"Aggressiver (Score {current['buy_threshold']-5})", **{**current, "buy_threshold": current["buy_threshold"] - 5}},
         {"name": "Trailing 6 %", **{**current, "trailing_pct": 0.06}},
         {"name": "Ohne Breakeven-Stop", **{**current, "breakeven_at": None}},
         {"name": "Ohne Time-Exit", **{**current, "time_exit_days": None}},
+        {"name": "Time-Exit 15 Tage", **{**current, "time_exit_days": 15}},
+        {"name": "Time-Exit 20 Tage", **{**current, "time_exit_days": 20}},
         {"name": "Chandelier Exit (ATR x3)", **current, "use_chandelier": True},
         {"name": "Chandelier Exit (ATR x2)", **current, "use_chandelier": True, "chandelier_mult": 2.0},
+        {"name": "Chandelier x2 + ADX-Filter", **current, "use_chandelier": True, "chandelier_mult": 2.0,
+         "use_adx_filter": True, "adx_min": 20.0},
+        {"name": "ADX-Filter (>20)", **current, "use_adx_filter": True, "adx_min": 20.0},
+        {"name": "ADX-Filter (>25)", **current, "use_adx_filter": True, "adx_min": 25.0},
     ]
 
+    # Pro Variante: Metriken je Periode + gepoolte Gesamt-Metrik
     results = []
     for v in variants:
-        all_trades = []
-        for sym, d in data_cache.items():
-            trades = _simulate_symbol(
-                d["closes"], d["highs"], d["lows"],
-                v["buy_threshold"], v["stop_pct"], v["rr_ratio"], v["trailing_pct"],
-                breakeven_at=v.get("breakeven_at"), time_exit_days=v.get("time_exit_days"),
-                use_chandelier=v.get("use_chandelier", False),
-                chandelier_mult=v.get("chandelier_mult", 3.0),
-            )
-            all_trades.extend(trades)
-        m = _metrics(all_trades)
+        per_period = {}
+        for rng in periods:
+            all_trades = []
+            for sym, d in period_data[rng].items():
+                trades = _simulate_symbol(
+                    d["closes"], d["highs"], d["lows"],
+                    v["buy_threshold"], v["stop_pct"], v["rr_ratio"], v["trailing_pct"],
+                    breakeven_at=v.get("breakeven_at"), time_exit_days=v.get("time_exit_days"),
+                    use_chandelier=v.get("use_chandelier", False),
+                    chandelier_mult=v.get("chandelier_mult", 3.0),
+                    use_adx_filter=v.get("use_adx_filter", False),
+                    adx_min=v.get("adx_min", 20.0),
+                    slippage_pct=slippage,
+                )
+                all_trades.extend(trades)
+            per_period[rng] = _metrics(all_trades)
+
+        # Konsistenz: Variante gilt nur als robust, wenn sie in JEDER Periode
+        # mind. 5 Trades UND profit_factor >= 1.0 erreicht (kein reines
+        # Overfitting auf ein einzelnes Fenster).
+        consistent = all(per_period[rng]["trades"] >= 5 and per_period[rng]["profit_factor"] >= 1.0 for rng in periods)
+        avg_pf = round(sum(per_period[rng]["profit_factor"] for rng in periods) / len(periods), 2)
+        total_trades = sum(per_period[rng]["trades"] for rng in periods)
+
         results.append({
             "name": v["name"],
             "params": {k: v[k] for k in ("buy_threshold", "stop_pct", "rr_ratio", "trailing_pct")},
-            **m,
+            "per_period": per_period,
+            "avg_profit_factor": avg_pf,
+            "total_trades": total_trades,
+            "consistent_across_periods": consistent,
         })
 
     baseline = results[0]
-    # Beste Variante nach Profit-Faktor (mind. 10 Trades)
-    eligible = [r for r in results if r["trades"] >= 10]
-    best = max(eligible, key=lambda r: r["profit_factor"]) if eligible else baseline
+    baseline_1y = baseline["per_period"].get(periods[0], {})
+
+    # Beste Variante: unter den über ALLE Perioden konsistenten Varianten die mit
+    # dem höchsten durchschnittlichen Profit-Faktor (mind. 10 Trades gesamt).
+    eligible = [r for r in results if r["consistent_across_periods"] and r["total_trades"] >= 10]
+    best = max(eligible, key=lambda r: r["avg_profit_factor"]) if eligible else baseline
 
     improvements = []
-    if baseline["trades"] == 0:
-        improvements.append("Backtest fand keine Einstiegssignale im letzten Jahr – Schwellenwerte prüfen.")
+    if baseline_1y.get("trades", 0) == 0:
+        improvements.append("Backtest fand keine Einstiegssignale – Schwellenwerte prüfen.")
     else:
-        # Win-Rate allein ist bei Trendfolge (RR 2:1) wenig aussagekräftig — nur warnen,
-        # wenn auch der Profit-Faktor schwach ist.
-        if baseline["win_rate"] < 40 and baseline["profit_factor"] < 1.2:
+        if baseline_1y.get("win_rate", 0) < 40 and baseline_1y.get("profit_factor", 0) < 1.2:
             improvements.append(
-                f"Win-Rate {baseline['win_rate']} % bei Profit-Faktor {baseline['profit_factor']} – Einstiege selektiver wählen (höhere Score-Schwelle testen).")
-        if baseline["profit_factor"] < 1.2:
+                f"Win-Rate {baseline_1y['win_rate']} % bei Profit-Faktor {baseline_1y['profit_factor']} (Kosten inkl.) – Einstiege selektiver wählen.")
+        if baseline_1y.get("profit_factor", 0) < 1.2:
             improvements.append(
-                f"Profit-Faktor {baseline['profit_factor']} ist schwach (<1.2) – Verhältnis Gewinn/Verlust verbessern.")
-        if baseline["max_drawdown_pct"] > 15:
+                f"Profit-Faktor {baseline_1y['profit_factor']} ist nach Kosten schwach (<1.2).")
+        if baseline_1y.get("max_drawdown_pct", 0) > 15:
             improvements.append(
-                f"Max. Drawdown {baseline['max_drawdown_pct']} % ist hoch – Positionsgrößen oder Stop-Abstände überdenken.")
-        if best["name"] != baseline["name"] and best["profit_factor"] > baseline["profit_factor"] * 1.1:
+                f"Max. Drawdown {baseline_1y['max_drawdown_pct']} % ist hoch – Positionsgrößen oder Stop-Abstände überdenken.")
+        if best["name"] != baseline["name"] and best["avg_profit_factor"] > baseline["avg_profit_factor"] * 1.1:
             p = best["params"]
             improvements.append(
-                f"Beste getestete Variante: „{best['name']}“ (Profit-Faktor {best['profit_factor']} vs. {baseline['profit_factor']}, "
-                f"Win-Rate {best['win_rate']} %, {best['trades']} Trades). "
+                f"Beste ÜBER BEIDE PERIODEN konsistente Variante: „{best['name']}“ "
+                f"(ø Profit-Faktor {best['avg_profit_factor']} vs. {baseline['avg_profit_factor']}, {best['total_trades']} Trades gesamt). "
                 f"Parameter: Score≥{p['buy_threshold']}, SL {p['stop_pct']*100:.0f} %, RR {p['rr_ratio']}:1, Trailing {p['trailing_pct']*100:.0f} %.")
+        elif not eligible:
+            improvements.append("Keine Variante war über beide Perioden konsistent profitabel (PF≥1.0, ≥5 Trades je Periode) – Vorsicht vor Overfitting auf ein Zeitfenster.")
         if not improvements:
             improvements.append(
-                f"Aktuelle Strategie ist solide (Profit-Faktor {baseline['profit_factor']}, Win-Rate {baseline['win_rate']} %). Keine Parameter-Änderung nötig.")
+                f"Aktuelle Strategie ist solide (ø Profit-Faktor {baseline['avg_profit_factor']}). Keine Parameter-Änderung nötig.")
 
     result = {
         "updated": datetime.utcnow().isoformat(),
-        "symbols_tested": len(data_cache),
-        "period": "1 Jahr Tagesdaten",
+        "symbols_tested": {rng: len(period_data[rng]) for rng in periods},
+        "periods": periods,
+        "costs_applied_pct_per_side": slippage * 100,
         "baseline": baseline,
         "variants": results,
         "best_variant": best["name"],
