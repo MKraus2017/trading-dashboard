@@ -895,7 +895,12 @@ function renderFullBacktest(data) {
     div.innerHTML = '<div class="no-data">Noch kein Backtest ausgeführt.</div>';
     return;
   }
-  let html = `<div style="color:#8b949e;margin-bottom:10px;">Stand: ${data.updated ? new Date(data.updated).toLocaleString('de-DE') : '-'} · ${data.symbols_tested} Symbole · ${data.period}${data.cached ? ' · (gespeichertes Ergebnis)' : ''}</div>`;
+  const periods = data.periods || ['1y'];
+  const symbolsTxt = data.symbols_tested && typeof data.symbols_tested === 'object'
+    ? periods.map(p => `${p}: ${data.symbols_tested[p] ?? '-'} Symbole`).join(' · ')
+    : `${data.symbols_tested ?? '-'} Symbole`;
+  const costsTxt = data.costs_applied_pct_per_side ? ` · Kosten: ${data.costs_applied_pct_per_side}%/Seite` : '';
+  let html = `<div style="color:#8b949e;margin-bottom:10px;">Stand: ${data.updated ? new Date(data.updated).toLocaleString('de-DE') : '-'} · ${symbolsTxt}${costsTxt}${data.cached ? ' · (gespeichertes Ergebnis)' : ''}</div>`;
 
   if (data.improvements && data.improvements.length) {
     html += '<div style="margin-bottom:14px;">';
@@ -905,24 +910,26 @@ function renderFullBacktest(data) {
     html += '</div>';
   }
 
-  html += '<table><tr><th>Variante</th><th>Trades</th><th>Win-Rate</th><th>Ø Gewinn</th><th>Ø Verlust</th><th>Profit-Faktor</th><th>Gesamt-PnL</th><th>Max. DD</th><th>Ø Tage</th></tr>';
+  const periodHeaders = periods.map(p => `<th colspan="3">${p}</th>`).join('');
+  const subHeaders = periods.map(() => '<th>Trades</th><th>Win-Rate</th><th>PF</th>').join('');
+  html += `<table><tr><th rowspan="2">Variante</th>${periodHeaders}<th rowspan="2">ø PF</th><th rowspan="2">Konsistent</th></tr><tr>${subHeaders}</tr>`;
   for (const v of data.variants) {
     const isBest = v.name === data.best_variant;
-    const pfClass = v.profit_factor >= 1.2 ? 'pnl-pos' : (v.profit_factor < 1.0 ? 'pnl-neg' : '');
+    const perPeriodCells = periods.map(p => {
+      const m = (v.per_period && v.per_period[p]) || {};
+      const pfClass = (m.profit_factor ?? 0) >= 1.2 ? 'pnl-pos' : ((m.profit_factor ?? 0) < 1.0 ? 'pnl-neg' : '');
+      return `<td>${m.trades ?? '-'}</td><td>${m.win_rate ?? '-'}%</td><td class="${pfClass}">${m.profit_factor ?? '-'}</td>`;
+    }).join('');
+    const avgPfClass = v.avg_profit_factor >= 1.2 ? 'pnl-pos' : (v.avg_profit_factor < 1.0 ? 'pnl-neg' : '');
     html += `<tr style="${isBest ? 'background:rgba(46,160,67,0.15);' : ''}">
       <td>${isBest ? '⭐ ' : ''}<strong>${v.name}</strong></td>
-      <td>${v.trades}</td>
-      <td>${v.win_rate}%</td>
-      <td class="pnl-pos">${v.avg_win}%</td>
-      <td class="pnl-neg">${v.avg_loss}%</td>
-      <td class="${pfClass}">${v.profit_factor}</td>
-      <td class="${v.total_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${v.total_pnl_pct}%</td>
-      <td>${v.max_drawdown_pct}%</td>
-      <td>${v.avg_days}</td>
+      ${perPeriodCells}
+      <td class="${avgPfClass}"><strong>${v.avg_profit_factor}</strong></td>
+      <td>${v.consistent_across_periods ? '✅' : '—'}</td>
     </tr>`;
   }
   html += '</table>';
-  html += '<div style="color:#8b949e;font-size:12px;margin-top:8px;">Hinweis: Simulation nur mit technischen Signalen (ohne News-Sentiment/LLM, da historisch nicht verfügbar). Profit-Faktor = Bruttogewinne / Bruttoverluste; >1.2 gilt als solide.</div>';
+  html += '<div style="color:#8b949e;font-size:12px;margin-top:8px;">Hinweis: Simulation nur mit technischen Signalen (ohne News-Sentiment/LLM, da historisch nicht verfügbar), inkl. Slippage/Kosten pro Trade-Seite. "Konsistent" = Profit-Faktor ≥1.0 mit ≥5 Trades in JEDER getesteten Periode (schützt vor Overfitting auf ein Zeitfenster). Profit-Faktor = Bruttogewinne / Bruttoverluste; >1.2 gilt als solide.</div>';
   div.innerHTML = html;
 }
 
