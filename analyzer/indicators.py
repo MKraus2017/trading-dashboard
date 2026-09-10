@@ -183,3 +183,57 @@ def adx(highs: List[float], lows: List[float], closes: List[float], period: int 
         adx_vals.append((adx_vals[-1] * (period - 1) + clean_dx[i]) / period)
 
     return [None] * (n - len(adx_vals)) + adx_vals
+
+
+def supertrend(highs: List[float], lows: List[float], closes: List[float],
+                period: int = 10, multiplier: float = 3.0) -> dict:
+    """Supertrend-Indikator (ATR-basiertes Trend-Band, Standard-Baustein z.B. "Supertrend+ADX"
+    auf TradingView). Liefert pro Kerze die Bandlinie und die Trendrichtung (1 = Aufwaerts,
+    d.h. Preis ueber der Linie/Linie wirkt als Unterstuetzung; -1 = Abwaerts, Preis unter der
+    Linie/Linie wirkt als Widerstand). Ein Richtungswechsel (Flip) ist das klassische
+    Einstiegssignal; die Linie selbst dient gleichzeitig als nachziehender Stop."""
+    n = len(closes)
+    atr_vals = atr(highs, lows, closes, period)
+    if n == 0:
+        return {"line": [], "trend": []}
+
+    line: List[float] = [None] * n
+    trend: List[int] = [None] * n
+    final_upper: List[float] = [None] * n
+    final_lower: List[float] = [None] * n
+
+    for i in range(n):
+        a = atr_vals[i]
+        if a is None:
+            continue
+        mid = (highs[i] + lows[i]) / 2
+        basic_upper = mid + multiplier * a
+        basic_lower = mid - multiplier * a
+
+        prev_final_upper = final_upper[i - 1] if i > 0 else None
+        prev_final_lower = final_lower[i - 1] if i > 0 else None
+        prev_close = closes[i - 1] if i > 0 else None
+
+        if prev_final_upper is None:
+            final_upper[i] = basic_upper
+        else:
+            final_upper[i] = basic_upper if (basic_upper < prev_final_upper or (prev_close is not None and prev_close > prev_final_upper)) else prev_final_upper
+
+        if prev_final_lower is None:
+            final_lower[i] = basic_lower
+        else:
+            final_lower[i] = basic_lower if (basic_lower > prev_final_lower or (prev_close is not None and prev_close < prev_final_lower)) else prev_final_lower
+
+        prev_trend = trend[i - 1] if i > 0 else None
+        if prev_trend is None:
+            # Erste gueltige Kerze: Richtung grob aus Preisposition relativ zur Mitte ableiten
+            cur_trend = 1 if closes[i] >= mid else -1
+        elif prev_trend == 1:
+            cur_trend = -1 if closes[i] < final_lower[i] else 1
+        else:
+            cur_trend = 1 if closes[i] > final_upper[i] else -1
+
+        trend[i] = cur_trend
+        line[i] = final_lower[i] if cur_trend == 1 else final_upper[i]
+
+    return {"line": line, "trend": trend}
