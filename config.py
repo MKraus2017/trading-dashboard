@@ -21,7 +21,10 @@ OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 # --- Virtuelles Depot ---
 START_CAPITAL = 10_000.00
 MAX_POSITIONS = 5
-MAX_POSITION_PCT = 0.20          # max. 20 % des Depotwerts pro Position
+MAX_POSITION_PCT = 0.16          # max. 16 % des Depotwerts pro Position (5x16%=80%, passt zu CASH_RESERVE_PCT=20%;
+                                  # vorher 20% x 5 Positionen = 100%, was mit der 20%-Cash-Reserve-Pflicht
+                                  # kollidierte - real waren so nur ~4 volle Positionen moeglich, MAX_POSITIONS=5
+                                  # damit irrefuehrend/unerreichbar)
 MIN_POSITION_EUR = 500.00        # Mindest-Kaufbetrag pro Trade (kleinere Käufe lohnen nicht)
 CASH_RESERVE_PCT = 0.20          # min. 20 % Cash behalten
 DEFAULT_STOP_PCT = 0.03          # Backtest 1J/28 Symbole: SL 3 % + Score>=70 => Profit-Faktor 1.57, Win-Rate 44 %
@@ -40,7 +43,10 @@ CHANDELIER_PERIOD = 22           # Tage für ATR-Berechnung (Standard-Chandelier
 COOLDOWN_HOURS_AFTER_BUY = 24    # Keine VERKAUFEN-Ampel in den ersten X Stunden nach Kauf
                                   # (verhindert Whipsaw: Kauf -> sofort wieder Verkaufen-Signal)
 MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
-BUY_SCORE_THRESHOLD = 70         # Backtest 1J/28 Symbole: Score>=70 => Profit-Faktor 1.23, Win-Rate 38.1 % (beste Variante)
+BUY_SCORE_THRESHOLD = 80         # V2 (Backtest 1J+2J, MIT Kosten/Slippage 0,05%/Seite, 10.09.2026):
+                                  # Score>=70 (alter Wert) war nach Kosten UNPROFITABEL (PF 0.96, Win-Rate 30.4%).
+                                  # Score>=80 war über BEIDE Perioden konsistent profitabel (ø Profit-Faktor 2.23,
+                                  # 33 Trades gesamt) - deutlich selektiver, aber das war noetig, um Kosten zu ueberleben.
 BREAKEVEN_AT_PCT = 4.0           # Ab +4 % Gewinn Stop auf Einstiegskurs anheben (Backtest: PF 1.89 statt 1.57)
 TIME_EXIT_DAYS = 10              # Position nach 10 Handelstagen schließen, wenn Gewinn < +1 % (totes Kapital freigeben)
 
