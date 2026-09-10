@@ -20,7 +20,8 @@ def _round_trip_cost_pct(leverage: int, fee_pct: float, slippage_pct: float) -> 
 def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: float,
               rr_ratio: float, max_leverage: int, use_adx_filter: bool = True,
               use_trailing_stop: bool = False, use_time_exit: bool = False,
-              bar_hours: float = 4.0, fee_pct: float = None, slippage_pct: float = None) -> dict:
+              bar_hours: float = 4.0, fee_pct: float = None, slippage_pct: float = None,
+              precomputed: dict = None) -> dict:
     # Fee/Slippage-Defaults zentral aus config.py - vorher wurden hier IMMER 0%
     # angenommen, obwohl Parameter-Kommentare an anderer Stelle im Repo "mit Fees
     # verifiziert" behaupteten. getattr() mit Fallback, falls config.py (noch) nicht
@@ -35,14 +36,30 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
     if len(closes) < 60:
         return {"trades": 0}
 
-    ema20_all = indicators.ema(closes, 20)
-    ema50_all = indicators.ema(closes, 50)
-    rsi_all = indicators.rsi(closes, 14)
-    _macd = indicators.macd(closes)
-    macd_line, signal_line = _macd["macd"], _macd["signal"]
-    bb = indicators.bollinger(closes, 20, 2)
-    atr_all = indicators.atr(highs, lows, closes, 14)
-    adx_all = indicators.adx(highs, lows, closes, 14) if use_adx_filter else [None] * len(closes)
+    # Indikatoren sind fuer JEDE Variante identisch (Periode 14/20/26/50 etc. haengt nicht
+    # von score_threshold/sl_atr_mult/rr_ratio/leverage ab) - deshalb einmal pro Symbol
+    # vorberechnen und ueber alle Varianten wiederverwenden statt bei jedem run_crypto_backtest-
+    # Aufruf 9x (einmal pro Variante) neu zu berechnen. Das war der Hauptgrund, warum ein
+    # 365-Tage-Multi-Varianten-Lauf das Render-Request-Zeitlimit gerissen hat (WICHTIG,
+    # 10.09.2026: reines Performance-Fix, aendert keine Backtest-Ergebnisse).
+    if precomputed is not None:
+        ema20_all = precomputed["ema20"]
+        ema50_all = precomputed["ema50"]
+        rsi_all = precomputed["rsi"]
+        macd_line = precomputed["macd_line"]
+        signal_line = precomputed["signal_line"]
+        bb = precomputed["bb"]
+        atr_all = precomputed["atr"]
+        adx_all = precomputed["adx"] if use_adx_filter else [None] * len(closes)
+    else:
+        ema20_all = indicators.ema(closes, 20)
+        ema50_all = indicators.ema(closes, 50)
+        rsi_all = indicators.rsi(closes, 14)
+        _macd = indicators.macd(closes)
+        macd_line, signal_line = _macd["macd"], _macd["signal"]
+        bb = indicators.bollinger(closes, 20, 2)
+        atr_all = indicators.atr(highs, lows, closes, 14)
+        adx_all = indicators.adx(highs, lows, closes, 14) if use_adx_filter else [None] * len(closes)
 
     trades = []
     position = None
@@ -226,6 +243,25 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
         if c:
             candle_cache[sym] = c
 
+    # Indikatoren einmal pro Symbol vorberechnen (identisch fuer alle Varianten) statt
+    # 9x pro run - siehe Kommentar in _simulate(). Halbiert/neuntelt die Laufzeit.
+    precomputed_cache = {}
+    for sym, candles in candle_cache.items():
+        closes, highs, lows = candles["closes"], candles["highs"], candles["lows"]
+        if len(closes) < 60:
+            continue
+        _macd = indicators.macd(closes)
+        precomputed_cache[sym] = {
+            "ema20": indicators.ema(closes, 20),
+            "ema50": indicators.ema(closes, 50),
+            "rsi": indicators.rsi(closes, 14),
+            "macd_line": _macd["macd"],
+            "signal_line": _macd["signal"],
+            "bb": indicators.bollinger(closes, 20, 2),
+            "atr": indicators.atr(highs, lows, closes, 14),
+            "adx": indicators.adx(highs, lows, closes, 14),
+        }
+
     results = []
     for variant in variants:
         agg_trades = 0
@@ -241,7 +277,8 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
                           use_adx_filter=variant.get("use_adx_filter", False),
                           use_trailing_stop=variant.get("use_trailing_stop", False),
                           use_time_exit=variant.get("use_time_exit", False),
-                          fee_pct=fee_pct, slippage_pct=slippage_pct)
+                          fee_pct=fee_pct, slippage_pct=slippage_pct,
+                          precomputed=precomputed_cache.get(sym))
             per_symbol[sym] = r
             if r.get("trades", 0) > 0:
                 agg_trades += r["trades"]
