@@ -186,6 +186,104 @@ def _simulate(symbol: str, candles: dict, score_threshold: int, sl_atr_mult: flo
     }
 
 
+def _simulate_supertrend(symbol: str, candles: dict, st_period: int, st_mult: float,
+                          max_leverage: int, use_adx_filter: bool = True, adx_min: float = 20.0,
+                          fee_pct: float = None, slippage_pct: float = None) -> dict:
+    """Klassische Supertrend-Strategie: Einstieg bei Trendwechsel (Flip), die Supertrend-Linie
+    selbst dient als nachziehender Stop - Ausstieg beim Gegen-Flip (Stop-and-Reverse). Optional
+    mit ADX-Filter: Trades nur, wenn der Trend beim Flip bereits als stark genug bestaetigt gilt.
+    Getrennte Funktion von _simulate(), da strukturell anders (kontinuierliches Trend-Band statt
+    Score-Schwelle pro Kerze) - liefert aber dieselbe Ergebnis-Struktur fuer den Vergleich."""
+    if fee_pct is None:
+        fee_pct = getattr(config, "CRYPTO_TAKER_FEE_PCT", 0.0008)
+    if slippage_pct is None:
+        slippage_pct = getattr(config, "CRYPTO_SLIPPAGE_PCT", 0.0005)
+    closes = candles["closes"]
+    highs = candles["highs"]
+    lows = candles["lows"]
+    if len(closes) < max(60, st_period * 3):
+        return {"trades": 0}
+
+    st = indicators.supertrend(highs, lows, closes, period=st_period, multiplier=st_mult)
+    adx_all = indicators.adx(highs, lows, closes, 14) if use_adx_filter else [None] * len(closes)
+    trend = st["trend"]
+
+    trades = []
+    position = None  # {direction, entry, entry_idx}
+
+    for i in range(1, len(closes)):
+        price = closes[i]
+        if trend[i] is None or trend[i - 1] is None:
+            continue
+        flipped_up = trend[i] == 1 and trend[i - 1] == -1
+        flipped_down = trend[i] == -1 and trend[i - 1] == 1
+
+        if position is None:
+            direction = None
+            if flipped_up:
+                direction = "LONG"
+            elif flipped_down:
+                direction = "SHORT"
+            if direction and use_adx_filter:
+                a = adx_all[i]
+                if a is None or a < adx_min:
+                    direction = None
+            if direction:
+                position = {"direction": direction, "entry": price, "entry_idx": i}
+        else:
+            # Stop-and-Reverse: Gegen-Flip schliesst die Position (Supertrend-Linie war der Stop)
+            exit_now = (position["direction"] == "LONG" and flipped_down) or \
+                       (position["direction"] == "SHORT" and flipped_up)
+            if exit_now:
+                move_pct = ((price - position["entry"]) / position["entry"]) if position["direction"] == "LONG" \
+                    else ((position["entry"] - price) / position["entry"])
+                pnl_pct_gross = move_pct * max_leverage * 100
+                cost_pct = _round_trip_cost_pct(max_leverage, fee_pct, slippage_pct)
+                pnl_pct_net = pnl_pct_gross - cost_pct
+                trades.append({
+                    "pnl_pct": pnl_pct_net, "pnl_pct_gross": round(pnl_pct_gross, 3),
+                    "cost_pct": round(cost_pct, 3), "won": pnl_pct_net > 0,
+                    "days_held": i - position["entry_idx"], "exit_reason": "flip",
+                })
+                # Stop-and-Reverse: gleich neue Gegenposition eroeffnen, falls ADX (falls
+                # gefiltert) den neuen Flip bestaetigt - sonst bleibt man erstmal flach.
+                new_direction = "LONG" if flipped_up else "SHORT"
+                ok_new = True
+                if use_adx_filter:
+                    a = adx_all[i]
+                    ok_new = a is not None and a >= adx_min
+                position = {"direction": new_direction, "entry": price, "entry_idx": i} if ok_new else None
+
+    if not trades:
+        return {"trades": 0}
+
+    wins = [t for t in trades if t["won"]]
+    losses = [t for t in trades if not t["won"]]
+    win_rate = len(wins) / len(trades) * 100
+    avg_win = sum(t["pnl_pct"] for t in wins) / len(wins) if wins else 0
+    avg_loss = sum(t["pnl_pct"] for t in losses) / len(losses) if losses else 0
+    total_pnl_pct = sum(t["pnl_pct"] for t in trades)
+    total_pnl_pct_gross = sum(t["pnl_pct_gross"] for t in trades)
+    total_cost_pct = sum(t["cost_pct"] for t in trades)
+    gross_profit = sum(t["pnl_pct"] for t in wins) if wins else 0
+    gross_loss = abs(sum(t["pnl_pct"] for t in losses)) if losses else 0.0001
+    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss else 0
+    avg_bars_held = sum(t["days_held"] for t in trades) / len(trades)
+
+    return {
+        "trades": len(trades),
+        "win_rate": round(win_rate, 1),
+        "avg_win_pct": round(avg_win, 2),
+        "avg_loss_pct": round(avg_loss, 2),
+        "total_pnl_pct": round(total_pnl_pct, 2),
+        "total_pnl_pct_gross": round(total_pnl_pct_gross, 2),
+        "fees_cost_pct": round(total_cost_pct, 2),
+        "profit_factor": profit_factor,
+        "avg_hold_bars": round(avg_bars_held, 1),
+        "time_exits": 0,
+    }
+
+
 def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: float = None) -> dict:
     """Testet mehrere Parameter-Varianten über alle Krypto-Symbole und liefert
     die beste Kombination + Vergleichstabelle.
@@ -235,6 +333,10 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
         {"name": "Niedriger Hebel + Live-Filter (Lev 3, sonst Live-Werte) [NUR virtuelles Hebel-Depot]", **{**live, "max_leverage": 3}},
         {"name": "🎯 Spot-realistisch (Hebel 1x, sonst Live-Werte) - naeherungsweise vergleichbar mit echtem OKX-Konto", **{**live, "max_leverage": 1}},
         {"name": "🎯 Spot-realistisch (Hebel 1x, Score 70, SL 1.2x, RR 1.2) - konservativere Variante", "score_threshold": 70, "sl_atr_mult": 1.2, "rr_ratio": 1.2, "max_leverage": 1, "use_adx_filter": True, "use_trailing_stop": True, "use_time_exit": True},
+        {"name": "🆕 Supertrend+ADX (Periode 10, Faktor 3.0, Lev 10) [NUR virtuelles Hebel-Depot]", "strategy": "supertrend", "st_period": 10, "st_mult": 3.0, "max_leverage": 10, "use_adx_filter": True, "adx_min": 20.0},
+        {"name": "🆕 Supertrend+ADX Spot-realistisch (Periode 10, Faktor 3.0, Hebel 1x)", "strategy": "supertrend", "st_period": 10, "st_mult": 3.0, "max_leverage": 1, "use_adx_filter": True, "adx_min": 20.0},
+        {"name": "🆕 Supertrend ohne ADX-Filter (Periode 10, Faktor 3.0, Hebel 1x) - zum Vergleich", "strategy": "supertrend", "st_period": 10, "st_mult": 3.0, "max_leverage": 1, "use_adx_filter": False},
+        {"name": "🆕 Supertrend+ADX enger (Periode 10, Faktor 2.0, Hebel 1x)", "strategy": "supertrend", "st_period": 10, "st_mult": 2.0, "max_leverage": 1, "use_adx_filter": True, "adx_min": 20.0},
     ]
 
     symbols = [item["symbol"] for item in config.get_crypto_universe()]
@@ -284,13 +386,20 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
         agg_bars = 0.0
         per_symbol = {}
         for sym, candles in candle_cache.items():
-            r = _simulate(sym, candles, variant["score_threshold"], variant["sl_atr_mult"],
-                          variant["rr_ratio"], variant["max_leverage"],
-                          use_adx_filter=variant.get("use_adx_filter", False),
-                          use_trailing_stop=variant.get("use_trailing_stop", False),
-                          use_time_exit=variant.get("use_time_exit", False),
-                          fee_pct=fee_pct, slippage_pct=slippage_pct,
-                          precomputed=precomputed_cache.get(sym))
+            if variant.get("strategy") == "supertrend":
+                r = _simulate_supertrend(sym, candles, variant["st_period"], variant["st_mult"],
+                                          variant["max_leverage"],
+                                          use_adx_filter=variant.get("use_adx_filter", True),
+                                          adx_min=variant.get("adx_min", 20.0),
+                                          fee_pct=fee_pct, slippage_pct=slippage_pct)
+            else:
+                r = _simulate(sym, candles, variant["score_threshold"], variant["sl_atr_mult"],
+                              variant["rr_ratio"], variant["max_leverage"],
+                              use_adx_filter=variant.get("use_adx_filter", False),
+                              use_trailing_stop=variant.get("use_trailing_stop", False),
+                              use_time_exit=variant.get("use_time_exit", False),
+                              fee_pct=fee_pct, slippage_pct=slippage_pct,
+                              precomputed=precomputed_cache.get(sym))
             per_symbol[sym] = r
             if r.get("trades", 0) > 0:
                 agg_trades += r["trades"]
