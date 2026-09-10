@@ -268,6 +268,11 @@ def run_full_backtest(max_symbols: Optional[int] = None, periods: Optional[List[
         "trailing_pct": config.TRAILING_STOP_PCT,
         "breakeven_at": getattr(config, "BREAKEVEN_AT_PCT", None),
         "time_exit_days": getattr(config, "TIME_EXIT_DAYS", None),
+        # Baseline muss das TATSÄCHLICHE Live-Verhalten abbilden, sonst vergleicht
+        # der Backtest gegen einen Strohmann (z.B. fixer Trailing-Stop), obwohl live
+        # längst der Chandelier-Exit aktiv ist - das verfälschte bisher den Vergleich.
+        "use_chandelier": getattr(config, "USE_CHANDELIER_EXIT", False),
+        "chandelier_mult": getattr(config, "CHANDELIER_MULT", 3.0),
     }
 
     variants = [
