@@ -126,6 +126,17 @@ CRYPTO_TAKER_FEE_PCT = 0.0008       # 0.08 % pro Seite (OKX Spot Taker, Standard
 CRYPTO_SLIPPAGE_PCT = 0.0005        # 0.05 % pro Seite (Markt-Order-Slippage-Schaetzung)
 
 # --- Krypto-Testbereich (separates virtuelles Depot, OKX-Live-Preise) ---
+# AKTUALISIERUNG 10.09.2026 (reines Paper-Trading, kein echtes Kapital betroffen):
+# Frischer Mehrperioden-Test widerspricht der V2-Behauptung unten ("profitabel ueber
+# 90/180/365T verifiziert")! Mit aktuellen Marktdaten war die Live-Konfiguration (und
+# alle 8 getesteten Alternativ-Varianten) NICHT konsistent profitabel: 180T sah stark
+# positiv aus (netto +70%), aber 365T war fuer JEDE Variante deutlich negativ - bereits
+# BRUTTO vor Fees (Live-Config brutto -980% auf 365T). Vermutlich hat sich die Marktlage
+# seit dem V2-Test veraendert, oder der damalige Test war selbst nicht robust genug.
+# Lehre: ein einzelnes gutes Zeitfenster (hier 180T) ist kein Beleg fuer eine echte Kante -
+# immer alle Perioden gemeinsam pruefen (crypto_backtester.run_crypto_backtest_multi).
+# Solange sich das nicht mit einem neuen, wirklich robusten Signal-Ansatz aendert, sollte
+# hier nicht weiter an SL/RR/Hebel gedreht werden - das wurde bereits erschoepfend getestet.
 CRYPTO_START_CAPITAL = 1_000.00
 CRYPTO_MAX_LEVERAGE = 10           # Hartes Cap; Bot waehlt Hebel selbst je nach Signal-Konfidenz/Volatilitaet
 CRYPTO_MAX_POSITIONS = 4
@@ -133,8 +144,8 @@ CRYPTO_MAX_POSITION_PCT = 0.30     # max. 30 % des Krypto-Depots pro Position (M
 CRYPTO_MIN_POSITION_EUR = 50.00
 CRYPTO_CASH_RESERVE_PCT = 0.15
 CRYPTO_DEFAULT_STOP_PCT = 0.04     # 4 % Gegenbewegung vom Entry (auf Basispreis, nicht auf Margin)
-CRYPTO_SL_ATR_MULT = 1.1          # V2 (Fees/Slippage-Backtest 90/180/365T): SL 1.1x ATR + RR 1.4 + Score 66 schlaegt SL 0.9x/RR 1.0/Score 63 konsistent NACH realistischen OKX-Fees (0.08%+0.05% Slippage/Seite) - alte Werte waren ohne Fees getestet und dort profitabel, nach Fees aber defizitaer (-2.6% auf 365T)
-CRYPTO_MIN_RR_RATIO = 1.4          # V2: RR 1.0 war nach Fees zu knapp (siehe CRYPTO_SL_ATR_MULT-Kommentar). RR 1.4 verifiziert profitabel ueber 90/180/365T MIT Fees eingerechnet
+CRYPTO_SL_ATR_MULT = 1.1          # V2 (Fees/Slippage-Backtest 90/180/365T): SL 1.1x ATR + RR 1.4 + Score 66 schlaegt SL 0.9x/RR 1.0/Score 63 konsistent NACH realistischen OKX-Fees (0.08%+0.05% Slippage/Seite) - alte Werte waren ohne Fees getestet und dort profitabel, nach Fees aber defizitaer (-2.6% auf 365T). SIEHE ABER Update 10.09.2026 oben: mit aktuellen Marktdaten NICHT mehr bestaetigt.
+CRYPTO_MIN_RR_RATIO = 1.4          # V2: RR 1.0 war nach Fees zu knapp (siehe CRYPTO_SL_ATR_MULT-Kommentar). RR 1.4 verifiziert profitabel ueber 90/180/365T MIT Fees eingerechnet. SIEHE ABER Update 10.09.2026 oben: mit aktuellen Marktdaten NICHT mehr bestaetigt.
 CRYPTO_USE_ADX_FILTER = True      # ADX-Trendfilter aktiv (bewaehrt: Eng+ADX = +80.1% vs. Eng ohne ADX = +26.3%)
 CRYPTO_BUY_SCORE_THRESHOLD = 66   # V2: von 63 auf 66 erhoeht (externe Review-Empfehlung, mit Fees verifiziert) - weniger, aber selektivere Trades ueberleben Handelskosten besser
 CRYPTO_MIN_VOLUME_USDT_24H = 5_000_000  # Symbole mit < 5 Mio USDT 24h-Volumen ausschliessen (breite Spreads, kaum Bewegung trotz Volatilitaet; Backtest: verbessert Win-Rate 54-56% -> 57-59%, Rendite 180T +4.94->+4.8% marginal, 365T +2.6->+3.98% deutlich)
