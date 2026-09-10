@@ -2,6 +2,7 @@
 und schlägt Parameter-Verbesserungen vor (analog zum Aktien-Backtester).
 """
 import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List
 
 import config
@@ -237,11 +238,22 @@ def run_crypto_backtest(days: int = 180, fee_pct: float = None, slippage_pct: fl
     ]
 
     symbols = [item["symbol"] for item in config.get_crypto_universe()]
+    # Historie parallel pro Symbol abrufen statt sequenziell - bei 365 Tagen/4H sind das
+    # 8 paginierte OKX-Requests pro Symbol (300 Kerzen/Request, je 0.15s Pause). Sequenziell
+    # ueber ~10 Symbole reisst das allein schon das Render-Request-Zeitlimit (WICHTIG,
+    # 10.09.2026: Fix fuer den 365-Tage-Timeout, siehe auch Indikator-Vorberechnung unten).
+    # max_workers bewusst moderat (5), um OKX-Rate-Limits nicht zu strapazieren.
     candle_cache = {}
-    for sym in symbols:
-        c = okx_client.fetch_history_days(sym, days=days, bar="4H")
-        if c:
-            candle_cache[sym] = c
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(okx_client.fetch_history_days, sym, days, "4H"): sym for sym in symbols}
+        for fut in as_completed(futures):
+            sym = futures[fut]
+            try:
+                c = fut.result()
+                if c:
+                    candle_cache[sym] = c
+            except Exception as e:
+                print(f"[CryptoBacktest] Fehler beim Laden von {sym}: {e}")
 
     # Indikatoren einmal pro Symbol vorberechnen (identisch fuer alle Varianten) statt
     # 9x pro run - siehe Kommentar in _simulate(). Halbiert/neuntelt die Laufzeit.
