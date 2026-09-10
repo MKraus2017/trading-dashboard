@@ -42,7 +42,16 @@ CHANDELIER_PERIOD = 22           # Tage für ATR-Berechnung (Standard-Chandelier
 
 COOLDOWN_HOURS_AFTER_BUY = 24    # Keine VERKAUFEN-Ampel in den ersten X Stunden nach Kauf
                                   # (verhindert Whipsaw: Kauf -> sofort wieder Verkaufen-Signal)
-MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk (bessere Trade-Qualität)
+MIN_RR_RATIO = 2.0               # Mindestens 2:1 Reward/Risk fuer den initialen Take-Profit.
+                                  # WICHTIG (Backtest 10.09.2026): Solange USE_CHANDELIER_EXIT=True ist, wird der
+                                  # Chandelier-Trailing-Stop im virtuellen Depot praktisch sofort nach Einstieg gesetzt.
+                                  # Im Backtest-Simulator (analyzer/backtester.py) greift der Take-Profit NUR, wenn noch
+                                  # KEIN Trailing aktiv ist - MIN_RR_RATIO hatte dort deshalb messbar keinen Effekt mehr
+                                  # (RR 1.5/2.0/2.5 lieferten identische Ergebnisse). Live (analyzer/portfolio.py,
+                                  # evaluate_portfolio) pruefen SL/TP/Trailing dagegen unabhaengig voneinander, TP kann
+                                  # dort also auch bei aktivem Trailing greifen - Backtest und Live-Exit-Reihenfolge
+                                  # sind an dieser Stelle nicht identisch. Vor einer Aenderung dieses Werts: pruefen,
+                                  # ob die Vereinheitlichung von Backtest- und Live-Exit-Logik sinnvoll ist.
 BUY_SCORE_THRESHOLD = 80         # V2 (Backtest 1J+2J, MIT Kosten/Slippage 0,05%/Seite, 10.09.2026):
                                   # Score>=70 (alter Wert) war nach Kosten UNPROFITABEL (PF 0.96, Win-Rate 30.4%).
                                   # Score>=80 war über BEIDE Perioden konsistent profitabel (ø Profit-Faktor 2.23,
