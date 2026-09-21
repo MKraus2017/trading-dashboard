@@ -1,7 +1,8 @@
 import unittest
+import sqlite3
 from unittest.mock import patch
 
-from analyzer import crypto_signals, okx_client
+from analyzer import crypto_signals, db_store, okx_client
 
 
 def candles(relative_volume=1.0):
@@ -73,6 +74,32 @@ class OkxTradePressureTests(unittest.TestCase):
             result = okx_client.fetch_recent_trade_pressure("BTC", limit=2)
         self.assertAlmostEqual(result["buy_ratio"], 2 / 3)
         self.assertEqual(result["trade_count"], 2)
+
+
+class SettingsMigrationTests(unittest.TestCase):
+    def test_legacy_settings_table_is_upgraded_idempotently(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("""CREATE TABLE settings (
+            user_id INTEGER PRIMARY KEY,
+            auto_trade_enabled INTEGER DEFAULT 1,
+            report_enabled INTEGER DEFAULT 1,
+            updated_at TEXT
+        )""")
+        db_store._ensure_settings_schema(conn)
+        db_store._ensure_settings_schema(conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
+        self.assertIn("telegram_bot_token", columns)
+        self.assertIn("telegram_chat_id", columns)
+        self.assertIn("crypto_strategy_version", columns)
+        conn.execute(
+            "INSERT INTO settings (user_id, crypto_strategy_version) VALUES (?, ?)",
+            (1, "volume_confirmed"),
+        )
+        value = conn.execute(
+            "SELECT crypto_strategy_version FROM settings WHERE user_id = 1"
+        ).fetchone()[0]
+        self.assertEqual(value, "volume_confirmed")
+        conn.close()
 
 
 if __name__ == "__main__":

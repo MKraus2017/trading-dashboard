@@ -203,7 +203,30 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     _ensure_crypto_tables(conn)
+    _ensure_settings_schema(conn)
     return conn
+
+
+def _ensure_settings_schema(conn):
+    """Fuehrt kleine Settings-Migrationen auch fuer bereits laufende/alte Render-DBs aus.
+
+    Die Render-Disk ueberlebt Deployments. Deshalb reicht eine Migration nur beim
+    Prozessstart nicht aus: Eine wiederhergestellte Alt-DB muss sich beim naechsten
+    DB-Zugriff ebenfalls selbst aktualisieren koennen.
+    """
+    table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
+    ).fetchone()
+    if not table_exists:
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
+    if "telegram_bot_token" not in columns:
+        conn.execute("ALTER TABLE settings ADD COLUMN telegram_bot_token TEXT")
+    if "telegram_chat_id" not in columns:
+        conn.execute("ALTER TABLE settings ADD COLUMN telegram_chat_id TEXT")
+    if "crypto_strategy_version" not in columns:
+        conn.execute("ALTER TABLE settings ADD COLUMN crypto_strategy_version TEXT DEFAULT 'classic'")
+    conn.commit()
 
 
 def _ensure_crypto_tables(conn):
@@ -288,19 +311,8 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         """)
-        # Migration: Telegram-Credential-Spalten nachträglich hinzufügen
-        try:
-            conn.execute("ALTER TABLE settings ADD COLUMN telegram_bot_token TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE settings ADD COLUMN telegram_chat_id TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE settings ADD COLUMN crypto_strategy_version TEXT DEFAULT 'classic'")
-        except sqlite3.OperationalError:
-            pass
+        # Migration fuer persistente/alte Datenbanken. Idempotent per PRAGMA-Pruefung.
+        _ensure_settings_schema(conn)
 
         # Separates virtuelles Krypto-Depot (unabhaengig vom Aktien-Portfolio)
         conn.execute("""
