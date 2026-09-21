@@ -118,6 +118,12 @@ def settings_page():
     return render_template("settings.html", username=session.get("username", ""))
 
 
+@app.route("/audit")
+@login_required
+def audit_page():
+    return render_template("audit.html", username=session.get("username", ""))
+
+
 # --- API ---
 
 @app.route("/api/portfolio")
@@ -293,6 +299,140 @@ def _calc_virtual_guv(p: dict) -> dict:
         "total_return_pct": round((unrealized + realized) / max(total_invested, 1) * 100, 2) if total_invested > 0 else 0.0,
     }
     return p
+
+
+def _trade_stats(values: list) -> dict:
+    """Robuste, einheitliche Kennzahlen für bereits realisierte Trades."""
+    values = [round(float(v or 0), 4) for v in values]
+    wins = [v for v in values if v > 0]
+    losses = [v for v in values if v < 0]
+    gross_profit = sum(wins)
+    gross_loss = -sum(losses)
+    equity = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    curve = [0.0]
+    for value in values:
+        equity += value
+        peak = max(peak, equity)
+        max_drawdown = max(max_drawdown, peak - equity)
+        curve.append(round(equity, 2))
+    count = len(values)
+    return {
+        "trades": count,
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": round(len(wins) / count * 100, 1) if count else 0.0,
+        "net": round(sum(values), 2),
+        "avg_trade": round(sum(values) / count, 2) if count else 0.0,
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2),
+        "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss else None,
+        "max_realized_drawdown": round(max_drawdown, 2),
+        "equity_curve": curve,
+    }
+
+
+def _stock_closed_pnls(trades: list) -> list:
+    """FIFO-P&L aus der vollständigen virtuellen Transaktionshistorie."""
+    lots = {}
+    closed = []
+    for trade in trades:
+        symbol = trade.get("symbol", "")
+        qty = float(trade.get("shares", 0) or 0)
+        price = float(trade.get("price", 0) or 0)
+        lots.setdefault(symbol, [])
+        if trade.get("action") == "BUY":
+            lots[symbol].append({"remaining": qty, "price": price})
+            continue
+        if trade.get("action") != "SELL":
+            continue
+        remaining = qty
+        cost = 0.0
+        while remaining > 1e-9 and lots[symbol]:
+            lot = lots[symbol][0]
+            take = min(remaining, lot["remaining"])
+            cost += take * lot["price"]
+            lot["remaining"] -= take
+            remaining -= take
+            if lot["remaining"] <= 1e-9:
+                lots[symbol].pop(0)
+        if cost > 0:
+            closed.append(qty * price - cost)
+    return closed
+
+
+@app.route("/api/audit")
+@login_required
+def api_audit():
+    """Read-only Erfolgsmonitor auf Basis der vollständigen gespeicherten Historien."""
+    uid = get_current_user_id()
+    stock = portfolio.get_portfolio(uid)
+    crypto = db_store.load_crypto_portfolio(uid) or {}
+    okx_history = db_store.get_okx_spot_trade_history(uid, limit=10000)
+
+    stock_stats = _trade_stats(_stock_closed_pnls(stock.get("trades", [])))
+    crypto_stats = _trade_stats([t.get("pnl_eur", 0) for t in crypto.get("trades", [])])
+    # DB liefert neueste zuerst; für Drawdown und Equity-Kurve chronologisch rechnen.
+    okx_chrono = list(reversed(okx_history))
+    okx_stats = _trade_stats([t.get("pnl_usdc", 0) for t in okx_chrono])
+
+    stock_total = float(stock.get("cash", 0) or 0) + sum(
+        float(p.get("shares", 0) or 0) * float(p.get("last_price", p.get("entry_price", 0)) or 0)
+        for p in stock.get("positions", [])
+    )
+    stock_stats.update({
+        "account_value": round(stock_total, 2),
+        "account_return_pct": round((stock_total - config.START_CAPITAL) / config.START_CAPITAL * 100, 2),
+        "open_positions": len(stock.get("positions", [])),
+        "manual_exits": sum(1 for t in stock.get("trades", []) if t.get("action") == "SELL" and t.get("reason") == "manuell"),
+    })
+    crypto_stats.update({
+        "account_value": round(float(crypto.get("total_value", crypto.get("cash", 0)) or 0), 2),
+        "account_return_pct": round(float(crypto.get("total_return_pct", 0) or 0), 2),
+        "open_positions": len(crypto.get("positions", [])),
+        "max_leverage": max([int(t.get("leverage", 1) or 1) for t in crypto.get("trades", [])] + [1]),
+        "cost_model": "Backtest berücksichtigt Gebühren/Slippage; virtuelles Live-Depot zieht sie derzeit nicht ab.",
+    })
+    okx_stats.update({
+        "open_positions": len(db_store.get_open_okx_spot_positions(uid)),
+        "approximated_exits": sum(1 for t in okx_history if "Extern verkauft" in (t.get("close_reason") or "")),
+        "history_limit_fixed": len(okx_history),
+    })
+
+    okx_pf = okx_stats.get("profit_factor") or 0
+    if okx_stats["net"] > 0 and okx_stats["trades"] >= 100 and okx_pf >= 1.2:
+        verdict = "Echtgeldstrategie zeigt eine belastbare Tendenz"
+        verdict_reason = "OKX ist nach Kosten positiv, die Stichprobe ist groß genug und der Profit-Faktor liegt über dem Freigabe-Gate."
+        evidence_grade = "B"
+    elif okx_stats["net"] > 0:
+        verdict = "Positiv, aber noch nicht belastbar"
+        verdict_reason = "Das Echtgeld-Ergebnis ist positiv, verfehlt aber noch Stichprobe oder Profit-Faktor des Freigabe-Gates."
+        evidence_grade = "C"
+    else:
+        verdict = "Noch kein belastbarer Erfolgsnachweis"
+        verdict_reason = "Das reale OKX-System ist netto negativ; Aktien liegen nahe null. Nur die gehebelte Simulation ist klar positiv."
+        evidence_grade = "C"
+
+    return jsonify({
+        "ok": True,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "stocks_virtual": stock_stats,
+        "crypto_virtual": crypto_stats,
+        "okx_real": okx_stats,
+        "quality": {
+            "verdict": verdict,
+            "reason": verdict_reason,
+            "evidence_grade": evidence_grade,
+            "track_record": "kurz",
+            "warnings": [
+                "OKX: vollständige Historie statt bisheriger 50-Trade-Anzeige ausgewertet.",
+                "Live-P&L von OKX und virtuellem Krypto-Depot zieht Gebühren/Slippage nicht explizit ab; Funding fehlt in der Hebelsimulation.",
+                "Backtest-Varianten wurden mehrfach auf denselben Daten optimiert; Out-of-Sample-Nachweis fehlt.",
+                "Ein Benchmark-Vergleich und zeitgewichtete Renditen bei Ein-/Auszahlungen fehlen.",
+            ],
+        },
+    })
 
 
 @app.route("/api/recommendations", methods=["GET", "POST"])

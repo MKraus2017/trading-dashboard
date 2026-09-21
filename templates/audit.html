@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07110f">
+  <title>Strategy Evidence Monitor</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='audit.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Zurück zum Trading Dashboard">
+        <span class="brand-mark">SW</span>
+        <span><b>Strategy Evidence</b><small>Live-Audit · {{ username }}</small></span>
+      </a>
+      <div class="top-actions">
+        <span class="live"><i></i><span id="freshness">Wird geladen</span></span>
+        <button id="refresh" class="refresh" type="button">Aktualisieren</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="verdict" aria-labelledby="verdict-title">
+        <div>
+          <span class="eyebrow">Audit-Fazit</span>
+          <h1 id="verdict-title">Noch kein belastbarer Erfolgsnachweis</h1>
+          <p id="verdict-reason">Die vollständigen Historien werden ausgewertet.</p>
+        </div>
+        <div class="grade" aria-label="Evidenzstufe C"><span id="evidence-grade">C</span><small>Evidenzstufe</small></div>
+      </section>
+
+      <section class="strategy-grid" aria-label="Strategievergleich">
+        <article class="strategy-card">
+          <div class="card-head"><div><span class="dot dot-amber"></span><span class="kicker">Virtuell · Aktien</span></div><span class="pill pill-amber" id="stocks-status">Unentschieden</span></div>
+          <h2 id="stocks-return">–</h2><p class="metric-label">Depot-Rendite</p>
+          <div class="spark"><svg id="stocks-chart" role="img" aria-label="Realisierte Aktien-Equity-Kurve"></svg></div>
+          <dl class="metrics"><div><dt>Realisierter P&amp;L</dt><dd id="stocks-net">–</dd></div><div><dt>Profit-Faktor</dt><dd id="stocks-pf">–</dd></div><div><dt>Trefferquote</dt><dd id="stocks-win">–</dd></div><div><dt>Trades</dt><dd id="stocks-trades">–</dd></div></dl>
+          <p class="card-note">Profit-Faktor nahe 1: bislang kein stabiler Vorteil gegenüber Zufall und Kosten.</p>
+        </article>
+
+        <article class="strategy-card">
+          <div class="card-head"><div><span class="dot dot-green"></span><span class="kicker">Virtuell · Krypto-Hebel</span></div><span class="pill pill-blue" id="crypto-status">Simulation</span></div>
+          <h2 id="crypto-return">–</h2><p class="metric-label">Depot-Rendite</p>
+          <div class="spark"><svg id="crypto-chart" role="img" aria-label="Realisierte Krypto-Equity-Kurve"></svg></div>
+          <dl class="metrics"><div><dt>Realisierter P&amp;L</dt><dd id="crypto-net">–</dd></div><div><dt>Profit-Faktor</dt><dd id="crypto-pf">–</dd></div><div><dt>Trefferquote</dt><dd id="crypto-win">–</dd></div><div><dt>Trades</dt><dd id="crypto-trades">–</dd></div></dl>
+          <p class="card-note">Positiv, aber nicht 1:1 auf Echtgeld übertragbar: Hebel, Ausführung und laufende Kosten verzerren.</p>
+        </article>
+
+        <article class="strategy-card">
+          <div class="card-head"><div><span class="dot dot-red"></span><span class="kicker">Echtgeld · OKX Spot</span></div><span class="pill pill-red" id="okx-status">Negativ</span></div>
+          <h2 id="okx-net-hero">–</h2><p class="metric-label">Realisierter P&amp;L</p>
+          <div class="spark"><svg id="okx-chart" role="img" aria-label="Realisierte OKX-Equity-Kurve"></svg></div>
+          <dl class="metrics"><div><dt>Profit-Faktor</dt><dd id="okx-pf">–</dd></div><div><dt>Trefferquote</dt><dd id="okx-win">–</dd></div><div><dt>Max. Drawdown</dt><dd id="okx-dd">–</dd></div><div><dt>Trades</dt><dd id="okx-trades">–</dd></div></dl>
+          <p class="card-note" id="okx-note">Vollständige Historie wird geprüft.</p>
+        </article>
+      </section>
+
+      <section class="detail-grid">
+        <article class="panel evidence-panel">
+          <div class="section-head"><div><span class="eyebrow">Glaubwürdigkeitscheck</span><h2>Was die Zahlen wirklich tragen</h2></div><span class="score">4 / 10</span></div>
+          <div class="evidence-list">
+            <div class="evidence-row"><span class="check good">✓</span><div><b>Nachvollziehbare Trade-Historien</b><p>Telegram und Datenbank zeigen Ein- und Ausstiege mit Zeit, Kurs und Grund.</p></div></div>
+            <div class="evidence-row"><span class="check good">✓</span><div><b>Echtgeld strikt getrennt</b><p>OKX Spot ist klar von virtuellen Aktien- und Hebeltests markiert.</p></div></div>
+            <div class="evidence-row"><span class="check warn">!</span><div><b>Zu kurze Testdauer</b><p>Wenige Monate decken keinen kompletten Marktzyklus ab.</p></div></div>
+            <div class="evidence-row"><span class="check bad">×</span><div><b>Kein unabhängiger Out-of-Sample-Test</b><p>Mehrfaches Optimieren auf denselben Daten kann Backtests stark überschätzen.</p></div></div>
+            <div class="evidence-row"><span class="check bad">×</span><div><b>Kostenmodell nicht durchgängig</b><p>Das virtuelle Live-Hebeldepot zieht Gebühren, Slippage und Funding nicht ab.</p></div></div>
+          </div>
+        </article>
+
+        <article class="panel priority-panel">
+          <span class="eyebrow">Verbesserungsplan</span><h2>Die nächsten vier Hebel</h2>
+          <ol class="priorities">
+            <li><span>01</span><div><b>Parameter 60 Tage einfrieren</b><p>Keine Regeländerung; Ergebnis als echtes Out-of-Sample-Fenster messen.</p></div></li>
+            <li><span>02</span><div><b>Alle Kosten live buchen</b><p>Fee, Spread, Slippage und bei Hebelprodukten Funding pro Trade abziehen.</p></div></li>
+            <li><span>03</span><div><b>Benchmark ergänzen</b><p>Aktien gegen einen breiten ETF, Krypto gegen BTC Buy-and-Hold vergleichen.</p></div></li>
+            <li><span>04</span><div><b>Freigabe-Gates setzen</b><p>Erst skalieren ab ≥100 Trades, PF ≥1,2 und positivem Ergebnis nach Kosten.</p></div></li>
+          </ol>
+        </article>
+      </section>
+
+      <section class="panel data-panel">
+        <div class="section-head"><div><span class="eyebrow">Messqualität</span><h2>Datenlücken, die Rendite vortäuschen können</h2></div><span class="updated" id="updated-at">–</span></div>
+        <div class="risk-table" role="table" aria-label="Datenqualitätsrisiken">
+          <div class="risk-row risk-head" role="row"><span>Prüfpunkt</span><span>Status</span><span>Auswirkung</span></div>
+          <div class="risk-row" role="row"><span>OKX-Historie vollständig</span><span class="risk-status fixed">Jetzt vollständig</span><span id="okx-history-impact">Alle gespeicherten Trades, nicht nur die letzten 50.</span></div>
+          <div class="risk-row" role="row"><span>Externe Verkäufe</span><span class="risk-status warn">Schätzung</span><span id="external-impact">Ausführungspreise teilweise approximiert.</span></div>
+          <div class="risk-row" role="row"><span>Live-Kostenmodell</span><span class="risk-status bad">Unvollständig</span><span>OKX- und virtuelle Krypto-P&amp;L sind vor explizitem Abzug aller Kosten.</span></div>
+          <div class="risk-row" role="row"><span>Ein-/Auszahlungen</span><span class="risk-status warn">Nicht getrennt</span><span>Kontostand ist keine saubere zeitgewichtete Rendite.</span></div>
+          <div class="risk-row" role="row"><span>Parameter-Historie</span><span class="risk-status bad">Nicht versioniert</span><span>Strategiewechsel und Selection Bias bleiben unsichtbar.</span></div>
+        </div>
+      </section>
+    </main>
+    <footer><span>Read-only Audit · keine Handelsaktionen auf dieser Seite</span><a href="/">Zum operativen Dashboard →</a></footer>
+  </div>
+  <script src="{{ url_for('static', filename='audit.js') }}"></script>
+</body>
+</html>
