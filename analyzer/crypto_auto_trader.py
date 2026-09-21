@@ -7,7 +7,7 @@ des verfügbaren Cash (CRYPTO_MAX_POSITION_PCT).
 from typing import Dict
 
 import config
-from analyzer import crypto_portfolio, crypto_signals, okx_client, telegram
+from analyzer import crypto_portfolio, crypto_signals, db_store, okx_client, telegram
 
 
 def run_crypto_auto_trading(user_id: int, dry_run: bool = False) -> dict:
@@ -38,7 +38,8 @@ def run_crypto_auto_trading(user_id: int, dry_run: bool = False) -> dict:
                 "halted": True, "drawdown_pct": p.get("drawdown_pct", 0)}
 
     # 3. Neue Signale generieren (nur wenn im Analyse-Fenster - Aufrufer entscheidet das via scheduler)
-    recs = crypto_signals.generate_crypto_recommendations()
+    strategy_version = db_store.get_settings(user_id).get("crypto_strategy_version", "classic")
+    recs = crypto_signals.generate_crypto_recommendations(strategy_version=strategy_version)
     held_symbols = {pos["symbol"] for pos in p.get("positions", [])}
 
     # V2: BTC-Risk-off-Filter (siehe okx_spot_autotrader._is_btc_risk_off) - global fuer

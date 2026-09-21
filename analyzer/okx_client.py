@@ -7,6 +7,7 @@ from typing import Optional, List, Dict
 OKX_BASE = "https://www.okx.com"
 
 _price_cache: Dict[str, dict] = {}
+_trade_pressure_cache: Dict[str, dict] = {}
 _CACHE_TTL = 30  # Sekunden
 
 _FETCH_STATS = {"calls": 0, "errors": 0, "cache_hits": 0}
@@ -85,7 +86,9 @@ def fetch_candles(symbol: str, bar: str = "1H", limit: int = 200) -> Optional[di
         lows = [float(r[3]) for r in rows]
         opens = [float(r[1]) for r in rows]
         volumes = [float(r[5]) for r in rows]
+        quote_volumes = [float(r[7]) if len(r) > 7 and r[7] not in (None, "") else float(r[5]) * float(r[4]) for r in rows]
         timestamps = [int(r[0]) for r in rows]
+        confirmed = [len(r) > 8 and str(r[8]) == "1" for r in rows]
     except (IndexError, ValueError):
         return None
     return {
@@ -95,8 +98,58 @@ def fetch_candles(symbol: str, bar: str = "1H", limit: int = 200) -> Optional[di
         "lows": lows,
         "opens": opens,
         "volumes": volumes,
+        "quote_volumes": quote_volumes,
         "timestamps": timestamps,
+        "confirmed": confirmed,
     }
+
+
+def fetch_recent_trade_pressure(symbol: str, limit: int = 300) -> Optional[dict]:
+    """Kaufdruck aus den juengsten oeffentlichen OKX-Trades (buy/sell-Seite, quote-gewichtet).
+
+    Das ist eine kurzfristige Stichprobe und kein vollstaendiges Orderbuch. Sie wird deshalb
+    nur als Bestaetigung verwendet, nicht als alleiniger Kaufgrund.
+    """
+    inst_id = to_okx_symbol(symbol)
+    limit = max(1, min(int(limit), 500))
+    cache_key = f"{inst_id}:{limit}"
+    now = time.time()
+    cached = _trade_pressure_cache.get(cache_key)
+    if cached and (now - cached["ts"]) < _CACHE_TTL:
+        _FETCH_STATS["cache_hits"] += 1
+        return cached["value"]
+
+    data = _http_get(f"/api/v5/market/trades?instId={inst_id}&limit={limit}")
+    if not data or not data.get("data"):
+        return None
+
+    buy_quote = 0.0
+    sell_quote = 0.0
+    parsed = 0
+    for trade in data["data"]:
+        try:
+            notional = float(trade["px"]) * float(trade["sz"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if trade.get("side") == "buy":
+            buy_quote += notional
+        elif trade.get("side") == "sell":
+            sell_quote += notional
+        else:
+            continue
+        parsed += 1
+
+    total_quote = buy_quote + sell_quote
+    if parsed == 0 or total_quote <= 0:
+        return None
+    result = {
+        "buy_ratio": buy_quote / total_quote,
+        "buy_quote": buy_quote,
+        "sell_quote": sell_quote,
+        "trade_count": parsed,
+    }
+    _trade_pressure_cache[cache_key] = {"ts": now, "value": result}
+    return result
 
 
 def fetch_history_days(symbol: str, days: int = 365, bar: str = "1D") -> Optional[dict]:

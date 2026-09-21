@@ -283,6 +283,7 @@ def init_db():
                 telegram_chat_id TEXT,
                 auto_trade_enabled INTEGER DEFAULT 1,
                 report_enabled INTEGER DEFAULT 1,
+                crypto_strategy_version TEXT DEFAULT 'classic',
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
@@ -294,6 +295,10 @@ def init_db():
             pass
         try:
             conn.execute("ALTER TABLE settings ADD COLUMN telegram_chat_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE settings ADD COLUMN crypto_strategy_version TEXT DEFAULT 'classic'")
         except sqlite3.OperationalError:
             pass
 
@@ -542,6 +547,9 @@ def save_settings(user_id: int, settings: dict):
 
     token = settings.get("telegram_bot_token", "").strip()
     chat_id = settings.get("telegram_chat_id", "").strip()
+    strategy_version = settings.get("crypto_strategy_version", "classic")
+    if strategy_version not in ("classic", "volume_confirmed"):
+        raise ValueError("Unbekannte Krypto-Strategieversion.")
 
     # Validierung: Token darf nur aus dem Bot-Token-Format bestehen
     # Telegram liefert Token als "ZIFFERN:ALPHA_NUM_UNDERSCORE_HYPHEN" (z. B. 123456789:ABC...)
@@ -557,19 +565,21 @@ def save_settings(user_id: int, settings: dict):
 
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO settings (user_id, telegram_bot_token, telegram_chat_id, auto_trade_enabled, report_enabled, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
+            """INSERT INTO settings (user_id, telegram_bot_token, telegram_chat_id, auto_trade_enabled, report_enabled, crypto_strategy_version, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                  telegram_bot_token=excluded.telegram_bot_token,
                  telegram_chat_id=excluded.telegram_chat_id,
                  auto_trade_enabled=excluded.auto_trade_enabled,
                  report_enabled=excluded.report_enabled,
+                 crypto_strategy_version=excluded.crypto_strategy_version,
                  updated_at=excluded.updated_at""",
             (user_id,
              token,
              chat_id,
              1 if settings.get("auto_trade_enabled", True) else 0,
              1 if settings.get("report_enabled", True) else 0,
+             strategy_version,
              _now())
         )
     # Backup sofort anstoßen, aber niemals synchron -> Webserver bleibt responsiv
@@ -599,6 +609,7 @@ def get_settings(user_id: int) -> dict:
         "telegram_chat_id": env_chat,
         "auto_trade_enabled": True,
         "report_enabled": True,
+        "crypto_strategy_version": "classic",
     }
     if not user_id:
         return defaults
@@ -611,11 +622,30 @@ def get_settings(user_id: int) -> dict:
                     "telegram_chat_id": row["telegram_chat_id"] or env_chat,
                     "auto_trade_enabled": bool(row["auto_trade_enabled"]),
                     "report_enabled": bool(row["report_enabled"]),
+                    "crypto_strategy_version": row["crypto_strategy_version"] or "classic",
                 }
     except Exception as e:
         print(f"[get_settings] Error: {e}")
         # Falls Settings-Table nicht existiert, Defaults zurückgeben
     return defaults
+
+
+def set_crypto_strategy_version(user_id: int, strategy_version: str):
+    """Aendert nur die Krypto-Strategie, ohne Telegram- oder Report-Settings anzufassen."""
+    if strategy_version not in ("classic", "volume_confirmed"):
+        raise ValueError("Unbekannte Krypto-Strategieversion.")
+    if not user_id:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO settings (user_id, crypto_strategy_version, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 crypto_strategy_version=excluded.crypto_strategy_version,
+                 updated_at=excluded.updated_at""",
+            (user_id, strategy_version, _now())
+        )
+    backup_db()
 
 
 # --- OKX Spot Positionen (ECHTES GELD, kein Hebel) ---

@@ -11,6 +11,43 @@ from typing import Optional
 import config
 from analyzer import indicators, okx_client
 
+STRATEGY_CLASSIC = "classic"
+STRATEGY_VOLUME_CONFIRMED = "volume_confirmed"
+VALID_STRATEGY_VERSIONS = {STRATEGY_CLASSIC, STRATEGY_VOLUME_CONFIRMED}
+RELATIVE_VOLUME_CONFIRMATION = 1.25
+BUY_PRESSURE_CONFIRMATION = 0.55
+
+
+def normalize_strategy_version(value: str) -> str:
+    return value if value in VALID_STRATEGY_VERSIONS else STRATEGY_CLASSIC
+
+
+def _volume_metrics(candles: dict, symbol: str) -> dict:
+    # Quote-Volumen (USDT) ist ueber verschiedene Preisniveaus besser vergleichbar.
+    volumes = candles.get("quote_volumes") or candles.get("volumes") or []
+    confirmed = candles.get("confirmed") or []
+    confirmed_indexes = [i for i, value in enumerate(confirmed) if value]
+    # Alte/mocked Daten ohne Confirm-Feld: letzte Kerze kann noch laufen, daher vorletzte.
+    current_index = confirmed_indexes[-1] if confirmed_indexes else len(volumes) - 2
+    relative_volume = None
+    if current_index > 0:
+        baseline = [v for v in volumes[max(0, current_index - 20):current_index] if v > 0]
+        if baseline:
+            relative_volume = volumes[current_index] / (sum(baseline) / len(baseline))
+
+    pressure = okx_client.fetch_recent_trade_pressure(symbol, limit=300)
+    buy_ratio = pressure.get("buy_ratio") if pressure else None
+    is_confirmed = (
+        relative_volume is not None and relative_volume >= RELATIVE_VOLUME_CONFIRMATION
+        and buy_ratio is not None and buy_ratio >= BUY_PRESSURE_CONFIRMATION
+    )
+    return {
+        "relative_volume": relative_volume,
+        "buy_pressure": buy_ratio,
+        "trade_count": pressure.get("trade_count", 0) if pressure else 0,
+        "confirmed": is_confirmed,
+    }
+
 
 def _volatility_pct(closes: list) -> float:
     """Annualisierte Tages-Volatilität (Std-Abw. der Log-Returns) in Prozent, grob geschätzt."""
@@ -38,7 +75,9 @@ def _leverage_from_signal(score: float, volatility_pct: float) -> int:
     return leverage
 
 
-def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Optional[dict]:
+def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200,
+                          strategy_version: str = STRATEGY_CLASSIC) -> Optional[dict]:
+    strategy_version = normalize_strategy_version(strategy_version)
     candles = okx_client.fetch_candles(symbol, bar=bar, limit=limit)
     if not candles or len(candles["closes"]) < 50:
         return None
@@ -108,6 +147,25 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
             score += direction_sign * min((adx_val - 25) * 0.2, 8)
             details.append(f"ADX {round(adx_val,1)} (starker Trend, Signal bestaetigt)")
 
+    volume_metrics = None
+    volume_filter_blocked = False
+    if strategy_version == STRATEGY_VOLUME_CONFIRMED:
+        volume_metrics = _volume_metrics(candles, symbol)
+        relative_volume = volume_metrics["relative_volume"]
+        buy_pressure = volume_metrics["buy_pressure"]
+        details.append(
+            "Relatives 1H-Volumen " + (f"{relative_volume:.2f}x" if relative_volume is not None else "nicht verfuegbar")
+        )
+        details.append(
+            "Kaufanteil (juengste OKX-Trades) " + (f"{buy_pressure * 100:.1f}%" if buy_pressure is not None else "nicht verfuegbar")
+        )
+        if volume_metrics["confirmed"]:
+            score += 5
+            details.append("Volumen und Kaufdruck bestaetigen das Signal")
+        elif buy_pressure is not None and buy_pressure < 0.45:
+            score -= 5
+            details.append("Verkaufsdruck schwaecht das Signal")
+
     score = max(0, min(100, score))
 
     if score >= config.CRYPTO_BUY_SCORE_THRESHOLD:
@@ -116,6 +174,14 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
         direction = "SHORT"
     else:
         direction = "HALTEN"
+
+    # Ein ueberkaufter LONG ist in der neuen Variante nur mit echtem Volumenanstieg
+    # UND positivem Taker-Kaufdruck erlaubt. Fehlende Daten werden konservativ blockiert.
+    if (strategy_version == STRATEGY_VOLUME_CONFIRMED and direction == "LONG"
+            and rsi > 68 and not volume_metrics["confirmed"]):
+        direction = "HALTEN"
+        volume_filter_blocked = True
+        details.append("LONG blockiert: RSI ueberkauft, Volumenbestaetigung fehlt")
 
     leverage = _leverage_from_signal(score, vola) if direction != "HALTEN" else 1
 
@@ -142,17 +208,27 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200) -> Opt
         "stop_loss": stop_loss,
         "take_profit": take_profit,
         "details": details,
+        "strategy_version": strategy_version,
+        "relative_volume": round(volume_metrics["relative_volume"], 2) if volume_metrics and volume_metrics["relative_volume"] is not None else None,
+        "buy_pressure_pct": round(volume_metrics["buy_pressure"] * 100, 1) if volume_metrics and volume_metrics["buy_pressure"] is not None else None,
+        "volume_confirmed": bool(volume_metrics and volume_metrics["confirmed"]),
+        "volume_filter_blocked": volume_filter_blocked,
     }
 
 
-def generate_crypto_recommendations() -> dict:
+def generate_crypto_recommendations(strategy_version: str = STRATEGY_CLASSIC) -> dict:
+    strategy_version = normalize_strategy_version(strategy_version)
     suggestions = []
+    blocked = []
     for item in config.get_crypto_universe():
         try:
-            analysis = analyze_crypto_symbol(item["symbol"])
+            analysis = analyze_crypto_symbol(item["symbol"], strategy_version=strategy_version)
             if analysis and analysis["direction"] != "HALTEN":
                 suggestions.append(analysis)
+            elif analysis and analysis.get("volume_filter_blocked"):
+                blocked.append(analysis)
         except Exception as e:
             print(f"[CryptoSignals] Fehler bei {item['symbol']}: {e}")
     suggestions.sort(key=lambda s: abs(s["score"] - 50), reverse=True)
-    return {"count": len(suggestions), "suggestions": suggestions}
+    return {"count": len(suggestions), "suggestions": suggestions, "blocked": blocked,
+            "strategy_version": strategy_version}

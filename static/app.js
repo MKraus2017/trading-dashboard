@@ -10,7 +10,7 @@ function showTab(name) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'real') renderSymbolSelect();
-  if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
+  if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoStrategyVersion(); loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
   if (name === 'okxlive') { loadOkxLive(); loadOkxSpotHistory(); }
 }
 
@@ -1151,6 +1151,49 @@ async function resetCryptoDepot() {
   }
 }
 
+async function loadCryptoStrategyVersion() {
+  const select = document.getElementById('crypto-strategy-version');
+  const status = document.getElementById('crypto-strategy-status');
+  if (!select || !status) return;
+  try {
+    const r = await fetch('/api/crypto/strategy');
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'unbekannt');
+    select.value = data.version || 'classic';
+    status.textContent = select.value === 'volume_confirmed' ? 'Aktiv: Volumenbestätigt' : 'Aktiv: Klassisch';
+    status.style.color = '#3fb950';
+  } catch (e) {
+    status.textContent = 'Status konnte nicht geladen werden';
+    status.style.color = '#f85149';
+  }
+}
+
+async function saveCryptoStrategyVersion() {
+  const select = document.getElementById('crypto-strategy-version');
+  const status = document.getElementById('crypto-strategy-status');
+  const btn = document.getElementById('crypto-strategy-save');
+  btn.disabled = true;
+  status.textContent = 'Speichere...';
+  try {
+    const r = await fetch('/api/crypto/strategy', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({version: select.value})
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'unbekannt');
+    status.textContent = select.value === 'volume_confirmed'
+      ? 'Aktiv: Volumenbestätigt – gilt ab dem nächsten Signallauf'
+      : 'Aktiv: Klassisch – bisherige Logik wiederhergestellt';
+    status.style.color = '#3fb950';
+    document.getElementById('crypto-recommendations').innerHTML = '';
+  } catch (e) {
+    status.textContent = 'Fehler: ' + e.message;
+    status.style.color = '#f85149';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function runCryptoAnalysis(dryRun) {
   const btn = dryRun ? document.getElementById('crypto-dry-btn') : document.getElementById('crypto-live-btn');
   const recsEl = document.getElementById('crypto-recommendations');
@@ -1170,6 +1213,9 @@ async function runCryptoAnalysis(dryRun) {
       return;
     }
     const suggestions = (data.recommendations && data.recommendations.suggestions) || [];
+    const recommendationData = data.recommendations || {};
+    const strategyLabel = recommendationData.strategy_version === 'volume_confirmed' ? 'Volumenbestätigt' : 'Klassisch';
+    const blocked = recommendationData.blocked || [];
     if (!suggestions.length) {
       recsEl.innerHTML = '<div class="no-data">Keine klaren Signale aktuell.</div>';
     } else {
@@ -1190,6 +1236,7 @@ async function runCryptoAnalysis(dryRun) {
       html += '</table>';
       recsEl.innerHTML = html;
     }
+    recsEl.insertAdjacentHTML('afterbegin', `<div class="no-data" style="margin-bottom:8px;">Strategie: <strong>${strategyLabel}</strong>${blocked.length ? ` · ${blocked.length} überkaufte LONG-Signale wegen fehlender Volumenbestätigung blockiert` : ''}</div>`);
 
     if (data.actions && data.actions.length) {
       const actionsText = data.actions.map(a => `${a.action} ${a.symbol}`).join(', ');

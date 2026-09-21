@@ -580,11 +580,13 @@ def api_settings():
         return jsonify(s)
     body = request.get_json() or {}
     try:
+        current = db_store.get_settings(uid)
         db_store.save_settings(uid, {
             "telegram_bot_token": body.get("telegram_bot_token", ""),
             "telegram_chat_id": body.get("telegram_chat_id", ""),
             "auto_trade_enabled": body.get("auto_trade_enabled", True),
             "report_enabled": body.get("report_enabled", True),
+            "crypto_strategy_version": body.get("crypto_strategy_version", current.get("crypto_strategy_version", "classic")),
         })
         return jsonify({"ok": True})
     except ValueError as e:
@@ -1007,13 +1009,30 @@ def api_crypto_reset():
 @login_required
 def api_crypto_recommendations():
     from analyzer import crypto_signals
+    uid = get_current_user_id()
     try:
-        recs = crypto_signals.generate_crypto_recommendations()
+        strategy_version = db_store.get_settings(uid).get("crypto_strategy_version", "classic")
+        recs = crypto_signals.generate_crypto_recommendations(strategy_version=strategy_version)
         return jsonify({"ok": True, **recs})
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/crypto/strategy", methods=["GET", "POST"])
+@login_required
+def api_crypto_strategy():
+    uid = get_current_user_id()
+    if request.method == "GET":
+        version = db_store.get_settings(uid).get("crypto_strategy_version", "classic")
+        return jsonify({"ok": True, "version": version})
+    body = request.get_json() or {}
+    try:
+        db_store.set_crypto_strategy_version(uid, body.get("version", ""))
+        return jsonify({"ok": True, "version": body["version"]})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 @app.route("/api/crypto/auto_trade", methods=["POST"])

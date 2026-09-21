@@ -73,7 +73,8 @@ def run_okx_spot_auto_trade(user_id: int, dry_run: bool = False) -> dict:
         return {"ok": True, "actions": actions, "autotrade_disabled": True}
 
     # --- 2. Neue Signale pruefen ---
-    recs = crypto_signals.generate_crypto_recommendations()
+    strategy_version = db_store.get_settings(user_id).get("crypto_strategy_version", "classic")
+    recs = crypto_signals.generate_crypto_recommendations(strategy_version=strategy_version)
     long_signals = [s for s in recs.get("suggestions", []) if s["direction"] == "LONG"]
     long_signals.sort(key=lambda s: s["score"], reverse=True)
 
