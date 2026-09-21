@@ -1028,6 +1028,18 @@ function fmtEur(v) {
   return v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+function cryptoOpenedAt(pos) {
+  // Older positions may only have the ISO date; never turn missing data into 1970.
+  if (pos.opened_at) {
+    const date = new Date(pos.opened_at);
+    if (Number.isFinite(date.getTime())) return date;
+  }
+  const seconds = Number(pos.opened_at_ts);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const date = new Date(seconds * 1000);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
 async function loadCryptoPortfolio() {
   const summaryEl = document.getElementById('crypto-summary');
   const posEl = document.getElementById('crypto-positions');
@@ -1066,21 +1078,28 @@ async function loadCryptoPortfolio() {
     if (!positions.length) {
       posEl.innerHTML = '<div class="no-data">Keine offenen Krypto-Positionen.</div>';
     } else {
-      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Hebel</th><th>Einsatz</th><th>Entry</th><th>Aktuell</th><th>P&L</th><th>SL</th><th>Liquidation</th><th>Gehalten</th></tr>';
+      let html = '<table><tr><th>Symbol</th><th title="Zeitpunkt der Positionseröffnung, Zeitzone Europe/Berlin">Kaufdatum (Berlin)</th><th>Richtung</th><th>Hebel</th><th>Einsatz</th><th>Entry</th><th>Aktuell</th><th>P&L</th><th title="Geplanter Take-Profit-Kurs">TP (geplant)</th><th title="Aktueller Stop-Loss-Kurs; bei Trailing wird dieser nachgezogen">SL (aktuell)</th><th>Liquidation</th><th>Gehalten</th></tr>';
       positions.forEach(pos => {
         const pnlCls = (pos.unrealized_pct||0) >= 0 ? 'pnl-pos' : 'pnl-neg';
         const dirEmoji = pos.direction === 'LONG' ? '🟢' : '🔴';
-        const trailTag = pos.trailing_active ? ' 🔒' : '';
-        const heldHours = pos.opened_at_ts ? Math.round((Date.now()/1000 - pos.opened_at_ts) / 3600 * 10) / 10 : null;
+        const trailTag = pos.trailing_active ? ' <span title="Stop-Loss wurde zur Gewinnsicherung nachgezogen">🔒 Trailing</span>' : '';
+        const openedAt = cryptoOpenedAt(pos);
+        const openedStr = openedAt ? openedAt.toLocaleString('de-DE', {
+          timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        }) : '—';
+        const heldHours = openedAt ? Math.round((Date.now() - openedAt.getTime()) / 3600000 * 10) / 10 : null;
         const heldStr = heldHours !== null ? `${heldHours}h` : '—';
         html += `<tr>
           <td>${pos.symbol}</td>
+          <td style="white-space:nowrap;">${openedStr}</td>
           <td>${dirEmoji} ${pos.direction}</td>
           <td>${pos.leverage}x</td>
           <td>${fmtEur(pos.margin_eur)}</td>
           <td>${pos.entry_price}</td>
           <td>${pos.last_price}</td>
           <td class="${pnlCls}">${(pos.unrealized_pct||0).toFixed(2)}% (${fmtEur(pos.unrealized_eur)})</td>
+          <td>${pos.take_profit ?? '—'}</td>
           <td>${pos.stop_loss ?? '—'}${trailTag}</td>
           <td style="color:#f85149;">${pos.liquidation_price}</td>
           <td>${heldStr}</td>

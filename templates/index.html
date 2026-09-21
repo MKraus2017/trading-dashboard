@@ -169,7 +169,11 @@
       <div class="section-title">📂 Offene Krypto-Positionen
         <button class="refresh-btn" onclick="resetCryptoDepot()" style="float:right;font-size:12px;padding:4px 10px;">🗑 Depot zurücksetzen</button>
       </div>
-      <div id="crypto-positions"></div>
+      <div id="crypto-positions" style="overflow-x:auto;"></div>
+      <p style="color:#8b949e;font-size:12px;margin-top:8px;">
+        Kaufdatum = Positionseröffnung (Berliner Zeit). TP = geplanter Take-Profit-Kurs,
+        SL = aktueller Stop-Loss-Kurs; 🔒 Trailing kennzeichnet einen nachgezogenen SL.
+      </p>
 
       <div class="quick-form" style="margin-top:16px;gap:8px;display:flex;flex-wrap:wrap;">
         <button class="refresh-btn" onclick="loadCryptoPortfolio()">⟳ Depot aktualisieren</button>
@@ -255,6 +259,6 @@
       <div id="okxlive-history"></div>
     </div>
   </div>
-<script src="/static/app.js?v=26"></script>
+<script src="/static/app.js?v=27"></script>
 </body>
 </html>
