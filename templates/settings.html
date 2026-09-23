@@ -77,6 +77,9 @@ button.save:hover { opacity: 0.85; }
     <div class="hint">
       Max. 1,5 % Kontorisiko, max. 25 % Kapitaleinsatz, höchstens zwei aktive Tickets/Positionen.
       Eine Telegram-Freigabe sendet keine echte Order; sie erstellt ein geprüftes Ticket zur manuellen Eingabe bei OKX.
+      Offene und freigegebene Einstiegstickets werden serverseitig etwa alle 20 Sekunden geprüft.
+      Bei Ablauf, Kursabweichung über 0,75 %, erreichtem SL/TP oder fehlender Signalbestätigung
+      folgt „Signal ungültig – nicht mehr einsteigen“ per Telegram. Datenabrufe und Ausfälle können Meldungen verzögern.
     </div>
 
     <button class="save" onclick="saveSettings()">💾 Speichern</button>

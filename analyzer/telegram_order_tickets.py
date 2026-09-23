@@ -154,6 +154,8 @@ def create_and_send_ticket(user_id: int, signal: dict) -> dict:
     if not sent.get("ok"):
         db_store.review_okx_order_ticket(ticket_token, chat_id, "expired")
         return {"ok": False, "error": f"Telegram-Versand fehlgeschlagen: {sent.get('description') or sent.get('error')}"}
+    from analyzer import signal_watch
+    signal_watch.enroll(ticket_token, signal.get('strategy_version') or settings.get('crypto_strategy_version', 'classic'))
     return {"ok": True, "ticket": ticket}
 
 

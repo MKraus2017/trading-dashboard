@@ -1615,5 +1615,17 @@ def api_scheduler_okx_spot_monitor():
         return jsonify({"ok": False, "error": str(e), "skipped_due_to_error": True})
 
 
+@app.route('/api/scheduler/signal_watch', methods=['POST'])
+def api_scheduler_signal_watch():
+    if not _scheduler_auth():
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
+    from analyzer import signal_watch
+    return jsonify(signal_watch.monitor())
+
+
+# Runs without an open browser; GitHub provides an independent fallback trigger.
+from analyzer import signal_watch
+signal_watch.start()
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

@@ -14,6 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: Invalidate stale manual entry signals (notification only)
+        continue-on-error: true
+        env:
+          SCHED: ${{ secrets.SCHEDULER_API_KEY }}
+        run: |
+          curl -X POST --max-time 60 \
+            "https://trading-dashboard-6n5w.onrender.com/api/scheduler/signal_watch" \
+            -H "Authorization: Bearer $SCHED" \
+            --silent --show-error --fail
       - name: Refresh prices
         continue-on-error: true
         env:
