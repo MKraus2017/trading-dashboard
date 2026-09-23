@@ -249,6 +249,12 @@ def register_webhook(user_id: int, public_base_url: str) -> dict:
     secret = webhook_secret(token)
     url = public_base_url.rstrip("/") + "/api/telegram/order_ticket/webhook"
     try:
+        current = requests.post(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=15).json()
+        if not current.get('ok'):
+            return {'ok': False, 'error': 'Bestehender Telegram-Empfang konnte nicht geprüft werden.'}
+        existing_url = current.get('result', {}).get('url', '')
+        if existing_url and existing_url != url:
+            return {'ok': False, 'error': 'Der Bot hat bereits einen anderen Webhook. Er wurde nicht überschrieben.'}
         response = requests.post(
             f"https://api.telegram.org/bot{token}/setWebhook",
             json={"url": url, "secret_token": secret, "allowed_updates": ["message", "callback_query"]},

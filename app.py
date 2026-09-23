@@ -687,9 +687,35 @@ def api_telegram_order_ticket_webhook():
     supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
     if not telegram_order_tickets.webhook_is_authorized(uid, supplied):
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-    result = telegram_order_tickets.handle_update(uid, request.get_json(silent=True) or {})
+    from analyzer import telegram_demo
+    update = request.get_json(silent=True) or {}
+    token, chat_id = telegram_order_tickets._credentials(uid)
+    result = telegram_demo.receive(uid, update, token, chat_id)
+    if result is None:
+        result = telegram_order_tickets.handle_update(uid, update)
     # Telegram erwartet bei fachlichen Ablehnungen trotzdem HTTP 200, sonst wird erneut zugestellt.
     return jsonify(result)
+
+
+@app.route('/api/telegram/demo', methods=['GET', 'POST'])
+@login_required
+def api_telegram_demo():
+    from analyzer import telegram_demo, telegram_order_tickets
+    uid = get_current_user_id()
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'demo': telegram_demo.latest(uid)})
+    if uid != _telegram_webhook_user_id():
+        return jsonify({'ok': False, 'error': 'Dieser Bot gehört einem anderen Dashboard-Benutzer.'}), 403
+    token, chat_id = telegram_order_tickets._credentials(uid)
+    if not token or not str(chat_id).isdigit() or int(chat_id) <= 0:
+        return jsonify({'ok': False, 'error': 'Bot und privater Telegram-Chat müssen konfiguriert sein.'}), 400
+    public_url = os.environ.get('RENDER_EXTERNAL_URL') or request.url_root
+    result = telegram_order_tickets.register_webhook(uid, public_url)
+    if not result.get('ok'):
+        return jsonify(result), 400
+    # Does not enable scheduled proposals or invoke any exchange API.
+    result = telegram_demo.send(uid, token, chat_id)
+    return jsonify(result), (200 if result.get('ok') else 400)
 
 
 @app.route("/api/telegram/order_ticket/propose", methods=["POST"])

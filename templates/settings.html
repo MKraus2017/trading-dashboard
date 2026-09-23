@@ -87,6 +87,9 @@ button.save:hover { opacity: 0.85; }
     <h2>Testnachricht senden</h2>
     <button class="save" onclick="sendTestMessage()">🧪 Test an Telegram</button>
     <div id="test-status"></div>
+    <button class="save" style="margin-top:12px;" id="demo-send" onclick="sendDemo()">🧪 Order-Demo ans Handy</button>
+    <p class="hint">Beispiel mit Freigabe/Ablehnung. Keine Orderausführung. Antwort hier automatisch sichtbar.</p>
+    <div id="demo-status" role="status"></div>
     <button class="save" style="margin-top: 12px; background: linear-gradient(135deg, #1f6feb, #388bfd);" onclick="loadTelegramStatus()">🔍 Telegram-Status prüfen</button>
     <pre id="tg-status" style="margin-top:12px; background:#0d1117; padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem;"></pre>
     <button class="save" style="margin-top:12px;background:linear-gradient(135deg,#8957e5,#a371f7);" onclick="activateOrderTickets()">📱 Handyfreigabe aktivieren</button>
@@ -168,6 +171,33 @@ async function sendTestMessage() {
     el.className = data.ok ? 'success' : 'error';
     el.textContent = data.ok ? 'Testnachricht gesendet.' : ('Fehler: ' + (data.error || 'unbekannt'));
 }
+
+let demoTimer;
+async function demoRequest(method) {
+    const r = await fetch('/api/telegram/demo', {method, headers: {'Content-Type':'application/json'}});
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Demo-Anfrage fehlgeschlagen');
+    const d = data.demo;
+    const el = document.getElementById('demo-status');
+    const labels = {pending:'Demo gesendet – warte auf deinen Klick in Telegram.', approved:'✅ Demo-Freigabe empfangen. Keine Order ausgeführt.', rejected:'✅ Demo-Ablehnung empfangen. Keine Order ausgeführt.', expired:'Demo abgelaufen. Du kannst einen neuen Test senden.', send_failed:'Demo konnte nicht zugestellt werden.'};
+    el.textContent = d ? (labels[d.status] || d.status) : 'Noch kein Demo-Test.';
+    if (d && d.received_at) el.textContent += ' Empfang: ' + new Date(d.received_at * 1000).toLocaleString('de-DE');
+    clearTimeout(demoTimer);
+    if (d && d.status === 'pending') demoTimer = setTimeout(refreshDemo, 3000);
+}
+async function refreshDemo() {
+    try { await demoRequest('GET'); }
+    catch (e) { document.getElementById('demo-status').textContent = e.message; }
+}
+async function sendDemo() {
+    const btn = document.getElementById('demo-send');
+    btn.disabled = true;
+    document.getElementById('demo-status').textContent = 'Sende Demo...';
+    try { await demoRequest('POST'); }
+    catch (e) { document.getElementById('demo-status').textContent = e.message; }
+    finally { btn.disabled = false; }
+}
+refreshDemo();
 
 async function loadTelegramStatus() {
     const el = document.getElementById('tg-status');
