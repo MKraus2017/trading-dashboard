@@ -226,6 +226,8 @@ def _ensure_settings_schema(conn):
         conn.execute("ALTER TABLE settings ADD COLUMN telegram_chat_id TEXT")
     if "crypto_strategy_version" not in columns:
         conn.execute("ALTER TABLE settings ADD COLUMN crypto_strategy_version TEXT DEFAULT 'classic'")
+    if "telegram_trade_confirmation_enabled" not in columns:
+        conn.execute("ALTER TABLE settings ADD COLUMN telegram_trade_confirmation_enabled INTEGER DEFAULT 0")
     conn.commit()
 
 
@@ -277,6 +279,33 @@ def _ensure_crypto_tables(conn):
                 pnl_pct REAL
             );
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS okx_order_tickets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                chat_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                inst_id TEXT NOT NULL,
+                direction TEXT NOT NULL DEFAULT 'LONG',
+                signal_leverage INTEGER NOT NULL DEFAULT 1,
+                suggested_leverage INTEGER NOT NULL DEFAULT 1,
+                execution_leverage INTEGER NOT NULL DEFAULT 1,
+                score REAL,
+                entry_price REAL NOT NULL,
+                amount_usdc REAL NOT NULL,
+                risk_usdc REAL NOT NULL,
+                stop_loss REAL NOT NULL,
+                take_profit REAL,
+                max_price_deviation_pct REAL NOT NULL DEFAULT 0.75,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                reviewed_at TEXT,
+                review_price REAL
+            );
+        """)
     except sqlite3.OperationalError:
         pass
 
@@ -307,6 +336,7 @@ def init_db():
                 auto_trade_enabled INTEGER DEFAULT 1,
                 report_enabled INTEGER DEFAULT 1,
                 crypto_strategy_version TEXT DEFAULT 'classic',
+                telegram_trade_confirmation_enabled INTEGER DEFAULT 0,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
@@ -577,14 +607,15 @@ def save_settings(user_id: int, settings: dict):
 
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO settings (user_id, telegram_bot_token, telegram_chat_id, auto_trade_enabled, report_enabled, crypto_strategy_version, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO settings (user_id, telegram_bot_token, telegram_chat_id, auto_trade_enabled, report_enabled, crypto_strategy_version, telegram_trade_confirmation_enabled, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                  telegram_bot_token=excluded.telegram_bot_token,
                  telegram_chat_id=excluded.telegram_chat_id,
                  auto_trade_enabled=excluded.auto_trade_enabled,
                  report_enabled=excluded.report_enabled,
                  crypto_strategy_version=excluded.crypto_strategy_version,
+                 telegram_trade_confirmation_enabled=excluded.telegram_trade_confirmation_enabled,
                  updated_at=excluded.updated_at""",
             (user_id,
              token,
@@ -592,6 +623,7 @@ def save_settings(user_id: int, settings: dict):
              1 if settings.get("auto_trade_enabled", True) else 0,
              1 if settings.get("report_enabled", True) else 0,
              strategy_version,
+             1 if settings.get("telegram_trade_confirmation_enabled", False) else 0,
              _now())
         )
     # Backup sofort anstoßen, aber niemals synchron -> Webserver bleibt responsiv
@@ -622,6 +654,7 @@ def get_settings(user_id: int) -> dict:
         "auto_trade_enabled": True,
         "report_enabled": True,
         "crypto_strategy_version": "classic",
+        "telegram_trade_confirmation_enabled": False,
     }
     if not user_id:
         return defaults
@@ -635,6 +668,7 @@ def get_settings(user_id: int) -> dict:
                     "auto_trade_enabled": bool(row["auto_trade_enabled"]),
                     "report_enabled": bool(row["report_enabled"]),
                     "crypto_strategy_version": row["crypto_strategy_version"] or "classic",
+                    "telegram_trade_confirmation_enabled": bool(row["telegram_trade_confirmation_enabled"]),
                 }
     except Exception as e:
         print(f"[get_settings] Error: {e}")
@@ -719,6 +753,87 @@ def get_okx_spot_trade_history(user_id: int, limit: int = 50) -> list:
             (user_id, limit)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# --- Telegram-Ordertickets (nur Freigabe/Planung, KEINE Orderausfuehrung) ---
+
+def create_okx_order_ticket(**ticket) -> int:
+    with get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO okx_order_tickets
+            (token, user_id, chat_id, symbol, inst_id, direction, signal_leverage,
+             suggested_leverage, execution_leverage, score, entry_price, amount_usdc,
+             risk_usdc, stop_loss, take_profit, max_price_deviation_pct, status,
+             reason, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """, (
+            ticket["token"], ticket["user_id"], str(ticket["chat_id"]), ticket["symbol"],
+            ticket["inst_id"], ticket.get("direction", "LONG"), ticket.get("signal_leverage", 1),
+            ticket.get("suggested_leverage", 1), ticket.get("execution_leverage", 1),
+            ticket.get("score"), ticket["entry_price"], ticket["amount_usdc"],
+            ticket["risk_usdc"], ticket["stop_loss"], ticket.get("take_profit"),
+            ticket.get("max_price_deviation_pct", 0.75), ticket.get("reason", ""),
+            ticket["created_at"], ticket["expires_at"],
+        ))
+        return cur.lastrowid
+
+
+def get_okx_order_ticket(token: str) -> Optional[dict]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM okx_order_tickets WHERE token = ?", (token,)).fetchone()
+        return dict(row) if row else None
+
+
+def review_okx_order_ticket(token: str, chat_id: str, new_status: str,
+                            review_price: float = None) -> bool:
+    """Atomarer Einmal-Vorgang: nur ein noch offenes Ticket kann geprueft werden."""
+    if new_status not in ("approved", "rejected", "expired"):
+        raise ValueError("Ungueltiger Ticketstatus")
+    with get_conn() as conn:
+        cur = conn.execute("""
+            UPDATE okx_order_tickets
+            SET status = ?, reviewed_at = ?, review_price = ?
+            WHERE token = ? AND chat_id = ? AND status = 'pending'
+        """, (new_status, _now(), review_price, token, str(chat_id)))
+        return cur.rowcount == 1
+
+
+def expire_okx_order_tickets(user_id: int) -> int:
+    with get_conn() as conn:
+        cur = conn.execute("""
+            UPDATE okx_order_tickets SET status = 'expired', reviewed_at = ?
+            WHERE user_id = ? AND status IN ('pending', 'approved') AND expires_at <= ?
+        """, (_now(), user_id, _now()))
+        return cur.rowcount
+
+
+def list_okx_order_tickets(user_id: int, limit: int = 30) -> list:
+    expire_okx_order_tickets(user_id)
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM okx_order_tickets WHERE user_id = ? ORDER BY id DESC LIMIT ?
+        """, (user_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def has_recent_okx_order_ticket(user_id: int, symbol: str, since_iso: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT 1 FROM okx_order_tickets
+            WHERE user_id = ? AND symbol = ? AND created_at >= ?
+              AND status IN ('pending', 'approved') LIMIT 1
+        """, (user_id, symbol.upper(), since_iso)).fetchone()
+        return row is not None
+
+
+def count_active_okx_order_tickets(user_id: int) -> int:
+    expire_okx_order_tickets(user_id)
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT COUNT(*) FROM okx_order_tickets
+            WHERE user_id = ? AND status IN ('pending', 'approved')
+        """, (user_id,)).fetchone()
+        return int(row[0])
 
 
 # --- Migration: alter default user ---

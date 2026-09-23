@@ -14,7 +14,8 @@ def _telegram_creds(token: str = None, chat_id: str = None) -> tuple:
     return t, c
 
 
-def _send_message(text: str, token: str = None, chat_id: str = None) -> dict:
+def _send_message(text: str, token: str = None, chat_id: str = None,
+                  reply_markup: dict = None) -> dict:
     token, chat_id = _telegram_creds(token, chat_id)
     if not token or not chat_id:
         msg = "Telegram nicht konfiguriert (Token oder Chat-ID fehlt)"
@@ -28,7 +29,10 @@ def _send_message(text: str, token: str = None, chat_id: str = None) -> dict:
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
-        print(f"[Telegram] POST {url} to chat_id={chat_id}")
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        # Bot-Token niemals in Logs ausgeben.
+        print(f"[Telegram] sendMessage to chat_id={chat_id}")
         r = requests.post(url, json=payload, timeout=15)
         try:
             response = r.json()
@@ -107,3 +111,17 @@ def notify_daily_summary(portfolio: dict, token: str = None, chat_id: str = None
 
 def test_message() -> dict:
     return _send_message("🧪 Testnachricht vom Trading Bot.")
+
+
+def answer_callback_query(callback_query_id: str, text: str, token: str = None) -> dict:
+    token, _ = _telegram_creds(token, None)
+    if not token:
+        return {"ok": False, "error": "Telegram Bot-Token fehlt"}
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id, "text": text[:180]}, timeout=15,
+        )
+        return r.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

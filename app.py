@@ -587,6 +587,7 @@ def api_settings():
             "auto_trade_enabled": body.get("auto_trade_enabled", True),
             "report_enabled": body.get("report_enabled", True),
             "crypto_strategy_version": body.get("crypto_strategy_version", current.get("crypto_strategy_version", "classic")),
+            "telegram_trade_confirmation_enabled": body.get("telegram_trade_confirmation_enabled", False),
         })
         return jsonify({"ok": True})
     except ValueError as e:
@@ -648,6 +649,75 @@ def api_telegram_status():
     except Exception as e:
         import traceback
         return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+def _telegram_webhook_user_id():
+    """Das Dashboard wird als Single-User-System betrieben; der Bot gehoert dem Default-User."""
+    configured = os.environ.get("TELEGRAM_WEBHOOK_USER_ID")
+    if configured and configured.isdigit():
+        return int(configured)
+    user = db_store.get_user_by_username("default")
+    return int(user["id"]) if user else 1
+
+
+@app.route("/api/telegram/order_ticket/setup", methods=["POST"])
+@login_required
+def api_telegram_order_ticket_setup():
+    """Aktiviert die Ticketfunktion und registriert den Telegram-Webhook."""
+    from analyzer import telegram_order_tickets
+    uid = get_current_user_id()
+    settings = db_store.get_settings(uid)
+    try:
+        db_store.save_settings(uid, {**settings, "telegram_trade_confirmation_enabled": True})
+        public_url = os.environ.get("RENDER_EXTERNAL_URL") or request.url_root
+        result = telegram_order_tickets.register_webhook(uid, public_url)
+        if not result.get("ok"):
+            db_store.save_settings(uid, {**settings, "telegram_trade_confirmation_enabled": False})
+            return jsonify(result), 400
+        return jsonify({**result, "enabled": True})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/api/telegram/order_ticket/webhook", methods=["POST"])
+def api_telegram_order_ticket_webhook():
+    """Telegram-Eingang fuer einmalige Freigabe/Ablehnung; fuehrt keine Order aus."""
+    from analyzer import telegram_order_tickets
+    uid = _telegram_webhook_user_id()
+    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not telegram_order_tickets.webhook_is_authorized(uid, supplied):
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    result = telegram_order_tickets.handle_update(uid, request.get_json(silent=True) or {})
+    # Telegram erwartet bei fachlichen Ablehnungen trotzdem HTTP 200, sonst wird erneut zugestellt.
+    return jsonify(result)
+
+
+@app.route("/api/telegram/order_ticket/propose", methods=["POST"])
+@login_required
+def api_telegram_order_ticket_propose():
+    """Erstellt aus einem aktuellen LONG-Signal ein Handy-Orderticket, ohne Orderversand."""
+    from analyzer import crypto_signals, telegram_order_tickets
+    data = request.get_json(silent=True) or {}
+    symbol = str(data.get("symbol", "")).upper().strip()
+    if not symbol:
+        return jsonify({"ok": False, "error": "Symbol fehlt."}), 400
+    try:
+        strategy_version = db_store.get_settings(get_current_user_id()).get("crypto_strategy_version", "classic")
+        signal = crypto_signals.analyze_crypto_symbol(symbol, strategy_version=strategy_version)
+        if not signal:
+            return jsonify({"ok": False, "error": "Keine aktuelle Analyse verfuegbar."}), 404
+        if signal.get("direction") != "LONG":
+            return jsonify({"ok": False, "error": "Aktuell liegt kein LONG-Signal vor."}), 400
+        result = telegram_order_tickets.create_and_send_ticket(get_current_user_id(), signal)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/telegram/order_ticket/list", methods=["GET"])
+@login_required
+def api_telegram_order_ticket_list():
+    return jsonify({"ok": True, "tickets": db_store.list_okx_order_tickets(get_current_user_id())})
 
 
 @app.errorhandler(Exception)

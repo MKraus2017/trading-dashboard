@@ -11,7 +11,7 @@ function showTab(name) {
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'real') renderSymbolSelect();
   if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoStrategyVersion(); loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
-  if (name === 'okxlive') { loadOkxLive(); loadOkxSpotHistory(); }
+  if (name === 'okxlive') { loadOkxLive(); loadOkxSpotHistory(); loadOkxOrderTickets(); }
 }
 
 function showLoading(on) {
@@ -1219,7 +1219,7 @@ async function runCryptoAnalysis(dryRun) {
     if (!suggestions.length) {
       recsEl.innerHTML = '<div class="no-data">Keine klaren Signale aktuell.</div>';
     } else {
-      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Score</th><th>Hebel</th><th>Preis</th><th>SL</th><th>TP</th><th>Details</th></tr>';
+      let html = '<table><tr><th>Symbol</th><th>Richtung</th><th>Score</th><th>Hebel</th><th>Preis</th><th>SL</th><th>TP</th><th>Details</th><th>Handy</th></tr>';
       suggestions.forEach(s => {
         const dirEmoji = s.direction === 'LONG' ? '🟢' : (s.direction === 'SHORT' ? '🔴' : '🟡');
         html += `<tr>
@@ -1231,6 +1231,7 @@ async function runCryptoAnalysis(dryRun) {
           <td>${s.stop_loss ?? '–'}</td>
           <td>${s.take_profit ?? '–'}</td>
           <td style="font-size:12px;color:#8b949e;">${(s.details||[]).join(', ')}</td>
+          <td>${s.direction === 'LONG' ? `<button class="refresh-btn" onclick="proposeOrderTicket('${s.symbol}')">📱 Ticket</button>` : '–'}</td>
         </tr>`;
       });
       html += '</table>';
@@ -1249,6 +1250,23 @@ async function runCryptoAnalysis(dryRun) {
     btn.disabled = false;
     btn.textContent = dryRun ? '🧪 Signale anzeigen (Probelauf)' : '✅ Analyse & Auto-Handel';
     showLoading(false);
+  }
+}
+
+async function proposeOrderTicket(symbol) {
+  try {
+    const r = await fetch('/api/telegram/order_ticket/propose', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({symbol})
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      alert('Ticket konnte nicht gesendet werden: ' + (data.error || 'unbekannt'));
+      return;
+    }
+    alert(`Orderticket für ${symbol} wurde an Telegram gesendet. Es wird keine Order automatisch ausgeführt.`);
+    loadOkxOrderTickets();
+  } catch (e) {
+    alert('Fehler: ' + e.message);
   }
 }
 
@@ -1505,6 +1523,35 @@ async function loadOkxSpotHistory() {
     el.innerHTML = html || '<div class="no-data">Noch keine automatisierten Trades.</div>';
   } catch (e) {
     el.innerHTML = `<div class="no-data">❌ Fehler: ${e.message}</div>`;
+  }
+}
+
+async function loadOkxOrderTickets() {
+  const el = document.getElementById('okxlive-order-tickets');
+  if (!el) return;
+  el.innerHTML = '<div class="no-data">⏳ Lade Tickets...</div>';
+  try {
+    const res = await fetch('/api/telegram/order_ticket/list');
+    const data = await res.json();
+    if (!data.ok) {
+      el.innerHTML = `<div class="no-data">❌ ${data.error || 'Fehler'}</div>`;
+      return;
+    }
+    const labels = {pending:'⏳ Offen', approved:'✅ Freigegeben', rejected:'❌ Abgelehnt', expired:'⌛ Abgelaufen'};
+    if (!data.tickets.length) {
+      el.innerHTML = '<div class="no-data">Noch keine Ordertickets.</div>';
+      return;
+    }
+    let html = '<table><tr><th>ID</th><th>Symbol</th><th>Betrag</th><th>Risiko</th><th>Hebel</th><th>SL / TP</th><th>Status</th><th>Gültig bis</th></tr>';
+    data.tickets.forEach(t => {
+      html += `<tr><td>${t.token}</td><td>${t.symbol}-USDC</td><td>${t.amount_usdc.toFixed(2)} USDC</td>` +
+        `<td>${t.risk_usdc.toFixed(2)} USDC</td><td>Signal ${t.signal_leverage}x → OKX Spot ${t.execution_leverage}x</td>` +
+        `<td>${t.stop_loss} / ${t.take_profit ?? '–'}</td><td>${labels[t.status] || t.status}</td>` +
+        `<td>${new Date(t.expires_at).toLocaleString('de-DE')}</td></tr>`;
+    });
+    el.innerHTML = html + '</table>';
+  } catch (e) {
+    el.innerHTML = `<div class="no-data">❌ ${e.message}</div>`;
   }
 }
 

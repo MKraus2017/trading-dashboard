@@ -70,6 +70,14 @@ button.save:hover { opacity: 0.85; }
       <span>3h-Reports & Alerts erhalten</span>
       <input type="checkbox" id="report-enabled" checked>
     </div>
+    <div class="toggle-row">
+      <span>Ordertickets für Krypto-LONG-Signale ans Handy senden</span>
+      <input type="checkbox" id="ticket-enabled">
+    </div>
+    <div class="hint">
+      Max. 1,5 % Kontorisiko, max. 25 % Kapitaleinsatz, höchstens zwei aktive Tickets/Positionen.
+      Eine Telegram-Freigabe sendet keine echte Order; sie erstellt ein geprüftes Ticket zur manuellen Eingabe bei OKX.
+    </div>
 
     <button class="save" onclick="saveSettings()">💾 Speichern</button>
     <div id="status"></div>
@@ -81,6 +89,8 @@ button.save:hover { opacity: 0.85; }
     <div id="test-status"></div>
     <button class="save" style="margin-top: 12px; background: linear-gradient(135deg, #1f6feb, #388bfd);" onclick="loadTelegramStatus()">🔍 Telegram-Status prüfen</button>
     <pre id="tg-status" style="margin-top:12px; background:#0d1117; padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem;"></pre>
+    <button class="save" style="margin-top:12px;background:linear-gradient(135deg,#8957e5,#a371f7);" onclick="activateOrderTickets()">📱 Handyfreigabe aktivieren</button>
+    <div id="ticket-setup-status"></div>
   </div>
 
   <div class="card">
@@ -111,6 +121,7 @@ async function loadSettings() {
     else if (s.telegram_chat_id_source === 'DB') document.getElementById('chat-db-badge').style.display = 'inline-block';
     document.getElementById('auto-trade').checked = s.auto_trade_enabled !== false;
     document.getElementById('report-enabled').checked = s.report_enabled !== false;
+    document.getElementById('ticket-enabled').checked = s.telegram_trade_confirmation_enabled === true;
 }
 
 async function saveSettings() {
@@ -119,6 +130,7 @@ async function saveSettings() {
         telegram_chat_id: document.getElementById('tg-chat').value.trim(),
         auto_trade_enabled: document.getElementById('auto-trade').checked,
         report_enabled: document.getElementById('report-enabled').checked,
+        telegram_trade_confirmation_enabled: document.getElementById('ticket-enabled').checked,
     };
     const r = await fetch('/api/settings', {
         method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
@@ -127,6 +139,25 @@ async function saveSettings() {
     const el = document.getElementById('status');
     el.className = data.ok ? 'success' : 'error';
     el.textContent = data.ok ? 'Gespeichert.' : 'Fehler beim Speichern.';
+}
+
+async function activateOrderTickets() {
+    const el = document.getElementById('ticket-setup-status');
+    el.className = '';
+    el.textContent = 'Webhook wird eingerichtet...';
+    try {
+        await saveSettings();
+        const r = await fetch('/api/telegram/order_ticket/setup', {method: 'POST'});
+        const data = await r.json();
+        el.className = data.ok ? 'success' : 'error';
+        el.textContent = data.ok
+          ? 'Handyfreigabe aktiv. Neue passende LONG-Signale erzeugen Telegram-Tickets.'
+          : 'Fehler: ' + (data.error || 'unbekannt');
+        if (data.ok) document.getElementById('ticket-enabled').checked = true;
+    } catch (e) {
+        el.className = 'error';
+        el.textContent = 'Fehler: ' + e.message;
+    }
 }
 
 async function sendTestMessage() {

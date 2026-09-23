@@ -91,6 +91,7 @@ class SettingsMigrationTests(unittest.TestCase):
         self.assertIn("telegram_bot_token", columns)
         self.assertIn("telegram_chat_id", columns)
         self.assertIn("crypto_strategy_version", columns)
+        self.assertIn("telegram_trade_confirmation_enabled", columns)
         conn.execute(
             "INSERT INTO settings (user_id, crypto_strategy_version) VALUES (?, ?)",
             (1, "volume_confirmed"),

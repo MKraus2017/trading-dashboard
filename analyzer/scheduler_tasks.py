@@ -710,6 +710,23 @@ def crypto_analysis(notify: bool = True, auto_trade: bool = True) -> dict:
             do_trade = auto_trade and settings.get("auto_trade_enabled", True)
             result = crypto_auto_trader.run_crypto_auto_trading(user_id, dry_run=not do_trade)
             total_actions.extend({"user_id": user_id, **a} for a in result.get("actions", []))
+            # Optional: staerkstes LONG-Signal als kurzlebiges Telegram-Orderticket senden.
+            # Das Ticket fuehrt niemals selbst eine echte Order aus.
+            if settings.get("telegram_trade_confirmation_enabled"):
+                from analyzer import telegram_order_tickets
+                long_signals = [
+                    s for s in result.get("recommendations", {}).get("suggestions", [])
+                    if s.get("direction") == "LONG"
+                ]
+                if long_signals:
+                    strongest = max(long_signals, key=lambda s: s.get("score", 0))
+                    ticket_result = telegram_order_tickets.create_and_send_ticket(user_id, strongest)
+                    total_actions.append({
+                        "user_id": user_id,
+                        "action": "ORDER-TICKET-SENT" if ticket_result.get("ok") else "ORDER-TICKET-SKIPPED",
+                        "symbol": strongest.get("symbol"),
+                        "reason": ticket_result.get("error"),
+                    })
             if notify:
                 token, chat_id = _user_telegram_cfg(user_id)
                 if chat_id:
