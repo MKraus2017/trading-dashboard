@@ -55,6 +55,12 @@ the original stop-monitor loop. Each public request has6-second timeout. Rule
 decisions use exactly500closed4H bars during the first180seconds after close, not on
 page refresh. Epoch/missed-hour/data-error counters expose interruption.
 
+Workers start through Gunicorn's post_worker_init hook, never at app-module import.
+This remains safe if environment arguments override preload_app=False. A first
+HTTP request is an idempotent fallback for other WSGI hosts; standalone app.py
+starts explicitly. A deployment check must verify monitor leader locks belong to
+the worker, not the master, and that authenticated report reads succeed.
+
 `ASTRA_ULTRA_ENABLED=0` disables the entire experiment worker (INCLUDING monitoring
 of its paper positions) after restart; it does not affect the original account.
 Do not use this switch to disable entries alone when paper positions exist.

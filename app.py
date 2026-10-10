@@ -1703,7 +1703,12 @@ def start_background_watchers():
         astra_ultra.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
 
 
-start_background_watchers()
+@app.before_request
+def ensure_background_watchers():
+    # Other WSGI hosts get an idempotent first-request fallback. Never start
+    # threads during module import: a preloading master may fork afterwards.
+    start_background_watchers()
 
 if __name__ == "__main__":
+    start_background_watchers()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
