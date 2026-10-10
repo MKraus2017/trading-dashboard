@@ -1151,6 +1151,15 @@ def api_crypto_monitor_status():
     return jsonify(crypto_watch.status(crypto_portfolio.get_crypto_portfolio(get_current_user_id())))
 
 
+@app.route("/api/crypto/exit_shadow", methods=["GET"])
+@login_required
+def api_crypto_exit_shadow():
+    from analyzer import crypto_exit_shadow
+    response = jsonify(crypto_exit_shadow.report(db_store.DB_PATH, get_current_user_id()))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/api/crypto/strategy", methods=["GET", "POST"])
 @login_required
 def api_crypto_strategy():
@@ -1661,12 +1670,14 @@ def api_scheduler_signal_watch():
 # Runs without an open browser; GitHub provides an independent fallback trigger.
 from analyzer import signal_watch
 from analyzer import crypto_watch
+from analyzer import crypto_exit_shadow
 
 
 def start_background_watchers():
     if not storage_runtime.maintenance_required(db_store.DB_PATH):
         signal_watch.start()
         crypto_watch.start()
+        crypto_exit_shadow.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
 
 
 start_background_watchers()
