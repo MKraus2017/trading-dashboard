@@ -36,6 +36,7 @@
   <div class="tab" onclick="showTab('vergleich')">📊 Vergleich</div>
   <div class="tab" onclick="showTab('verbesserungen')">🚀 Verbesserungen</div>
   <div class="tab" onclick="showTab('krypto')">🪙 Krypto</div>
+  <div class="tab" onclick="showTab('astra')">✨ Astra Ultra</div>
   <div class="tab" onclick="showTab('okxlive')">🔴 OKX Live</div>
 </div>
 
@@ -250,6 +251,62 @@
       <div id="crypto-backtest-history"></div>
     </div>
 
+    <div class="panel" id="panel-astra">
+      <div class="section-title">✨ Astra Ultra · virtueller Strategiewettbewerb
+        <button class="refresh-btn" onclick="refreshAstraUltra()">⟳ Anzeige aktualisieren</button>
+      </div>
+      <p style="color:#8b949e;">Eigenständiges Testdepot, entwickelt und geprüft mit GPT‑6 Astra (Ultra).
+        Die laufenden Handelsregeln sind fest programmiert – keine laufenden KI-Aufrufe, keine echten Orders und keine Telegram-Orderfreigaben.</p>
+      <div id="astra-status" class="no-data" role="status">Vergleich wird geladen …</div>
+      <div id="astra-summary" class="summary-grid"></div>
+      <div class="section-title">📊 Seit demselben Startzeitpunkt</div>
+      <div id="astra-comparison" style="overflow-x:auto;"></div>
+      <div class="section-title">📂 Offene Astra-Positionen</div>
+      <div id="astra-positions" style="overflow-x:auto;"></div>
+      <div class="section-title">📝 Abgeschlossene Astra-Trades</div>
+      <div id="astra-trades" style="overflow-x:auto;"></div>
+      <div class="section-title">💡 4-Stunden-Prüfungen · auch „Abwarten“ wird protokolliert</div>
+      <div id="astra-decisions" style="overflow-x:auto;"></div>
+      <div class="section-title">🔬 Historischer Forschungsstand · kein Renditeversprechen</div>
+      <p><a class="refresh-btn" href="/api/crypto/astra_ultra/research">Forschungsbericht mit allen Varianten und Quellen herunterladen</a></p>
+      <p style="color:#8b949e;">Auswahl am 10.10.2026, gemeinsames Testende 14:00 Uhr Berlin.
+        Drei Coins, begrenztes Modellkapital, 0,20% Gebühr + 0,05% Slippage je Seite.
+        Alle betrachteten Zeiträume sind bekannte Auswahldaten; erst der laufende Test liefert neue Beobachtungen.</p>
+      <div style="overflow-x:auto;"><table><thead><tr><th>Kandidat</th><th>90 Tage</th><th>180 Tage</th><th>360 Tage</th><th>Einordnung</th></tr></thead><tbody>
+        <tr><td>Astra · 4H-Trendausbruch (24/12)</td><td>+10,98%</td><td>+7,85%</td><td>+5,79%</td><td>Gewählter Testkandidat, nicht bewiesener Sieger</td></tr>
+        <tr><td>Astra · 1H-Ausbruch (24/12)</td><td colspan="2">Kurzfristig teilweise positiv</td><td>−21,83%*</td><td>Verworfen: schwaches Langzeitergebnis</td></tr>
+        <tr><td>Cash · keine Position</td><td>0%</td><td>0%</td><td>0%</td><td>Ohne Zinsen / Wechselkurseffekt</td></tr>
+      </tbody></table></div>
+      <p style="color:#d29922;">Wichtige Einschränkung: Zwei von vier getrennten 90-Tage-Blöcken der gewählten Variante waren negativ.
+        Ohne den größten Gewinntrade wäre ihr Gesamtergebnis negativ. Auch +5,79% beweisen deshalb keinen dauerhaften Vorteil.
+        *Der erste 1H-Lauf endete drei Stunden später; kein minutengenau identisches Vergleichsfenster.</p>
+      <details style="margin:20px 0;"><summary>Depotverlauf · letzter beobachteter Stand je UTC-Tag</summary>
+        <div id="astra-daily" style="overflow-x:auto;"></div>
+      </details>
+      <details style="margin:20px 0;">
+        <summary>Regeln, Kosten und Grenzen des Vergleichs</summary>
+        <p>Version 1: BTC, ETH und SOL. LONG/Spot 1×. Einstieg erst nach abgeschlossener 4H-Kerze:
+          Schlusskurs über dem Hoch der vorherigen 24 Kerzen (96 Stunden) und über EMA200.
+          Anfangs-Stop 2× ATR14 unter dem ausgeführten Modellkurs. Ausstieg bei Stop,
+          Schluss unter dem vorherigen 12-Kerzen-Tief (48 Stunden) oder spätestens nach 336 Stunden. Kein festes TP.
+          EMA und ATR werden reproduzierbar aus genau den letzten 500 abgeschlossenen 4H-Kerzen berechnet.</p>
+        <p>Geplantes Stop-Risiko einschließlich Modellkosten höchstens 0,5% des Depotwerts pro Kauf,
+          insgesamt höchstens 1%; maximal zwei Positionen und je 40% Positionswert.
+          Das sind Planwerte, keine Verlustgarantie bei Kurslücken oder Datenausfällen.
+          Einstieg nur unmittelbar nach dem 4H-Schluss, kein rückwirkendes Auffüllen verpasster Trades.</p>
+        <p>Beide Vergleichsseiten: 0,20% Gebühren + 0,05% angenommene Slippage pro Seite.
+          Offene Positionen einschließlich geschätzter Ausstiegskosten. Astra nutzt nachteilige Modell-Ausführungskurse;
+          beim bisherigen Depot werden Kosten rechnerisch ergänzt. USDT-Referenzkurse, proportionale EUR-Modellrechnung,
+          kein tatsächlicher EUR/USD-Umtausch. Die gehebelte Referenz enthält keine Fundingkosten.</p>
+        <p>Das bestehende Depot handelt unverändert mit seinen eigenen Symbolen, Hebeln und Regeln.
+          Das ist ein Vergleich der gesamten Handelsansätze, kein isolierter Beweis für bessere Einstiegssignale.
+          Etwaige Altpositionen und Strategiewechsel werden ausgewiesen. Historische Gewinne vor dem Start zählen nicht mit.</p>
+        <p>Prüfung etwa alle fünf Tage; Änderungen bekommen eine neue Version, alte Ergebnisse bleiben erhalten.
+          Wenige Tage oder einzelne Gewinne reichen nicht für einen Sieger. Kontostände bleiben bei Neustarts erhalten.
+          Kurse werden etwa alle 30 Sekunden geprüft; 4H-Regeln nur bei abgeschlossenen Kerzen.</p>
+      </details>
+    </div>
+
     <!-- OKX Live Tab (ECHTES GELD, echte Futures-Positionen) -->
     <div class="panel" id="panel-okxlive">
       <div class="section-title" style="color:#f85149;">🔴 OKX Live-Handel — ECHTES GELD (Spot, kein Hebel)</div>
@@ -309,7 +366,8 @@
       <div id="okxlive-history"></div>
     </div>
   </div>
-<script src="/static/app.js?v=28"></script>
+<script src="/static/app.js?v=29"></script>
 <script src="/static/crypto_exit_shadow.js?v=1"></script>
+<script src="/static/astra_ultra.js?v=1"></script>
 </body>
 </html>

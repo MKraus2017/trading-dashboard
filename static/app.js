@@ -3,7 +3,7 @@ let currentRecs = [];
 let universeData = [];
 
 function showTab(name) {
-  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen', 'krypto', 'okxlive'];
+  const tabs = ['depot', 'real', 'empfehlungen', 'autopilot', 'historie-v', 'historie-r', 'vergleich', 'verbesserungen', 'krypto', 'astra', 'okxlive'];
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active', tabs[i] === name);
   });
@@ -12,6 +12,7 @@ function showTab(name) {
   if (name === 'real') renderSymbolSelect();
   if (name === 'krypto' && !window._cryptoLoadedOnce) { window._cryptoLoadedOnce = true; loadCryptoStrategyVersion(); loadCryptoPortfolio(); loadCryptoBacktestHistory(); }
   if (name === 'okxlive') { loadOkxLive(); loadOkxSpotHistory(); loadOkxOrderTickets(); }
+  if (name === 'astra') refreshAstraUltra();
 }
 
 function showLoading(on) {

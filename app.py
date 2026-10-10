@@ -1160,6 +1160,24 @@ def api_crypto_exit_shadow():
     return response
 
 
+@app.route("/api/crypto/astra_ultra", methods=["GET"])
+@login_required
+def api_astra_ultra():
+    from analyzer import astra_ultra
+    response = jsonify(astra_ultra.report(db_store.DB_PATH, get_current_user_id()))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/api/crypto/astra_ultra/research", methods=["GET"])
+@login_required
+def api_astra_research():
+    from flask import send_file
+    return send_file(os.path.join(app.root_path, "docs", "astra-ultra-research.md"),
+                     mimetype="text/plain; charset=utf-8", as_attachment=True,
+                     download_name="Astra-Ultra-Forschungsbericht.md")
+
+
 @app.route("/api/crypto/strategy", methods=["GET", "POST"])
 @login_required
 def api_crypto_strategy():
@@ -1671,6 +1689,7 @@ def api_scheduler_signal_watch():
 from analyzer import signal_watch
 from analyzer import crypto_watch
 from analyzer import crypto_exit_shadow
+from analyzer import astra_ultra
 
 
 def start_background_watchers():
@@ -1678,6 +1697,7 @@ def start_background_watchers():
         signal_watch.start()
         crypto_watch.start()
         crypto_exit_shadow.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
+        astra_ultra.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
 
 
 start_background_watchers()
