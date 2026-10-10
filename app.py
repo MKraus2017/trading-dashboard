@@ -763,6 +763,9 @@ def api_telegram_order_ticket_list():
 @app.errorhandler(Exception)
 def handle_exception(e):
     """Globaler Fehler-Handler: jeden unerwarteten Fehler als JSON zurückgeben."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
     import traceback
     return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
 
