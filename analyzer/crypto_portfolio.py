@@ -6,11 +6,13 @@ simuliert: bei isolierter Margin liquidiert eine Position, wenn der Verlust die
 gesamte eingesetzte Margin aufzehrt (abzgl. Sicherheitspuffer).
 """
 import time
+import math
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import config
 from analyzer import db_store, okx_client
+from analyzer.crypto_runtime import serialized
 
 
 def _now() -> str:
@@ -28,6 +30,7 @@ def get_crypto_portfolio(user_id: int) -> dict:
     return db_store._default_crypto_portfolio()
 
 
+@serialized
 def reset_crypto_portfolio(user_id: int) -> dict:
     p = db_store._default_crypto_portfolio()
     db_store.save_crypto_portfolio(user_id, p)
@@ -47,10 +50,13 @@ def _liquidation_price(entry: float, leverage: int, direction: str, buffer_pct: 
         return round(entry * (1 + move_pct), 6)
 
 
+@serialized
 def open_position(user_id: int, symbol: str, direction: str, margin_eur: float,
                    leverage: int, entry_price: float, stop_loss: float, take_profit: float,
                    reason: str = "") -> dict:
     p = get_crypto_portfolio(user_id)
+    if any(pos["symbol"] == symbol.upper() for pos in p["positions"]):
+        return {"ok": False, "error": "Krypto-Position auf diesem Symbol bereits offen"}
     leverage = max(1, min(int(leverage), config.CRYPTO_MAX_LEVERAGE))
     margin_eur = min(margin_eur, p["cash"])
     if margin_eur < config.CRYPTO_MIN_POSITION_EUR:
@@ -121,7 +127,8 @@ def _close_position(p: dict, pos: dict, price: float, reason: str, liquidated: b
     return trade
 
 
-def evaluate_crypto_portfolio(user_id: int) -> dict:
+@serialized
+def evaluate_crypto_portfolio(user_id: int, *, background: bool = False) -> dict:
     """Bewertet alle offenen Positionen mit Live-Preisen: SL/TP/Liquidation pruefen.
     Enthaelt einen Totalverlust-Schutz (Circuit Breaker): bei zu hohem Drawdown werden
     neue Trades gesperrt bzw. bei kritischem Drawdown alle offenen Positionen notfallgeschlossen."""
@@ -129,13 +136,15 @@ def evaluate_crypto_portfolio(user_id: int) -> dict:
     positions = p.get("positions", [])
     remaining = []
     events = []
+    missing_symbols = []
 
     for pos in positions:
         ticker = okx_client.fetch_ticker(pos["symbol"])
-        if not ticker:
+        price = (ticker or {}).get("last")
+        if not isinstance(price, (int, float)) or not math.isfinite(price) or price <= 0:
+            missing_symbols.append(pos["symbol"])
             remaining.append(pos)
             continue
-        price = ticker["last"]
         pos["last_price"] = price
         direction = pos["direction"]
         pnl_pct_leveraged = _pnl_pct(direction, pos["entry_price"], price) / 100.0 * pos["leverage"] * 100
@@ -205,12 +214,13 @@ def evaluate_crypto_portfolio(user_id: int) -> dict:
     p["drawdown_pct"] = max(drawdown_pct, 0)
     was_halted = p.get("trading_halted", False)
 
-    if drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
+    if not missing_symbols and drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
         # Kritischer Drawdown: alle verbleibenden Positionen notfallschliessen
         if p["positions"]:
             for pos in list(p["positions"]):
-                ticker = okx_client.fetch_ticker(pos["symbol"])
-                close_price = ticker["last"] if ticker else pos.get("last_price", pos["entry_price"])
+                # Reuse the valid quote already checked above; never invent an
+                # emergency fill after a failed second market-data request.
+                close_price = pos["last_price"]
                 trade = _close_position(p, pos, close_price,
                                          f"NOTFALL-STOPP: Depot-Drawdown {drawdown_pct}% >= kritischer Schwelle {config.CRYPTO_CRITICAL_DRAWDOWN_PCT}%",
                                          liquidated=False)
@@ -222,24 +232,41 @@ def evaluate_crypto_portfolio(user_id: int) -> dict:
             events.append({"type": "circuit_breaker_critical", "symbol": "DEPOT",
                             "msg": f"🚨 NOTFALL-STOPP: Krypto-Depot bei {drawdown_pct}% Drawdown. Alle Positionen geschlossen, Handel pausiert.",
                             "trade": None})
-    elif drawdown_pct >= config.CRYPTO_MAX_DRAWDOWN_PCT:
+    elif not missing_symbols and drawdown_pct >= config.CRYPTO_MAX_DRAWDOWN_PCT:
         p["trading_halted"] = True
         if not was_halted:
             events.append({"type": "circuit_breaker", "symbol": "DEPOT",
                             "msg": f"⚠️ Krypto-Handel PAUSIERT: Depot bei {drawdown_pct}% Drawdown (Schwelle {config.CRYPTO_MAX_DRAWDOWN_PCT}%). Keine neuen Positionen, bestehende laufen normal weiter.",
                             "trade": None})
-    else:
+    elif not missing_symbols:
         p["trading_halted"] = False
 
     # Nach Notfallschliessung Depotwert neu berechnen
-    if drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
+    if not missing_symbols and drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
         total_value = p["cash"]
         p["total_value"] = round(total_value, 2)
         p["total_return_pct"] = round((total_value - start_capital) / start_capital * 100, 2)
 
-    p.setdefault("value_history", []).append({"date": _now(), "value": total_value})
-    if len(p["value_history"]) > 2000:
-        p["value_history"] = p["value_history"][-2000:]
+    # Keep existing history. Faster checks must not evict it from a ring buffer.
+    now = time.time()
+    history = p.setdefault("value_history", [])
+    try:
+        previous = datetime.fromisoformat(history[-1]["date"])
+        if previous.tzinfo is None:
+            previous = previous.replace(tzinfo=timezone.utc)
+        last_sample = previous.timestamp()
+    except (IndexError, KeyError, TypeError, ValueError):
+        last_sample = 0
+    if events or now - last_sample >= 300:
+        history.append({"date": _now(), "value": total_value})
+    if background:
+        # A page refresh must not make a failed background watcher look healthy.
+        p["monitor_attempt_at"] = now
+        p["monitor_missing_symbols"] = missing_symbols
+        if not missing_symbols:
+            p["monitor_success_at"] = now
 
-    db_store.save_crypto_portfolio(user_id, p)
-    return {"portfolio": p, "events": events}
+    # Do not run synchronous Git commit/push for each price tick. Durable storage
+    # and separate regular backups are prerequisites for the server-side watcher.
+    db_store.save_crypto_portfolio(user_id, p, backup=False)
+    return {"portfolio": p, "events": events, "missing_symbols": missing_symbols}

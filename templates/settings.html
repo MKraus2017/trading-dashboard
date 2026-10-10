@@ -101,6 +101,10 @@ button.save:hover { opacity: 0.85; }
 
   <div class="card">
     <h2>Datenbank-Backup</h2>
+    {% if storage_maintenance %}
+    <p style="color:#d29922;" role="status">Wartungsmodus: Datenübernahme ausstehend. Handelsaktionen und Hintergrundprüfungen sind bis zur geprüften Wiederherstellung gesperrt.</p>
+    {% endif %}
+    <p>Auf Render werden neue Sicherungen privat auf der Datenplatte gespeichert, nicht ins GitHub-Repository übertragen. Wiederherstellung nur im Wartungsmodus; vor dem Überschreiben wird der bisherige Stand gesichert.</p>
     <button class="save" style="background: linear-gradient(135deg, #1f6feb, #388bfd); margin-right: 8px;" onclick="loadDbStatus()">📊 DB-Status prüfen</button>
     <a id="db-download-link" href="/api/db_backup" download style="display:none;"></a>
     <button class="save" style="background: linear-gradient(135deg, #8957e5, #a371f7);" onclick="downloadDb()">💾 DB herunterladen</button>

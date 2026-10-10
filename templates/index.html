@@ -161,7 +161,8 @@
       <div class="section-title">🪙 Krypto-Testbereich (virtuelles Depot, 1.000 € Spielgeld)</div>
       <p style="color:#8b949e;margin-bottom:16px;">
         Komplett getrennt vom Aktien-Depot. Live-Preise über OKX. Analyse alle 2h (07–23 Uhr),
-        offene Positionen werden 24/7 überwacht (SL/TP/Liquidation). Hebel (0–10x) wählt der Bot
+        die serverseitige Prüfung offener Positionen ist alle 30 Sekunden vorgesehen (SL/TP/Liquidation).
+        Keine garantierten Ausstiegskurse bei Kurssprüngen oder Ausfällen. Hebel (0–10x) wählt der Bot
         selbst je nach Signal-Konfidenz und Volatilität.
       </p>
       <div class="quick-form" style="gap:8px;display:flex;flex-wrap:wrap;align-items:center;margin-bottom:16px;padding:12px;border:1px solid #30363d;border-radius:8px;">
@@ -177,6 +178,7 @@
           Überkaufte LONG-Signale werden ohne beide Bestätigungen blockiert. Umschalten eröffnet keine Position.
         </div>
       </div>
+      <div id="crypto-monitor-status" class="no-data" role="status">Stop-Überwachung: Status wird geladen …</div>
       <div class="summary-grid" id="crypto-summary"></div>
 
       <div class="section-title">📂 Offene Krypto-Positionen

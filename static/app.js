@@ -1023,6 +1023,33 @@ async function runRealBacktest() {
 
 // --- Krypto-Tab (separates virtuelles Depot, OKX Live-Preise) ---
 
+function renderCryptoMonitor(monitor) {
+  const el = document.getElementById('crypto-monitor-status');
+  if (!el) return;
+  const seconds = monitor && Number.isFinite(monitor.age_seconds) ? Math.round(monitor.age_seconds) : null;
+  const timeText = seconds === null ? 'noch keine bestätigte Prüfung' : `letzte erfolgreiche Prüfung vor ${seconds} Sekunden`;
+  el.textContent = monitor && monitor.healthy
+    ? `🟢 Virtuelle Stop-Überwachung aktiv · ${timeText} · Zielintervall 30 Sekunden`
+    : `⚠️ Virtuelle Stop-Überwachung nicht bestätigt oder verzögert · ${timeText}. Stop-Ausführung nicht garantiert.`;
+  el.style.color = monitor && monitor.healthy ? '#3fb950' : '#f85149';
+}
+
+async function refreshCryptoMonitor() {
+  if (!document.getElementById('crypto-monitor-status')) return;
+  try {
+    const response = await fetch('/api/crypto/monitor_status', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
+    if (!response.ok) throw new Error('Monitor unavailable');
+    renderCryptoMonitor(await response.json());
+  } catch (_) {
+    renderCryptoMonitor(null);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshCryptoMonitor();
+  setInterval(refreshCryptoMonitor, 30000);
+});
+
 function fmtEur(v) {
   if (v === null || v === undefined) return '–';
   return v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -1044,6 +1071,7 @@ async function loadCryptoPortfolio() {
   const summaryEl = document.getElementById('crypto-summary');
   const posEl = document.getElementById('crypto-positions');
   const histEl = document.getElementById('crypto-trade-history');
+  renderCryptoMonitor(null);
   try {
     const r = await fetch('/api/crypto/portfolio');
     let data;
@@ -1056,6 +1084,7 @@ async function loadCryptoPortfolio() {
       return;
     }
     const p = data.portfolio;
+    renderCryptoMonitor(data.monitor);
     const haltedBanner = p.trading_halted
       ? `<div class="no-data" style="color:#f85149;background:rgba(248,81,73,0.1);border:1px solid #f85149;padding:10px;border-radius:6px;margin-bottom:12px;">
            🚨 <b>Handel pausiert</b> — Drawdown ${p.drawdown_pct || 0}% erreicht (Totalverlust-Schutz aktiv). Keine neuen Positionen, bis sich das Depot erholt.

@@ -7,15 +7,28 @@ import tempfile
 import time
 from datetime import datetime, timedelta
 from functools import wraps
+from contextlib import closing
 
 import bcrypt
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 import config
+import storage_runtime
 from analyzer import auto_trader, backtester, db_store, portfolio, scheduler_tasks, signals, yahoo_client, telegram as telegram_client
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
+
+
+@app.before_request
+def storage_migration_guard():
+    if not storage_runtime.maintenance_required(db_store.DB_PATH):
+        return None
+    allowed = {"login_page", "logout", "index", "settings_page", "static", "health",
+               "api_db_status", "api_db_backup", "api_db_restore_upload"}
+    if request.endpoint in allowed or (request.path == "/api/settings" and request.method == "GET"):
+        return None
+    return jsonify({"ok": False, "error": "Wartungsmodus: Datenübernahme noch nicht abgeschlossen. Keine Handelsaktionen."}), 503
 
 
 def _hash_password(pw: str) -> str:
@@ -115,7 +128,8 @@ def index():
 @app.route("/settings")
 @login_required
 def settings_page():
-    return render_template("settings.html", username=session.get("username", ""))
+    return render_template("settings.html", username=session.get("username", ""),
+                           storage_maintenance=storage_runtime.maintenance_required(db_store.DB_PATH))
 
 
 @app.route("/audit")
@@ -768,6 +782,8 @@ def api_db_status():
     backup_path = db_store._backup_db_path()
 
     status = {
+        "persistent_disk_mounted": os.path.ismount(os.path.realpath(db_store.DB_DIR)),
+        "storage_maintenance": storage_runtime.maintenance_required(db_store.DB_PATH),
         "db_path": db_path,
         "db_exists": os.path.exists(db_path),
         "db_size_bytes": db_store._db_size(db_path),
@@ -795,7 +811,16 @@ def api_db_backup():
     if not os.path.exists(db_path):
         return jsonify({"ok": False, "error": "Keine Datenbank vorhanden"}), 404
     from flask import send_file
-    return send_file(db_path, as_attachment=True, download_name="trading_backup.db")
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        storage_runtime.snapshot(db_path, path)
+        with open(path, "rb") as backup_file:
+            import io
+            data = io.BytesIO(backup_file.read())
+    finally:
+        os.remove(path)
+    return send_file(data, as_attachment=True, download_name="trading_backup.db", mimetype="application/octet-stream")
 
 
 @app.route("/api/db_restore_upload", methods=["POST"])
@@ -804,6 +829,11 @@ def api_db_restore_upload():
     """Empfängt eine SQLite-DB-Datei und spielt sie als neue Arbeits-DB ein."""
     from flask import request
     import sqlite3
+
+    if not storage_runtime.maintenance_required(db_store.DB_PATH):
+        return jsonify({"ok": False, "error": "DB-Wiederherstellung erfordert Wartungsmodus (TRADING_MAINTENANCE=1) und einen Neustart."}), 409
+    if storage_runtime.is_render() and not os.path.ismount(os.path.realpath(db_store.DB_DIR)):
+        return jsonify({"ok": False, "error": "Dauerhafte Datenplatte ist noch nicht eingebunden."}), 409
 
     if "db_file" not in request.files:
         return jsonify({"ok": False, "error": "Keine Datei hochgeladen"}), 400
@@ -821,7 +851,9 @@ def api_db_restore_upload():
         file.save(temp_path)
 
         # Validate SQLite and required tables
-        with sqlite3.connect(temp_path) as conn:
+        with closing(sqlite3.connect(temp_path)) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                return jsonify({"ok": False, "error": "SQLite-Integritätsprüfung fehlgeschlagen"}), 400
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if "users" not in tables or "portfolios" not in tables:
                 return jsonify({"ok": False, "error": "Ungültige DB: Tabellen users/portfolios fehlen"}), 400
@@ -834,20 +866,14 @@ def api_db_restore_upload():
             backup_name = f"trading_pre_restore_{int(time.time())}.db"
             backup_dir = os.path.join(os.path.dirname(current_db), "backups")
             os.makedirs(backup_dir, exist_ok=True)
-            shutil.copy2(current_db, os.path.join(backup_dir, backup_name))
+            storage_runtime.snapshot(current_db, os.path.join(backup_dir, backup_name))
 
         # Replace current working DB
         os.makedirs(os.path.dirname(current_db), exist_ok=True)
-        shutil.copy2(temp_path, current_db)
-
-        # Also update repo backup so Git has the new state
-        try:
-            repo_backup = db_store._backup_db_path()
-            os.makedirs(os.path.dirname(repo_backup), exist_ok=True)
-            shutil.copy2(current_db, repo_backup)
-            db_store.trigger_backup()
-        except Exception:
-            pass
+        storage_runtime.snapshot(temp_path, current_db)
+        storage_runtime.mark_restored(current_db)
+        storage_runtime.private_backup(current_db, force=True)
+        start_background_watchers()
 
         return jsonify({
             "ok": True,
@@ -1085,7 +1111,9 @@ def api_crypto_portfolio():
     uid = get_current_user_id()
     try:
         res = crypto_portfolio.evaluate_crypto_portfolio(uid)
-        return jsonify({"ok": True, "portfolio": res["portfolio"], "events": res["events"]})
+        from analyzer import crypto_watch
+        return jsonify({"ok": True, "portfolio": res["portfolio"], "events": res["events"],
+                        "monitor": crypto_watch.status(res["portfolio"])})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1114,6 +1142,13 @@ def api_crypto_recommendations():
         import traceback
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/crypto/monitor_status")
+@login_required
+def api_crypto_monitor_status():
+    from analyzer import crypto_portfolio, crypto_watch
+    return jsonify(crypto_watch.status(crypto_portfolio.get_crypto_portfolio(get_current_user_id())))
 
 
 @app.route("/api/crypto/strategy", methods=["GET", "POST"])
@@ -1233,7 +1268,7 @@ db_store.backup_db(synchronous=True)
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"ok": True, "status": "running"})
+    return jsonify({"ok": True, "status": "maintenance" if storage_runtime.maintenance_required(db_store.DB_PATH) else "running"})
 
 
 @app.route("/api/debug/outbound_ip", methods=["GET"])
@@ -1625,7 +1660,16 @@ def api_scheduler_signal_watch():
 
 # Runs without an open browser; GitHub provides an independent fallback trigger.
 from analyzer import signal_watch
-signal_watch.start()
+from analyzer import crypto_watch
+
+
+def start_background_watchers():
+    if not storage_runtime.maintenance_required(db_store.DB_PATH):
+        signal_watch.start()
+        crypto_watch.start()
+
+
+start_background_watchers()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

@@ -677,9 +677,11 @@ def crypto_monitor_positions(notify: bool = True) -> dict:
     """Bewertet offene Krypto-Positionen (SL/TP/Liquidation). Läuft haeufig, 24/7."""
     from analyzer import crypto_portfolio
     total_events = 0
+    errors = 0
     for user_id in _get_active_users():
         try:
-            res = crypto_portfolio.evaluate_crypto_portfolio(user_id)
+            res = crypto_portfolio.evaluate_crypto_portfolio(user_id, background=True)
+            errors += bool(res.get("missing_symbols"))
             events = res.get("events", [])
             total_events += len(events)
             if notify and events:
@@ -688,12 +690,13 @@ def crypto_monitor_positions(notify: bool = True) -> dict:
                     lines = ["🪙 <b>Krypto-Position geschlossen</b>", ""]
                     for ev in events:
                         emoji = "💥" if ev["type"] == "liquidation" else "✅"
-                        pnl = ev["trade"].get("pnl_eur")
+                        pnl = (ev.get("trade") or {}).get("pnl_eur")
                         lines.append(f"{emoji} {ev['symbol']}: {ev['msg']} ({pnl:+.2f} €)" if pnl is not None else f"{emoji} {ev['symbol']}: {ev['msg']}")
                     telegram._send_message("\n".join(lines), token=token, chat_id=chat_id)
-        except Exception as e:
-            print(f"[crypto_monitor_positions] user_id={user_id} error: {e}")
-    return {"task": "crypto_monitor_positions", "timestamp": datetime.now(timezone.utc).isoformat(), "events": total_events}
+        except Exception:
+            errors += 1
+            print(f"[crypto_monitor_positions] user_id={user_id} check failed")
+    return {"ok": errors == 0, "errors": errors, "task": "crypto_monitor_positions", "timestamp": datetime.now(timezone.utc).isoformat(), "events": total_events}
 
 
 def crypto_analysis(notify: bool = True, auto_trade: bool = True) -> dict:

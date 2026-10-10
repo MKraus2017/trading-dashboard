@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import config
+import storage_runtime
 
 
 DB_DIR = os.environ.get("RENDER_DISK_PATH", os.path.join(os.path.dirname(__file__), "..", "data"))
@@ -106,6 +107,12 @@ def restore_db_backup():
     if _RESTORE_DONE:
         return
     _RESTORE_DONE = True
+
+    # A valid persistent working database is authoritative. A Git checkout's
+    # newer file timestamp must never roll it back on the next deployment.
+    if storage_runtime.is_render() and _db_has_users(DB_PATH):
+        print("[DB] Keeping existing Render working database")
+        return
 
     backup_path = _backup_db_path()
     ts_backup = _newest_timestamped_backup()
@@ -375,6 +382,12 @@ def _now() -> str:
 
 def _backup_async():
     """Kopiert DB ins Repo-Backup, erstellt lokale Timestamp-Backups und versucht Git-Push."""
+    if storage_runtime.is_render():
+        try:
+            storage_runtime.private_backup(DB_PATH)
+        except Exception:
+            print("[DB Backup] Private SQLite snapshot failed", flush=True)
+        return  # Never publish Render database contents to the source repository.
     try:
         if not os.path.exists(DB_PATH):
             print(f"[DB Backup] No local DB to backup: {DB_PATH}")
@@ -542,7 +555,7 @@ def load_crypto_portfolio(user_id: int) -> Optional[dict]:
     return None
 
 
-def save_crypto_portfolio(user_id: int, p: dict):
+def save_crypto_portfolio(user_id: int, p: dict, *, backup: bool = True):
     if not user_id:
         return
     with get_conn() as conn:
@@ -551,7 +564,8 @@ def save_crypto_portfolio(user_id: int, p: dict):
             "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
             (user_id, json.dumps(p, default=str), _now())
         )
-    backup_db()
+    if backup:
+        backup_db()
 
 
 def save_crypto_backtest_run(user_id: int, params: dict, results: dict, applied: bool = False):
