@@ -3,6 +3,7 @@ import subprocess
 from typing import Dict
 
 from analyzer import portfolio, signals, telegram
+from analyzer.stock_runtime import serialized
 
 
 def _commit_portfolio() -> dict:
@@ -15,12 +16,14 @@ def _commit_portfolio() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+@serialized
 def run_auto_trading(user_id: int, dry_run: bool = False) -> dict:
     """Führt automatisch Kauf-/Verkaufsentscheidungen im virtuellen Depot aus."""
     actions = []
 
     # 1. Depot bewerten (SL/TP/Trailing)
-    p, alerts = portfolio.evaluate_portfolio(user_id)
+    p, alerts = (portfolio.portfolio_snapshot(user_id), []) if dry_run else portfolio.evaluate_portfolio(user_id)
+    just_closed = {a["symbol"] for a in alerts if a.get("type") == "sell"}
     for alert in alerts:
         if alert.get("type") in ("sell",):
             actions.append({
@@ -68,6 +71,9 @@ def run_auto_trading(user_id: int, dry_run: bool = False) -> dict:
 
     for rec in buy_recs:
         symbol = rec["symbol"]
+        if symbol in just_closed:
+            actions.append({"symbol": symbol, "action": "SKIP", "reason": "Gerade per Stop/TP geschlossen; kein sofortiger Wiedereinstieg"})
+            continue
         if symbol in held_symbols:
             continue
         if len(portfolio.get_portfolio(user_id).get("positions", [])) >= 5:
@@ -99,7 +105,7 @@ def run_auto_trading(user_id: int, dry_run: bool = False) -> dict:
                 })
 
     # Depot neu bewerten für Rückgabe
-    p_final, _ = portfolio.evaluate_portfolio(user_id)
+    p_final = portfolio.portfolio_snapshot(user_id) if dry_run else portfolio.evaluate_portfolio(user_id)[0]
 
     if actions and not dry_run:
         try:

@@ -15,6 +15,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 import config
 import storage_runtime
 from analyzer import auto_trader, backtester, db_store, portfolio, scheduler_tasks, signals, yahoo_client, telegram as telegram_client
+from analyzer import stock_runtime
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -145,7 +146,9 @@ def audit_page():
 def api_portfolio():
     uid = get_current_user_id()
     try:
-        p, alerts = portfolio.evaluate_portfolio(uid)
+        p, alerts = portfolio.portfolio_snapshot(uid), []
+        from analyzer import stock_watch
+        p["stock_monitor"] = stock_watch.status(p)
         # Preise für echte Positionen anreichern
         p = portfolio.enrich_real_positions(p)
         p = _calc_real_guv(p)
@@ -155,7 +158,9 @@ def api_portfolio():
         # Vergleichs- & Backtest-Daten anreichern
         p["comparison"] = portfolio.calculate_comparison(p)
         p["backtest"] = portfolio.run_backtest(p)
-        return jsonify({"portfolio": p, "alerts": alerts})
+        response = jsonify({"portfolio": p, "alerts": alerts})
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -501,6 +506,7 @@ def api_reset_portfolio():
 
 @app.route("/api/real_position", methods=["POST"])
 @login_required
+@stock_runtime.serialized_request(get_current_user_id)
 def api_real_position():
     uid = get_current_user_id()
     body = request.get_json() or {}
@@ -1693,12 +1699,14 @@ from analyzer import signal_watch
 from analyzer import crypto_watch
 from analyzer import crypto_exit_shadow
 from analyzer import astra_ultra
+from analyzer import stock_watch
 
 
 def start_background_watchers():
     if not storage_runtime.maintenance_required(db_store.DB_PATH):
         signal_watch.start()
         crypto_watch.start()
+        stock_watch.start()
         crypto_exit_shadow.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
         astra_ultra.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
 

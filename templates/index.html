@@ -47,10 +47,17 @@
   <!-- Depot Tab -->
   <div class="panel active" id="panel-depot">
     <div class="summary-grid" id="depot-summary"></div>
+    <div id="stock-monitor-status" class="no-data" role="status">Serverseitige Stop-Prüfung: Status wird geladen …</div>
+    <p style="color:#8b949e;font-size:12px;margin:10px 0;">Euro-Referenzkurse können verzögert sein und vom handelbaren Trade-Republic-Kurs abweichen.
+      Dies ist ein virtuelles Depot; keine Broker-Orders und keine garantierten Ausstiegskurse bei Kurssprüngen, geschlossenen Märkten oder Datenlücken.</p>
     <div class="section-title">📂 Offene Positionen
       <button class="refresh-btn" onclick="resetDepot()" style="float:right;font-size:12px;padding:4px 10px;">🗑 Depot zurücksetzen</button>
+      <button class="refresh-btn" onclick="loadPortfolio()" style="float:right;font-size:12px;padding:4px 10px;margin-right:8px;">⟳ Anzeige aktualisieren</button>
     </div>
-    <div id="depot-positions"></div>
+    <div id="depot-positions" style="overflow-x:auto;"></div>
+    <p style="color:#8b949e;font-size:12px;margin-top:8px;">SL (wirksam) zeigt die aktuell maßgebliche Ausstiegsschwelle. 🔒 Trailing = nachgezogener Stop;
+      🔒 Breakeven = Basis-SL auf Einstand angehoben (ohne Kostengarantie). Kaufzeit, einzelne Stop-Werte und Kursstand findest du unter „Details“.</p>
+    <details style="color:#8b949e;font-size:12px;margin:12px 0;"><summary style="cursor:pointer;">Aktuelle Ausstiegsregeln</summary><p id="stock-rules-note">Regeln werden geladen …</p></details>
 
     <div class="section-title">⚡ Schnell-Kaufen</div>
     <div class="quick-form">
@@ -373,7 +380,7 @@
       <div id="okxlive-history"></div>
     </div>
   </div>
-<script src="/static/app.js?v=29"></script>
+<script src="/static/app.js?v=30"></script>
 <script src="/static/crypto_exit_shadow.js?v=1"></script>
 <script src="/static/astra_ultra.js?v=2"></script>
 </body>

@@ -1,12 +1,15 @@
 """Virtuelles Depot: Kaufen, Verkaufen, SL/TP, Bewertung (Multi-User)."""
 import json
+import math
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import config
 from analyzer import db_store, indicators, telegram, yahoo_client
+from analyzer import stock_quotes
+from analyzer.stock_runtime import serialized
 
 PORTFOLIO_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "portfolio.json")
 
@@ -29,14 +32,21 @@ def _load(user_id: int) -> dict:
         for key in ("real_positions", "real_trades", "value_history"):
             if key not in p:
                 p[key] = [] if key != "value_history" else [{"date": datetime.utcnow().isoformat(), "value": config.START_CAPITAL}]
-        for pos in p.get("real_positions", []):
-            if "opened_at" not in pos:
-                pos["opened_at"] = datetime.utcnow().isoformat()
         return p
     return _default_portfolio()
 
 
-def _save(user_id: int, p: dict):
+def _save(user_id: int, p: dict, *, background=False):
+    if background:
+        # Monitoring never publishes database backups or overwrites the legacy
+        # shared JSON file. Keep private SQLite snapshots, also outside Render.
+        db_store.save_portfolio(user_id, p, automatic_backup=False)
+        try:
+            import storage_runtime
+            storage_runtime.private_backup(db_store.DB_PATH)
+        except Exception:
+            print("[StockWatch] private snapshot unavailable", flush=True)
+        return
     db_store.save_portfolio(user_id, p)
     # Lokales Backup für Entwicklung
     try:
@@ -51,6 +61,7 @@ def get_portfolio(user_id: int) -> dict:
     return _load(user_id)
 
 
+@serialized
 def reset_portfolio(user_id: int):
     p = _default_portfolio()
     _save(user_id, p)
@@ -72,7 +83,7 @@ def _total_value(portfolio: dict, prices: Dict[str, float]) -> float:
     return total
 
 
-def _chandelier_stop(symbol: str, highest_price: float) -> Optional[float]:
+def _chandelier_stop(symbol: str, highest_price: float, tick: dict) -> Optional[float]:
     """Berechnet den ATR-basierten Chandelier-Exit-Stop für ein Symbol.
 
     Stop = höchster Kurs seit Einstieg - ATR(CHANDELIER_PERIOD) * CHANDELIER_MULT.
@@ -80,34 +91,102 @@ def _chandelier_stop(symbol: str, highest_price: float) -> Optional[float]:
     falls keine ausreichenden Daten verfügbar sind (dann bleibt der bisherige Stop aktiv).
     """
     try:
-        hist = yahoo_client.fetch_yahoo(symbol, interval="1d", range_="2mo")
-        if not hist or len(hist.get("closes", [])) < config.CHANDELIER_PERIOD:
+        hist = stock_quotes.fetch_completed_history(symbol, tick)
+        if len(hist["closes"]) < config.CHANDELIER_PERIOD:
             return None
-        atr_vals = indicators.atr(hist["highs"], hist["lows"], hist["closes"], config.CHANDELIER_PERIOD)
+        highs, lows, closes = (hist[key] for key in ("highs", "lows", "closes"))
+        if not all(_positive(v) for series in (highs, lows, closes) for v in series):
+            return None
+        atr_vals = indicators.atr(highs, lows, closes, config.CHANDELIER_PERIOD)
         latest_atr = next((a for a in reversed(atr_vals) if a is not None), None)
-        if latest_atr is None:
+        if not _positive(latest_atr):
             return None
         return highest_price - latest_atr * config.CHANDELIER_MULT
     except Exception:
         return None
 
 
+def _positive(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
+
+
+def effective_stop(pos):
+    """The strongest long stop wins; a lower trailing stop never loosens SL."""
+    sl, trail = pos.get("stop_loss"), pos.get("trailing_stop")
+    if _positive(trail) and (not _positive(sl) or trail >= sl):
+        return trail, "trailing"
+    if _positive(sl):
+        return sl, "breakeven" if pos.get("breakeven_set") else "stop_loss"
+    return None, None
+
+
+def stock_rules():
+    return dict(version="stock_trailing_monitor_v1", chandelier_enabled=config.USE_CHANDELIER_EXIT,
+                atr_period=config.CHANDELIER_PERIOD, atr_multiple=config.CHANDELIER_MULT,
+                trailing_pct=config.TRAILING_STOP_PCT, fixed_activation_pct=25,
+                breakeven_at_pct=config.BREAKEVEN_AT_PCT, time_exit_days=config.TIME_EXIT_DAYS,
+                tp_policy="always_active")
+
+
+def portfolio_snapshot(user_id):
+    """Display stored observations without sending messages, trading or saving."""
+    p = _load(user_id)
+    total = _total_value(p, {})
+    p["total_value"] = round(total, 2)
+    p["total_return_pct"] = round((total / config.START_CAPITAL - 1) * 100, 2)
+    p["stock_rules"] = stock_rules()
+    for pos in p.get("positions", []):
+        pos["effective_stop_loss"], pos["effective_stop_kind"] = effective_stop(pos)
+    return p
+
+
+@serialized
 def evaluate_portfolio(user_id: int) -> dict:
     started = time.time()
     print(f"[Portfolio] evaluate_portfolio started for user {user_id}", flush=True)
     p = _load(user_id)
-    prices = {}
+    prices, quotes = {}, {}
+    missing, closed = [], []
     positions = p.get("positions", [])
     print(f"[Portfolio] {len(positions)} open virtual positions", flush=True)
     for pos in positions:
         t0 = time.time()
-        price = yahoo_client.fetch_latest_price(pos["symbol"])
+        try:
+            tick = stock_quotes.fetch_quote(pos["symbol"])
+            quotes[pos["symbol"]] = tick
+            price = tick.get("price")
+            pos["quote_at"] = tick.get("market_at")
+            pos["quote_checked_at"] = time.time()
+            pos["quote_tradable"] = bool(tick.get("tradable"))
+            pos["quote_status"] = "ok" if tick.get("tradable") else "market_closed" if not tick.get("market_open") else "unavailable"
+            if not tick.get("market_open"):
+                closed.append(pos["symbol"])
+            elif not tick.get("tradable"):
+                missing.append(pos["symbol"])
+        except Exception:
+            price = None
+            pos["quote_tradable"] = False
+            pos["quote_status"] = "unavailable"
+            missing.append(pos["symbol"])
         print(f"[Portfolio] price fetch {pos['symbol']} took {round(time.time()-t0,2)}s -> {price}", flush=True)
-        if price:
+        if _positive(price):
             prices[pos["symbol"]] = price
 
     new_positions = []
     alerts = []
+
+    def tradable_now(pos):
+        tick = quotes.get(pos["symbol"], {})
+        if stock_quotes.is_tradable(tick):
+            return True
+        pos["quote_tradable"] = False
+        now = time.time()
+        ended = tick.get("regular_end", float("inf")) <= now
+        pos["quote_status"] = "market_closed" if ended or not tick.get("market_open") else "unavailable"
+        bucket = closed if pos["quote_status"] == "market_closed" else missing
+        if pos["symbol"] not in bucket:
+            bucket.append(pos["symbol"])
+        return False
 
     for pos in p.get("positions", []):
         symbol = pos["symbol"]
@@ -125,6 +204,33 @@ def evaluate_portfolio(user_id: int) -> dict:
         pos["unrealized_pct"] = round(unrealized_pct, 2)
         pos["unrealized_eur"] = round(current_value - invested, 2)
 
+        # Closed venues can supply last-close valuations, never synthetic fills.
+        if not tradable_now(pos):
+            new_positions.append(pos)
+            continue
+
+        # Honour already active protection before recalculating from a new quote.
+        stop, kind = effective_stop(pos)
+        tp = pos.get("take_profit")
+        reason = None
+        if stop is not None and price <= stop:
+            reason = f"{'Trailing-Stop' if kind == 'trailing' else 'Stop-Loss'} {stop} € erreicht"
+        elif _positive(tp) and price >= tp:
+            reason = f"Take-Profit {tp} € erreicht"
+        if reason:
+            _sell_position_logic(p, pos, price, reason, auto=True)
+            alerts.append({"type": "sell", "symbol": symbol, "msg": reason, "price": price})
+            continue
+
+        # Fetch slow ATR data BEFORE any protection mutation; another quote or
+        # this request may cross the session end or freshness limit.
+        highest = max(pos.get("highest_price", entry), price)
+        new_trailing = _chandelier_stop(symbol, highest, quotes[symbol]) if config.USE_CHANDELIER_EXIT else None
+        if not tradable_now(pos):
+            new_positions.append(pos)
+            continue
+        previous_effective, _ = effective_stop(pos)
+
         # Breakeven-Stop: ab +4 % Gewinn Stop-Loss auf Einstiegskurs anheben
         be_at = getattr(config, "BREAKEVEN_AT_PCT", 4.0)
         if unrealized_pct >= be_at and pos.get("stop_loss") and pos["stop_loss"] < entry and not pos.get("breakeven_set"):
@@ -137,7 +243,9 @@ def evaluate_portfolio(user_id: int) -> dict:
         if time_exit_days and pos.get("opened_at") and unrealized_pct < 1.0:
             try:
                 opened = datetime.fromisoformat(pos["opened_at"])
-                cal_days = (datetime.utcnow() - opened).days
+                if opened.tzinfo is None:
+                    opened = opened.replace(tzinfo=timezone.utc)
+                cal_days = (datetime.now(timezone.utc) - opened).days
                 # ~10 Handelstage entsprechen ~14 Kalendertagen
                 if cal_days >= round(time_exit_days * 1.4):
                     _sell_position_logic(p, pos, price, f"Time-Exit: {cal_days} Tage ohne Gewinn (<+1 %)", auto=True)
@@ -147,41 +255,43 @@ def evaluate_portfolio(user_id: int) -> dict:
                 pass
 
         # Trailing-Stop: Chandelier Exit (ATR-basiert, Standard) oder fester Prozentsatz
-        pos["highest_price"] = max(pos.get("highest_price", entry), price)
+        pos["highest_price"] = highest
 
         if getattr(config, "USE_CHANDELIER_EXIT", False):
-            # Aktiv ab Einstieg (nicht erst ab +25 %) - entspricht der gebacktesteten Logik.
-            new_trailing = _chandelier_stop(symbol, pos["highest_price"])
-            if new_trailing is not None:
+            # Aktiv ab Einstieg (nicht erst ab +25 %). Existing TP stays active.
+            if _positive(new_trailing):
                 old = pos.get("trailing_stop")
                 if old is None or new_trailing > old:
                     pos["trailing_stop"] = round(new_trailing, 2)
+                    pos["trailing_method"] = "chandelier"
                     msg = f"Chandelier-Exit aktiv bei {pos['trailing_stop']} €" if old is None \
                         else f"Chandelier-Exit angehoben auf {pos['trailing_stop']} €"
                     alerts.append({"type": "info", "symbol": symbol, "msg": msg})
         else:
-            if unrealized_pct >= 25 and "trailing_stop" not in pos:
+            if unrealized_pct >= 25 and not _positive(pos.get("trailing_stop")):
                 pos["trailing_stop"] = round(price * (1 - config.TRAILING_STOP_PCT), 2)
+                pos["trailing_method"] = "fixed_pct"
                 alerts.append({"type": "info", "symbol": symbol, "msg": f"Trailing-Stop aktiviert bei {pos['trailing_stop']} €"})
 
-            if "trailing_stop" in pos and price > pos["highest_price"] * (1 + config.TRAILING_STOP_PCT * 0.5):
+            if _positive(pos.get("trailing_stop")):
                 new_trailing = round(pos["highest_price"] * (1 - config.TRAILING_STOP_PCT), 2)
                 if new_trailing > pos["trailing_stop"]:
                     pos["trailing_stop"] = new_trailing
                     alerts.append({"type": "info", "symbol": symbol, "msg": f"Trailing-Stop angehoben auf {new_trailing} €"})
 
+        effective, kind = effective_stop(pos)
+        pos["effective_stop_loss"], pos["effective_stop_kind"] = effective, kind
+        if effective is not None and (previous_effective is None or effective > previous_effective):
+            pos["stop_last_raised_at"] = time.time()
+
         triggered = False
         reason = None
-        sl = pos.get("stop_loss")
         tp = pos.get("take_profit")
-        tsl = pos.get("trailing_stop")
 
-        if sl and price <= sl:
-            triggered = True; reason = f"Stop-Loss {sl} € erreicht"
-        elif tp and price >= tp:
+        if effective is not None and price <= effective:
+            triggered = True; reason = f"{'Trailing-Stop' if kind == 'trailing' else 'Stop-Loss'} {effective} € erreicht"
+        elif _positive(tp) and price >= tp:
             triggered = True; reason = f"Take-Profit {tp} € erreicht"
-        elif tsl and price <= tsl:
-            triggered = True; reason = f"Trailing-Stop {tsl} € erreicht"
 
         if triggered:
             _sell_position_logic(p, pos, price, reason, auto=True)
@@ -192,13 +302,25 @@ def evaluate_portfolio(user_id: int) -> dict:
     p["positions"] = new_positions
 
     total = _total_value(p, prices)
-    p.setdefault("value_history", []).append({"date": datetime.utcnow().isoformat(), "value": round(total, 2)})
-    if len(p["value_history"]) > 365:
-        p["value_history"] = p["value_history"][-365:]
+    # Preserve every existing point. Sample future history at most every5min,
+    # plus exits; do not truncate365 observations on each refresh.
+    history = p.setdefault("value_history", [])
+    try:
+        last_date = datetime.fromisoformat(history[-1]["date"])
+        if last_date.tzinfo is None:
+            last_date = last_date.replace(tzinfo=timezone.utc)
+        last_sample = last_date.timestamp()
+    except (ValueError, KeyError, IndexError, TypeError):
+        last_sample = 0
+    if time.time() - last_sample >= 300 or any(a["type"] == "sell" for a in alerts):
+        history.append({"date": datetime.utcnow().isoformat(), "value": round(total, 2)})
 
     p["total_value"] = round(total, 2)
     p["total_return_pct"] = round((total - config.START_CAPITAL) / config.START_CAPITAL * 100, 2)
-    _save(user_id, p)
+    p.update(stock_monitor_attempt_at=started, stock_monitor_success_at=time.time(),
+             stock_monitor_missing_symbols=missing, stock_monitor_closed_symbols=closed,
+             stock_rules=stock_rules())
+    _save(user_id, p, background=True)
     elapsed = round(time.time()-started, 2)
     print(f"[Portfolio] evaluate_portfolio finished in {elapsed}s", flush=True)
     p["_diag"] = {
@@ -241,9 +363,14 @@ def _sell_position_logic(portfolio: dict, pos: dict, price: float, reason: str, 
         "pnl_eur": round(proceeds - pos.get("invested", 0), 2),
         "reason": reason,
         "auto": auto,
+        "opened_at": pos.get("opened_at"),
+        "stop_loss": pos.get("stop_loss"), "trailing_stop": pos.get("trailing_stop"),
+        "effective_stop_loss": effective_stop(pos)[0], "take_profit": pos.get("take_profit"),
+        "quote_at": pos.get("quote_at"), "exit_rules_version": "stock_trailing_monitor_v1",
     })
 
 
+@serialized
 def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Optional[float] = None, notify: bool = True) -> dict:
     p = _load(user_id)
     total_value = _total_value(p, {})
@@ -260,8 +387,12 @@ def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Op
         return {"ok": False, "error": "Maximale Anzahl Positionen erreicht"}
 
     if price is None:
-        price = yahoo_client.fetch_latest_price(symbol)
-    if not price or price <= 0:
+        try:
+            tick = stock_quotes.fetch_quote(symbol)
+            price = tick.get("price") if tick.get("tradable") else None
+        except Exception:
+            price = None
+    if not _positive(price):
         return {"ok": False, "error": f"Kein gültiger Kurs für {symbol}"}
 
     amount_eur = min(amount_eur, p["cash"])
@@ -285,8 +416,9 @@ def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Op
         existing["shares"] = total_shares
         existing["entry_price"] = round(avg_price, 4)
         existing["invested"] = round(old_invested + invested, 2)
-        existing["stop_loss"] = round(avg_price * (1 - config.DEFAULT_STOP_PCT), 2)
-        existing["take_profit"] = round(avg_price + (avg_price - existing["stop_loss"]) * config.MIN_RR_RATIO, 2)
+        old_stop = effective_stop(existing)[0] or 0
+        existing["stop_loss"] = max(old_stop, round(avg_price * (1 - config.DEFAULT_STOP_PCT), 2))
+        existing["take_profit"] = existing.get("take_profit") or take_profit
         updated_position = existing
     else:
         new_pos = {
@@ -296,6 +428,7 @@ def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Op
             "invested": round(invested, 2),
             "last_price": round(price, 4),
             "stop_loss": stop_loss,
+            "initial_stop_loss": stop_loss,
             "take_profit": take_profit,
             "opened_at": datetime.utcnow().isoformat(),
             "unrealized_pct": 0.0,
@@ -324,6 +457,7 @@ def buy(user_id: int, symbol: str, price: Optional[float] = None, amount_eur: Op
     return {"ok": True, "position": updated_position, "cash": round(p["cash"], 2)}
 
 
+@serialized
 def sell(user_id: int, symbol: str, price: Optional[float] = None, shares: Optional[float] = None, notify: bool = True) -> dict:
     p = _load(user_id)
     pos = _current_position(p, symbol)
@@ -331,8 +465,12 @@ def sell(user_id: int, symbol: str, price: Optional[float] = None, shares: Optio
         return {"ok": False, "error": f"{symbol} nicht im Depot"}
 
     if price is None:
-        price = yahoo_client.fetch_latest_price(symbol)
-    if not price or price <= 0:
+        try:
+            tick = stock_quotes.fetch_quote(symbol)
+            price = tick.get("price") if tick.get("tradable") else None
+        except Exception:
+            price = None
+    if not _positive(price):
         return {"ok": False, "error": f"Kein gültiger Kurs für {symbol}"}
 
     sell_shares = shares if shares is not None else pos["shares"]

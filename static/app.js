@@ -87,6 +87,121 @@ async function loadPortfolio() {
   }
 }
 
+// Stock-only presentation helpers. These never modify positions or submit trades.
+function stockEscape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+}
+
+function stockPositive(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function stockMoney(value) {
+  const number = stockPositive(value);
+  return number === null ? '—' : fmtEur(number);
+}
+
+function stockBerlinTime(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  let input = value;
+  if (typeof input === 'number') input = input < 1e12 ? input * 1000 : input;
+  if (typeof input === 'string') {
+    input = input.trim().replace(' ', 'T');
+    // Existing stock records used datetime.utcnow().isoformat() without a zone.
+    if (/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(input) && !/(Z|[+-]\d\d:?\d\d)$/i.test(input)) input += 'Z';
+  }
+  const date = new Date(input);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('de-DE', {timeZone:'Europe/Berlin'});
+}
+
+function stockEffectiveStop(position) {
+  const base = stockPositive(position.stop_loss);
+  const trailing = stockPositive(position.trailing_stop);
+  const value = base === null ? trailing : trailing === null ? base : Math.max(base, trailing);
+  if (value === null) return {value:null, kind:'none', label:'Noch kein Stop gespeichert'};
+  if (trailing !== null && (base === null || trailing >= base)) return {value, kind:'trailing', label:'🔒 Trailing'};
+  if (position.breakeven_set) return {value, kind:'breakeven', label:'🔒 Breakeven'};
+  return {value, kind:'stop_loss', label:'Stop-Loss'};
+}
+
+function stockAdviceBadge(advice) {
+  if (!advice) return '';
+  const colors = {gruen:['#2ea043', '🟢', 'NACHKAUFEN'], gelb:['#bb8009', '🟡', 'HALTEN'], rot:['#da3633', '🔴', 'VERKAUFEN']};
+  const [background, icon, fallback] = colors[advice.color] || colors.gelb;
+  const title = (advice.reason || '') + (advice.score != null ? ` (Score ${advice.score}/100)` : '');
+  return `<span title="${stockEscape(title)}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:${background};color:#fff;font-size:11px;font-weight:600;white-space:nowrap;">${icon} ${stockEscape(advice.advice || fallback)}</span>`;
+}
+
+function stockTrailingRule(rules = {}) {
+  const atrPeriod = stockPositive(rules.atr_period) || 22;
+  const atrMultiple = stockPositive(rules.atr_multiple) || 2;
+  const trailingPct = stockPositive(rules.trailing_pct) || 0.08;
+  const fixed = `Fester Abstand ${Number(trailingPct * 100).toLocaleString('de-DE')} %`;
+  return {chandelier:`Chandelier: beobachtetes Kurshoch − ATR(${atrPeriod}) × ${atrMultiple}`, fixed};
+}
+
+function stockPositionDetails(position, rules = {}) {
+  const effective = stockEffectiveStop(position);
+  const methods = stockTrailingRule(rules);
+  const method = position.trailing_method === 'chandelier' ? methods.chandelier
+    : position.trailing_method === 'fixed_pct' ? methods.fixed
+    : position.trailing_method ? String(position.trailing_method) : 'Für diesen Altbestand nicht protokolliert';
+  const quoteLabels = {ok:'Referenzkurs verfügbar (kann verzögert sein)', market_closed:'Markt geschlossen – letzter verfügbarer Referenzkurs', unavailable:'Kein aktuell nutzbarer Referenzkurs'};
+  const quoteStatus = quoteLabels[position.quote_status] || position.quote_status || 'Kursstatus noch nicht protokolliert';
+  const trailingNote = stockPositive(position.trailing_stop) !== null && effective.kind !== 'trailing'
+    ? ' (unter dem wirksamen Stop; derzeit nicht maßgeblich)' : '';
+  const rows = [
+    ['Kaufdatum / Uhrzeit (Berlin)', stockBerlinTime(position.opened_at)],
+    ['Kaufkurs', stockMoney(position.entry_price)],
+    ['Stück', position.shares ?? '—'],
+    ['Ursprünglicher Einsatz', stockMoney(position.invested)],
+    ['Ursprünglicher Stop-Loss', stockPositive(position.initial_stop_loss) === null ? 'Nicht gespeichert (Altbestand)' : stockMoney(position.initial_stop_loss)],
+    [position.breakeven_set ? 'Aktueller Basis-SL (Breakeven)' : 'Aktueller Basis-SL', stockMoney(position.stop_loss)],
+    ['Gespeicherter Trailing-Stop', stockMoney(position.trailing_stop) + trailingNote],
+    ['Wirksamer Stop', effective.value === null ? '—' : `${stockMoney(effective.value)} · ${effective.label}`],
+    ['Höchster beobachteter Kurs seit Kauf', stockMoney(position.highest_price)],
+    ['Take-Profit (weiterhin aktiv)', stockMoney(position.take_profit)],
+    ['Zuletzt gespeicherte Trailing-Methode', method],
+    ['Wirksamen Stop zuletzt angehoben (Berlin)', stockBerlinTime(position.stop_last_raised_at)],
+    ['Referenzkurs vom (Berlin)', stockBerlinTime(position.quote_at)],
+    ['Kursstatus', quoteStatus]
+  ];
+  return `<details class="stock-position-details"><summary class="refresh-btn" style="cursor:pointer;white-space:nowrap;">Details</summary><div style="min-width:290px;max-width:430px;white-space:normal;padding:12px 0;font-size:12px;line-height:1.6;">${rows.map(([label, value]) => `<div style="margin-bottom:7px;"><span style="color:#8b949e;">${stockEscape(label)}</span><br><strong>${stockEscape(value)}</strong></div>`).join('')}<p style="color:#8b949e;">Das Kurshoch umfasst nur tatsächlich beobachtete Referenzkurse, nicht jedes zwischenzeitliche Börsenhoch. SL und TP sind virtuelle Ausstiegsregeln, keine bei Trade Republic hinterlegten Orders.</p></div></details>`;
+}
+
+function renderStockMonitoring(portfolio) {
+  const status = document.getElementById('stock-monitor-status');
+  const ruleNote = document.getElementById('stock-rules-note');
+  const monitor = portfolio.stock_monitor;
+  if (status) {
+    if (!monitor) {
+      status.textContent = 'Serverseitige Stop-Prüfung: Status noch nicht verfügbar. Das Laden der Anzeige ist kein Nachweis einer Kursprüfung.';
+    } else {
+      const checked = stockBerlinTime(monitor.last_success_at);
+      const attempted = stockBerlinTime(monitor.last_attempt_at);
+      const interval = stockPositive(monitor.interval_seconds);
+      const missing = Array.isArray(monitor.missing_symbols) ? monitor.missing_symbols : [];
+      const closed = Array.isArray(monitor.closed_symbols) ? monitor.closed_symbols : [];
+      let text = `Serverseitige Stop-Prüfung: ${monitor.healthy === true ? 'aktiv' : 'Status prüfen'}${interval ? ` · vorgesehen alle ${interval} Sekunden` : ''}. Letzter erfolgreicher Durchlauf (Berlin): ${checked}.`;
+      if (monitor.healthy !== true && monitor.last_attempt_at) text += ` Letzter Versuch: ${attempted}.`;
+      if (missing.length) text += ` ⚠ Keine nutzbaren Kurse: ${missing.join(', ')}.`;
+      else if (monitor.data_complete === false) text += ' ⚠ Kursdaten unvollständig.';
+      if (closed.length) text += ` Markt geschlossen: ${closed.join(', ')} – letzter Kurs bleibt sichtbar; keine Ausführung zu alten Kursen.`;
+      status.textContent = text;
+    }
+  }
+  if (ruleNote) {
+    const rules = portfolio.stock_rules || {};
+    const methods = stockTrailingRule(rules);
+    const fixedEnabled = rules.chandelier_enabled === false;
+    const method = fixedEnabled ? methods.fixed : methods.chandelier;
+    const breakeven = stockPositive(rules.breakeven_at_pct);
+    const activation = stockPositive(rules.fixed_activation_pct);
+    ruleNote.textContent = `Trailing-Regel: ${method}.${fixedEnabled && activation ? ` Aktivierung ab ${activation} % Kursgewinn.` : ''}${!fixedEnabled ? ' Bei fehlendem ATR bleibt der vorhandene Stop unverändert. Prozent-Trailing gilt nur bei deaktiviertem Chandelier, nicht als Ersatz bei fehlenden ATR-Daten.' : ''}${breakeven ? ` Breakeven ab ${breakeven} % Kursgewinn.` : ''} Der wirksame Stop ist der höhere Wert aus Basis-SL und Trailing; er wird nicht abgesenkt. Ein vorhandenes Take-Profit bleibt aktiv und kann vorher auslösen.${portfolio.stock_rules_note ? ` ${portfolio.stock_rules_note}` : ''}`;
+  }
+}
+
 function renderPortfolio(p, alerts) {
   const positions = p.positions || [];
   const realPositions = p.real_positions || [];
@@ -94,6 +209,7 @@ function renderPortfolio(p, alerts) {
   const total = p.total_value || 0;
   const invested = total - p.cash;
   const returnPct = p.total_return_pct || 0;
+  renderStockMonitoring(p);
   summary.innerHTML = `
     <div class="card"><div class="card-label">Depotwert</div><div class="card-value ${returnPct >= 0 ? 'green' : 'red'}">${fmtEur(total)}</div></div>
     <div class="card"><div class="card-label">Cash</div><div class="card-value neutral">${fmtEur(p.cash)}</div></div>
@@ -114,25 +230,31 @@ function renderPortfolio(p, alerts) {
   if (positions.length === 0) {
     posDiv.innerHTML = '<div class="no-data">Keine offenen Positionen. Starte eine Analyse und kaufe virtuell.</div>';
   } else {
-    let html = '<table><tr><th>Symbol</th><th>Einstieg</th><th>Aktuell</th><th>Stück</th><th>Investiert</th><th>Gewinn</th><th>Empfehlung</th><th>SL</th><th>TP</th><th></th></tr>';
+    let html = '<table><tr><th>Symbol</th><th>Einstieg</th><th>Aktuell</th><th>Stück</th><th>Investiert</th><th>Gewinn</th><th>Empfehlung</th><th>SL (wirksam)</th><th>TP</th><th></th><th>Details</th></tr>';
     for (const pos of positions) {
       const pnlClass = pos.unrealized_eur >= 0 ? 'pnl-pos' : 'pnl-neg';
+      const effectiveStop = stockEffectiveStop(pos);
       html += `<tr>
-        <td><strong>${pos.symbol}</strong><br><span style="color:#8b949e;font-size:12px;">${symbolName(pos.symbol)}</span></td>
+        <td><strong>${stockEscape(pos.symbol)}</strong><br><span style="color:#8b949e;font-size:12px;">${stockEscape(symbolName(pos.symbol))}</span></td>
         <td>${fmtEur(pos.entry_price)}</td>
         <td>${fmtEur(pos.last_price)}</td>
-        <td>${pos.shares}</td>
+        <td>${stockEscape(pos.shares)}</td>
         <td>${fmtEur(pos.invested)}</td>
         <td class="${pnlClass}">${fmtEur(pos.unrealized_eur)} (${fmtPct(pos.unrealized_pct)})</td>
-        <td>${adviceBadge(pos.advice)}</td>
-        <td>${pos.stop_loss ? fmtEur(pos.stop_loss) : '-'}</td>
+        <td>${stockAdviceBadge(pos.advice)}</td>
+        <td style="white-space:nowrap;">${stockMoney(effectiveStop.value)}<br><span style="font-size:11px;color:#8b949e;">${stockEscape(effectiveStop.label)}</span></td>
         <td>${pos.take_profit ? fmtEur(pos.take_profit) : '-'}</td>
-        <td><button class="btn-sell" onclick="quickSell('${pos.symbol}')">Verkaufen</button></td>
+        <td><button class="btn-sell" data-stock-sell-symbol="${stockEscape(pos.symbol)}">Verkaufen</button></td>
+        <td>${stockPositionDetails(pos, p.stock_rules || {})}</td>
       </tr>`;
     }
     html += '</table>';
     posDiv.innerHTML = html;
   }
+  posDiv.onclick = event => {
+    const button = event.target.closest && event.target.closest('button[data-stock-sell-symbol]');
+    if (button && posDiv.contains(button)) quickSell(button.getAttribute('data-stock-sell-symbol'));
+  };
 
   // Historie-V GuV
   const virtualGuV = p.virtual_guv || {};

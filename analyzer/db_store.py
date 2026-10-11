@@ -520,7 +520,7 @@ def load_portfolio(user_id: int) -> Optional[dict]:
     return None
 
 
-def save_portfolio(user_id: int, p: dict):
+def save_portfolio(user_id: int, p: dict, *, automatic_backup=True):
     if not user_id:
         return
     with get_conn() as conn:
@@ -530,7 +530,8 @@ def save_portfolio(user_id: int, p: dict):
             (user_id, json.dumps(p, default=str), _now())
         )
     # Kopie der DB sofort ins Git-Repo/auf Disk, aber asynchron, damit der Request nicht blockiert.
-    backup_db()
+    if automatic_backup:
+        backup_db()
 
 
 # --- Krypto-Depot (separat, unabhaengig vom Aktien-Portfolio) ---
