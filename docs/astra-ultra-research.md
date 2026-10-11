@@ -1,5 +1,18 @@
 # Astra Ultra: Forschung und ausgewählter virtueller 4H-Vergleich
 
+> Versionshinweis vom 11.10.2026: Die laufende Strategie wird auf Nutzerwunsch als
+> `astra_breakout_2h_v2` mit 2H-Kerzen weitergeführt. Dieser Bericht bleibt der
+> unveränderte Forschungsstand der früheren 4H-Version `astra_breakout_4h_v1`.
+> Insbesondere +5,79 % über 360 Tage und die historische Signalkonsistenz gelten
+> **nicht** als Backtest oder Validierung der neuen 2H-Version. Dafür wurde hier
+> kein neuer historischer Lauf ausgeführt. Kapital und Vorgeschichte bleiben im
+> laufenden Vergleich erhalten; dessen Gesamtrendite ist keine isolierte
+> 2H-Rendite. Aktuelle Regeln und Versionswechsel: `astra-ultra-operations.md`.
+> Der unten dokumentierte `--verify-live-signals`-Abgleich lädt die lokale Engine
+> und benötigt deshalb den damaligen 4H-Code, etwa Revision `62f520d`, in einer
+> separaten sauberen Arbeitskopie. Mit der neuen 2H-Engine reproduziert er nicht
+> die historische 4H-Signalkonsistenz. Die gespeicherten Ergebnisse bleiben erhalten.
+
 Forschungsstand: 10.10.2026. Marktbeobachtungen bis 10.10.2026, 15:00 UTC. Vollständig virtuell; keine Kontozugriffe, Orders oder Veröffentlichungen.
 
 **Ergebnis: ein aussichtsreicher, aber unbestätigter 4H-Kandidat für den virtuellen Vorwärtstest.** Die ausgewählte Version erzielt über 360 Tage +5,79 % nach Modellkosten und bleibt in zwei zusätzlichen Kostenszenarien positiv. Der größte historische Rückgang beträgt bei stündlicher Bewertung 9,16 %. Zwei der vier getrennten 90-Tage-Abschnitte sind negativ; ohne den Beitrag des größten Gewinntrades wird die Gesamtbilanz negativ. Das ist eine überprüfbare Forschungshypothese, keine belastbar profitable oder allgemein „beste“ Strategie.

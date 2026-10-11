@@ -16,13 +16,16 @@ from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "astra_breakout_4h_v1"
-RULES = dict(symbols=["BTC", "ETH", "SOL"], bar_seconds=14400, warmup_bars=500, entry_channel=24,
+VERSION = "astra_breakout_2h_v2"
+RULES = dict(symbols=["BTC", "ETH", "SOL"], bar_seconds=7200, warmup_bars=500, entry_channel=24,
              exit_channel=12, ema_period=200, atr_period=14, stop_atr=2,
              risk_pct=0.005, max_open_risk_pct=0.01, max_positions=2,
              max_notional_pct=0.40, leverage=1, max_hold_hours=336,
              fee_pct=0.002, slippage_pct=0.0005, direction="LONG")
 RULE_HASH = hashlib.sha256(json.dumps(RULES, sort_keys=True).encode()).hexdigest()
+PREVIOUS_VERSION = "astra_breakout_4h_v1"
+PREVIOUS_RULES = dict(copy.deepcopy(RULES), bar_seconds=14400)
+PREVIOUS_RULE_HASH = hashlib.sha256(json.dumps(PREVIOUS_RULES, sort_keys=True).encode()).hexdigest()
 INTERVAL = 30
 MAX_AGE = 90
 ENTRY_WINDOW = 180
@@ -79,6 +82,7 @@ def seed(p, strategy, now):
     if capital <= 0 or not 0 <= now - number(p.get("monitor_success_at", 0)) <= MAX_AGE:
         raise ValueError("source_not_fresh_or_empty")
     return dict(version=VERSION, rule_hash=RULE_HASH, rules=copy.deepcopy(RULES), started_at=now,
+                version_started_at=now, prior_versions=[],
                 initial_capital=capital, cash=capital, positions=[], trades=[], equity=capital,
                 peak=capital, max_drawdown_pct=0, fees_paid=0, last_attempt_at=None,
                 last_success_at=None, last_bar_end=int(now // RULES["bar_seconds"]) * RULES["bar_seconds"],
@@ -92,6 +96,32 @@ def seed(p, strategy, now):
                 baseline_strategy=strategy, baseline_strategy_changes=[], baseline_invalid=[],
                 baseline_equity=capital, baseline_peak=capital, baseline_max_drawdown_pct=0,
                 baseline_costs=0, baseline_closed_count=0)
+
+
+def carry_forward(previous, now):
+    """Explicit 4H -> 2H transition: same account, no reset or backdated fills.
+
+    The old database row remains untouched. Entry facts and stops are retained;
+    any inherited open position uses the new channel for future management.
+    """
+    if (previous.get("version") != PREVIOUS_VERSION
+            or previous.get("rule_hash") != PREVIOUS_RULE_HASH
+            or previous.get("rules") != PREVIOUS_RULES):
+        raise ValueError("version_transition_requires_capital_carry_forward")
+    s = copy.deepcopy(previous)
+    s.setdefault("prior_versions", []).append(dict(
+        version=previous["version"], started_at=previous.get("version_started_at", previous["started_at"]),
+        ended_at=now, equity=previous["equity"], cash=previous["cash"],
+        closed_count=len(previous["trades"]), positions_count=len(previous["positions"]),
+        rule_hash=previous["rule_hash"], rules=copy.deepcopy(previous["rules"])))
+    s.update(version=VERSION, rule_hash=RULE_HASH, rules=copy.deepcopy(RULES),
+             version_started_at=now, version_change_reason="User-requested 4H to 2H transition",
+             last_bar_end=int(now // RULES["bar_seconds"]) * RULES["bar_seconds"],
+             last_sample_at=None)
+    for pos in s["positions"]:
+        pos.setdefault("rules", copy.deepcopy(PREVIOUS_RULES))
+        pos.update(management_version=VERSION, management_rules=copy.deepcopy(RULES))
+    return s
 
 
 def exit_cost(pos, price):
@@ -150,7 +180,8 @@ def fetch_bars(symbol):
     # Bounded pagination. Public history may cap a response below the requested
     # limit. Six requests suffice for500confirmed bars at100/page; otherwise fail.
     for _ in range(6):
-        batch = public_get(symbol, "history-candles?bar=4H&limit=300" + ("&after=" + str(cursor) if cursor else ""))
+        bar = str(RULES["bar_seconds"] // 3600) + "H"
+        batch = public_get(symbol, "history-candles?bar=" + bar + "&limit=300" + ("&after=" + str(cursor) if cursor else ""))
         if not batch:
             break
         for r in batch:
@@ -204,7 +235,7 @@ def signal(rows, now):
     upper = max(b["high"] for b in bars[-25:-1])
     lower = min(b["low"] for b in bars[-13:-1])
     close = bars[-1]["close"]
-    return dict(bar_end=bar_end, close=close, ema200=ema, atr14=atr,
+    return dict(bar_end=bar_end, bar_seconds=RULES["bar_seconds"], close=close, ema200=ema, atr14=atr,
                 upper24=upper, lower12=lower, enter=close > upper and close > ema,
                 exit=close < lower)
 
@@ -263,7 +294,8 @@ def open_position(s, symbol, sig, price, now):
                quantity=quantity, entry_price=fill, entry_reference=price, entry_total=total,
                entry_fee=fee, margin_eur=quantity * fill, opened_at=now, stop_loss=stop,
                take_profit=None, planned_risk=quantity * loss_per_unit,
-               last_price=price, quote_at=now, signal=copy.deepcopy(sig), version=VERSION)
+               last_price=price, quote_at=now, signal=copy.deepcopy(sig), version=VERSION,
+               rules=copy.deepcopy(RULES), management_version=VERSION, management_rules=copy.deepcopy(RULES))
     s["cash"] -= total
     s["fees_paid"] += fee
     s["positions"].append(pos)
@@ -342,7 +374,7 @@ def step(s, bars, quote, clock=time.time):
                     existing.update(last_price=price, quote_at=market_at)
                     reason = ("Stop-Loss" if price <= existing["stop_loss"] else
                               "Zeit-Exit 336h" if clock() - existing["opened_at"] >= RULES["max_hold_hours"] * 3600 else
-                              "12-Kerzen-Kanal (48h) nach unten gebrochen" if sig["exit"] else None)
+                              f"12-Kerzen-Kanal ({RULES['exit_channel'] * RULES['bar_seconds'] // 3600}h) nach unten gebrochen" if sig["exit"] else None)
                     if reason:
                         close_position(s, existing, price, clock(), reason)
                         closed_this_cycle.add(symbol)
@@ -379,6 +411,8 @@ def step(s, bars, quote, clock=time.time):
         s["data_errors"] += 1
     else:
         s["last_success_at"] = clock()
+    for d in decisions:
+        d.update(version=VERSION, timeframe_hours=RULES["bar_seconds"] // 3600)
     return decisions
 
 
@@ -389,12 +423,13 @@ def cycle(path, uid=1, bars=fetch_bars, quote=fetch_quote, clock=time.time):
         return
     with closing(connect(path, True)) as c:
         row = c.execute("SELECT data FROM astra_ultra_runs WHERE user_id=? AND version=?", (uid, VERSION)).fetchone()
-        older = c.execute("SELECT version FROM astra_ultra_runs WHERE user_id=?", (uid,)).fetchone()
+        older = c.execute("SELECT version,data FROM astra_ultra_runs WHERE user_id=?", (uid,)).fetchall()
     if not row and older:
-        # A later code version must migrate/carry forward the same paper capital
-        # explicitly. It must not erase a losing run by silently reseeding.
-        raise ValueError("version_transition_requires_capital_carry_forward")
-    s = json.loads(row[0]) if row else seed(p, strategy, now)
+        if len(older) != 1 or older[0]["version"] != PREVIOUS_VERSION:
+            raise ValueError("version_transition_requires_capital_carry_forward")
+        s = carry_forward(json.loads(older[0]["data"]), now)
+    else:
+        s = json.loads(row[0]) if row else seed(p, strategy, now)
     source_fresh = 0 <= now - number(p.get("monitor_success_at", 0)) <= MAX_AGE and not p.get("monitor_missing_symbols")
     if source_fresh:
         benchmark(s, p, strategy, now)
@@ -423,12 +458,23 @@ def report(path, uid, now=None):
         if not row:
             return dict(ok=True, started=False, version=VERSION)
         s = json.loads(row[0])
-        decisions = [json.loads(r[0]) for r in c.execute("SELECT data FROM astra_ultra_decisions WHERE user_id=? AND version=? ORDER BY bar_end DESC,symbol LIMIT 100", (uid, VERSION))]
-        curve = [dict(json.loads(r[1]), at=r[0]) for r in c.execute("SELECT observed_at,data FROM astra_ultra_equity WHERE user_id=? AND version=? ORDER BY observed_at DESC LIMIT 500", (uid, VERSION))]
-        daily = [dict(json.loads(r[1]), at=r[0]) for r in c.execute("""SELECT observed_at,data FROM astra_ultra_equity
-                  WHERE user_id=? AND version=? AND observed_at IN (
-                    SELECT MAX(observed_at) FROM astra_ultra_equity WHERE user_id=? AND version=?
-                    GROUP BY CAST(observed_at/86400 AS INTEGER)) ORDER BY observed_at DESC LIMIT 90""", (uid, VERSION, uid, VERSION))]
+        versions = list(dict.fromkeys([v["version"] for v in s.get("prior_versions", [])] + [VERSION]))
+        hours = {v["version"]: v["rules"]["bar_seconds"] // 3600 for v in s.get("prior_versions", [])}
+        hours[VERSION] = RULES["bar_seconds"] // 3600
+        where = "user_id=? AND version IN (" + ",".join("?" for _ in versions) + ")"
+        args = (uid, *versions)
+        decisions = [dict(json.loads(r["data"]), version=r["version"], timeframe_hours=hours[r["version"]])
+                     for r in c.execute("SELECT version,data FROM astra_ultra_decisions WHERE " + where +
+                                        " ORDER BY bar_end DESC,symbol LIMIT 100", args)]
+        curve = [dict(json.loads(r["data"]), at=r["observed_at"], version=r["version"])
+                 for r in c.execute("SELECT version,observed_at,data FROM astra_ultra_equity WHERE " + where +
+                                    " ORDER BY observed_at DESC LIMIT 500", args)]
+        daily = [dict(json.loads(r["data"]), at=r["observed_at"], version=r["version"])
+                 for r in c.execute("""SELECT version,observed_at,data FROM (
+                   SELECT version,observed_at,data,ROW_NUMBER() OVER (
+                     PARTITION BY CAST(observed_at/86400 AS INTEGER) ORDER BY observed_at DESC,version DESC) AS rn
+                   FROM astra_ultra_equity WHERE """ + where +
+                                    ") WHERE rn=1 ORDER BY observed_at DESC LIMIT 90", args)]
     # Never expose snapshots of unrelated historical source trades to the client.
     for key in ("baseline_old_trades", "baseline_seen_trades", "baseline_seen_open", "baseline_inherited"):
         if key == "baseline_inherited":

@@ -258,26 +258,30 @@
       <p style="color:#8b949e;">Eigenständiges Testdepot, entwickelt und geprüft mit GPT‑6 Astra (Ultra).
         Die laufenden Handelsregeln sind fest programmiert – keine laufenden KI-Aufrufe, keine echten Orders und keine Telegram-Orderfreigaben.</p>
       <div id="astra-status" class="no-data" role="status">Vergleich wird geladen …</div>
+      <div class="section-title">🕒 Aktuelle 2H-Version und erhaltene Versionshistorie</div>
+      <div id="astra-versions" style="overflow-x:auto;"></div>
       <div id="astra-summary" class="summary-grid"></div>
-      <div class="section-title">📊 Seit demselben Startzeitpunkt</div>
+      <div class="section-title">📊 Seit demselben ursprünglichen Testbeginn · alle Versionen</div>
       <div id="astra-comparison" style="overflow-x:auto;"></div>
       <div class="section-title">📂 Offene Astra-Positionen</div>
       <div id="astra-positions" style="overflow-x:auto;"></div>
       <div class="section-title">📝 Abgeschlossene Astra-Trades</div>
       <div id="astra-trades" style="overflow-x:auto;"></div>
-      <div class="section-title">💡 4-Stunden-Prüfungen · auch „Abwarten“ wird protokolliert</div>
+      <div class="section-title">💡 2-Stunden-Prüfungen · frühere 4H-Entscheidungen bleiben gekennzeichnet</div>
       <div id="astra-decisions" style="overflow-x:auto;"></div>
-      <div class="section-title">🔬 Historischer Forschungsstand · kein Renditeversprechen</div>
+      <div class="section-title">🔬 Frühere 4H-Forschung · kein Backtestnachweis für die aktuelle 2H-Version</div>
       <p><a class="refresh-btn" href="/api/crypto/astra_ultra/research">Forschungsbericht mit allen Varianten und Quellen herunterladen</a></p>
       <p style="color:#8b949e;">Auswahl am 10.10.2026, gemeinsames Testende 14:00 Uhr Berlin.
         Drei Coins, begrenztes Modellkapital, 0,20% Gebühr + 0,05% Slippage je Seite.
-        Alle betrachteten Zeiträume sind bekannte Auswahldaten; erst der laufende Test liefert neue Beobachtungen.</p>
+        Alle betrachteten Zeiträume sind bekannte Auswahldaten. Die Änderung auf 2H am 11.10.2026
+        ist eine neue, historisch nicht validierte Version; die folgenden 4H-Ergebnisse gelten nicht für sie.</p>
       <div style="overflow-x:auto;"><table><thead><tr><th>Kandidat</th><th>90 Tage</th><th>180 Tage</th><th>360 Tage</th><th>Einordnung</th></tr></thead><tbody>
-        <tr><td>Astra · 4H-Trendausbruch (24/12)</td><td>+10,98%</td><td>+7,85%</td><td>+5,79%</td><td>Gewählter Testkandidat, nicht bewiesener Sieger</td></tr>
+        <tr><td>Astra · frühere 4H-Version (24/12)</td><td>+10,98%</td><td>+7,85%</td><td>+5,79%</td><td>Nur historische 4H-Auswahl; kein Nachweis für 2H</td></tr>
+        <tr><td>Astra · aktuelle 2H-Version (24/12)</td><td colspan="3">Kein eigener historischer Backtest vorgelegt</td><td>Neue virtuelle Vorwärtsbeobachtung, kein bewiesener Sieger</td></tr>
         <tr><td>Astra · 1H-Ausbruch (24/12)</td><td colspan="2">Kurzfristig teilweise positiv</td><td>−21,83%*</td><td>Verworfen: schwaches Langzeitergebnis</td></tr>
         <tr><td>Cash · keine Position</td><td>0%</td><td>0%</td><td>0%</td><td>Ohne Zinsen / Wechselkurseffekt</td></tr>
       </tbody></table></div>
-      <p style="color:#d29922;">Wichtige Einschränkung: Zwei von vier getrennten 90-Tage-Blöcken der gewählten Variante waren negativ.
+      <p style="color:#d29922;">Wichtige Einschränkung: Zwei von vier getrennten 90-Tage-Blöcken der früheren 4H-Variante waren negativ.
         Ohne den größten Gewinntrade wäre ihr Gesamtergebnis negativ. Auch +5,79% beweisen deshalb keinen dauerhaften Vorteil.
         *Der erste 1H-Lauf endete drei Stunden später; kein minutengenau identisches Vergleichsfenster.</p>
       <details style="margin:20px 0;"><summary>Depotverlauf · letzter beobachteter Stand je UTC-Tag</summary>
@@ -285,15 +289,17 @@
       </details>
       <details style="margin:20px 0;">
         <summary>Regeln, Kosten und Grenzen des Vergleichs</summary>
-        <p>Version 1: BTC, ETH und SOL. LONG/Spot 1×. Einstieg erst nach abgeschlossener 4H-Kerze:
-          Schlusskurs über dem Hoch der vorherigen 24 Kerzen (96 Stunden) und über EMA200.
+        <p>Version 2 (astra_breakout_2h_v2): BTC, ETH und SOL. LONG/Spot 1×. Einstieg erst nach abgeschlossener 2H-Kerze:
+          Schlusskurs über dem Hoch der vorherigen 24 Kerzen (48 Stunden) und über EMA200 auf 2H-Kerzen.
           Anfangs-Stop 2× ATR14 unter dem ausgeführten Modellkurs. Ausstieg bei Stop,
-          Schluss unter dem vorherigen 12-Kerzen-Tief (48 Stunden) oder spätestens nach 336 Stunden. Kein festes TP.
-          EMA und ATR werden reproduzierbar aus genau den letzten 500 abgeschlossenen 4H-Kerzen berechnet.</p>
+          Schluss unter dem vorherigen 12-Kerzen-Tief (24 Stunden) oder spätestens nach 336 Stunden. Kein festes TP.
+          EMA und ATR werden reproduzierbar aus genau den letzten 500 abgeschlossenen 2H-Kerzen berechnet.
+          Vor dem Wechsel eröffnete Positionen behalten Kaufwerte, Gebühren und ihren bestehenden Stop.
+          Ihre Kanal-Ausstiege folgen ab dem Wechsel den neuen 2H-Regeln; Details trennen Kauf- und Ausstiegsversion.</p>
         <p>Geplantes Stop-Risiko einschließlich Modellkosten höchstens 0,5% des Depotwerts pro Kauf,
           insgesamt höchstens 1%; maximal zwei Positionen und je 40% Positionswert.
           Das sind Planwerte, keine Verlustgarantie bei Kurslücken oder Datenausfällen.
-          Einstieg nur unmittelbar nach dem 4H-Schluss, kein rückwirkendes Auffüllen verpasster Trades.</p>
+          Einstieg nur in den ersten drei Minuten nach dem 2H-Schluss, kein rückwirkendes Auffüllen verpasster Trades.</p>
         <p>Beide Vergleichsseiten: 0,20% Gebühren + 0,05% angenommene Slippage pro Seite.
           Offene Positionen einschließlich geschätzter Ausstiegskosten. Astra nutzt nachteilige Modell-Ausführungskurse;
           beim bisherigen Depot werden Kosten rechnerisch ergänzt. USDT-Referenzkurse, proportionale EUR-Modellrechnung,
@@ -303,7 +309,8 @@
           Etwaige Altpositionen und Strategiewechsel werden ausgewiesen. Historische Gewinne vor dem Start zählen nicht mit.</p>
         <p>Prüfung etwa alle fünf Tage; Änderungen bekommen eine neue Version, alte Ergebnisse bleiben erhalten.
           Wenige Tage oder einzelne Gewinne reichen nicht für einen Sieger. Kontostände bleiben bei Neustarts erhalten.
-          Kurse werden etwa alle 30 Sekunden geprüft; 4H-Regeln nur bei abgeschlossenen Kerzen.</p>
+          Kurse werden unverändert etwa alle 30 Sekunden geprüft; neue 2H-Regeln nur bei abgeschlossenen Kerzen.
+          Kürzere Kerzen bedeuten weder garantierte Trades noch eine belegte Verbesserung.</p>
       </details>
     </div>
 
@@ -368,6 +375,6 @@
   </div>
 <script src="/static/app.js?v=29"></script>
 <script src="/static/crypto_exit_shadow.js?v=1"></script>
-<script src="/static/astra_ultra.js?v=1"></script>
+<script src="/static/astra_ultra.js?v=2"></script>
 </body>
 </html>

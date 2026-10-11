@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-B = 14400
+B = 7200
 spec = importlib.util.spec_from_file_location('astra_test', ROOT/'analyzer/astra_ultra.py')
 a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)
@@ -54,6 +54,18 @@ class AstraTests(unittest.TestCase):
         self.now = int(self.now//B)*B+B+10
         self.persist()
 
+    def previous_run(self, **updates):
+        s = a.seed(self.p, 'volume_confirmed', self.now - 86400)
+        s.update(version=a.PREVIOUS_VERSION, rule_hash=a.PREVIOUS_RULE_HASH,
+                 rules=copy.deepcopy(a.PREVIOUS_RULES))
+        s.update(updates)
+        # Legacy rows did not yet contain explicit version-start metadata.
+        s.pop('version_started_at', None)
+        s.pop('prior_versions', None)
+        with closing(sqlite3.connect(self.path)) as c, c:
+            c.execute('INSERT INTO astra_ultra_runs VALUES(1,?,?)', (a.PREVIOUS_VERSION, json.dumps(s)))
+        return s
+
     def test_seed_matches_source_equity_not_free_cash(self):
         self.p['positions']=[dict(id='old',margin_eur=100,leverage=2,entry_price=100,last_price=110,unrealized_eur=20)]
         self.p['cash']=900
@@ -84,6 +96,23 @@ class AstraTests(unittest.TestCase):
         self.assertEqual(sig['upper24'],101)
         rows.insert(0,[int(self.now//B*B*1000),'1','99999','1','9999','1','1','1','0'])
         self.assertEqual(a.signal(rows,self.now),sig)
+
+    def test_fetch_requests_confirmed_two_hour_bars(self):
+        rows = self.candles()
+        with patch.object(a, 'public_get', return_value=rows) as get:
+            self.assertEqual(len(a.fetch_bars('BTC')), 500)
+        self.assertEqual(get.call_args.args, ('BTC', 'history-candles?bar=2H&limit=300'))
+
+    def test_two_hour_boundary_between_old_four_hour_checks(self):
+        self.now = int(self.now // 14400) * 14400 + 600
+        self.persist(); self.cycle(); self.next_hour()
+        self.assertEqual(int(self.now // B) * B % 14400, 7200)
+        s = self.cycle()
+        self.assertEqual(len(s['positions']), 2)
+        decisions = a.report(self.path, 1, self.now)['decisions']
+        self.assertEqual(len(decisions), 3)
+        self.assertTrue(all(d['timeframe_hours'] == 2 and d['version'] == a.VERSION for d in decisions))
+        self.assertTrue(all(p['signal']['bar_seconds'] == B for p in s['positions']))
 
     def test_gap_stale_invalid_candles_fail(self):
         self.next_hour()
@@ -224,6 +253,86 @@ class AstraTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as c,c:
             c.execute("UPDATE astra_ultra_runs SET version='previous-version'")
         with self.assertRaisesRegex(ValueError,'capital_carry_forward'):self.cycle()
+
+    def test_four_hour_migration_preserves_loss_history_and_baseline(self):
+        self.p['monitor_success_at'] = self.now - 86400
+        old = self.previous_run(cash=900, equity=900, peak=1050, max_drawdown_pct=15,
+                                fees_paid=4, trades=[dict(id='loss', pnl_eur=-100, version=a.PREVIOUS_VERSION)])
+        self.p['cash'] = 2000; self.persist()
+        s = self.cycle()
+        self.assertEqual(s['initial_capital'], 1000)
+        self.assertEqual(s['cash'], 900)
+        self.assertEqual(s['equity'], 900)
+        self.assertEqual(s['started_at'], old['started_at'])
+        self.assertEqual(s['version_started_at'], self.now)
+        self.assertEqual(s['trades'], old['trades'])
+        self.assertEqual(s['fees_paid'], 4)
+        self.assertEqual(s['max_drawdown_pct'], 15)
+        self.assertEqual(s['baseline_start_equity'], 1000)
+        self.assertEqual(s['prior_versions'][0]['equity'], 900)
+        self.assertEqual(s['prior_versions'][0]['rules']['bar_seconds'], 14400)
+        self.bars.assert_not_called()
+        with closing(sqlite3.connect(self.path)) as c:
+            archived = json.loads(c.execute('SELECT data FROM astra_ultra_runs WHERE version=?', (a.PREVIOUS_VERSION,)).fetchone()[0])
+        self.assertEqual(archived, old)
+        again = self.cycle()
+        self.assertEqual(again['prior_versions'], s['prior_versions'])
+        self.assertEqual(again['cash'], 900)
+
+    def test_migration_preserves_open_entry_and_stop_then_monitors(self):
+        self.p['monitor_success_at'] = self.now - 86400
+        old = self.previous_run()
+        sig = dict(atr14=2, close=102, bar_end=self.now - 86400, bar_seconds=14400)
+        a.open_position(old, 'BTC', sig, 102, self.now - 86400)
+        pos = old['positions'][0]
+        pos['version'] = a.PREVIOUS_VERSION
+        for key in ('rules', 'management_rules', 'management_version'):
+            pos.pop(key)
+        with closing(sqlite3.connect(self.path)) as c, c:
+            c.execute('UPDATE astra_ultra_runs SET data=?', (json.dumps(old),))
+        self.persist()
+        migrated = self.cycle()
+        p = migrated['positions'][0]
+        for key in ('version', 'opened_at', 'entry_price', 'entry_total', 'entry_fee', 'quantity', 'stop_loss', 'signal'):
+            self.assertEqual(p[key], pos[key])
+        self.assertEqual(migrated['cash'], old['cash'])
+        self.assertEqual(p['rules'], a.PREVIOUS_RULES)
+        self.assertEqual(p['management_version'], a.VERSION)
+        self.assertEqual(p['management_rules'], a.RULES)
+        self.now += 30; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=self.now)
+        after = self.cycle()
+        self.assertEqual(after['positions'], [])
+        self.assertEqual(after['trades'][0]['close_reason'], 'Stop-Loss')
+        self.assertEqual(after['trades'][0]['version'], a.PREVIOUS_VERSION)
+
+    def test_migration_rejects_unrecognized_old_rules(self):
+        self.p['monitor_success_at'] = self.now - 86400
+        self.previous_run(rule_hash='tampered')
+        with self.assertRaisesRegex(ValueError, 'capital_carry_forward'): self.cycle()
+
+    def test_report_preserves_old_decisions_and_daily_without_other_users(self):
+        self.p['monitor_success_at'] = self.now - 86400
+        self.previous_run()
+        old_at = self.now - 86400
+        with closing(sqlite3.connect(self.path)) as c, c:
+            c.execute('INSERT INTO astra_ultra_decisions VALUES(?,?,?,?,?)',
+                      (1, a.PREVIOUS_VERSION, old_at, 'BTC', json.dumps(dict(action='Abwarten', symbol='BTC', bar_end=old_at))))
+            c.execute('INSERT INTO astra_ultra_decisions VALUES(?,?,?,?,?)',
+                      (2, a.PREVIOUS_VERSION, old_at, 'PRIVATE', json.dumps(dict(symbol='PRIVATE'))))
+            c.execute('INSERT INTO astra_ultra_equity VALUES(?,?,?,?)',
+                      (1, a.PREVIOUS_VERSION, old_at, json.dumps(dict(equity=1000))))
+        self.persist(); self.cycle(); self.next_hour(); self.cycle()
+        before = self.path.read_bytes()
+        report = a.report(self.path, 1, self.now)
+        self.assertEqual(len(report['decisions']), 4)
+        self.assertEqual(report['decisions'][-1]['timeframe_hours'], 4)
+        self.assertTrue(all(d['timeframe_hours'] == 2 for d in report['decisions'][:3]))
+        self.assertEqual(report['curve'][0]['at'], old_at)
+        self.assertEqual(report['curve'][0]['version'], a.PREVIOUS_VERSION)
+        self.assertEqual(len(report['daily']), 2)
+        self.assertEqual(report['daily'][0]['at'], self.now)
+        self.assertEqual(self.path.read_bytes(), before)
 
     def test_report_readonly_and_user_isolated(self):
         self.cycle();before=self.path.read_bytes()
