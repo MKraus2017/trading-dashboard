@@ -29,6 +29,8 @@ PREVIOUS_RULE_HASH = hashlib.sha256(json.dumps(PREVIOUS_RULES, sort_keys=True).e
 INTERVAL = 30
 MAX_AGE = 90
 ENTRY_WINDOW = 180
+CANDLE_RETRY_SECONDS = 30
+MAX_CANDLE_ATTEMPTS = 6
 _thread = None
 _start_lock = threading.Lock()
 _stop = threading.Event()
@@ -271,7 +273,7 @@ def close_position(s, pos, price, now, reason):
     s["positions"].remove(pos)
 
 
-def open_position(s, symbol, sig, price, now):
+def open_position(s, symbol, sig, price, now, quote_at=None):
     if len(s["positions"]) >= RULES["max_positions"]:
         return "Positionslimit"
     if any(p["symbol"] == symbol for p in s["positions"]):
@@ -294,7 +296,8 @@ def open_position(s, symbol, sig, price, now):
                quantity=quantity, entry_price=fill, entry_reference=price, entry_total=total,
                entry_fee=fee, margin_eur=quantity * fill, opened_at=now, stop_loss=stop,
                take_profit=None, planned_risk=quantity * loss_per_unit,
-               last_price=price, quote_at=now, signal=copy.deepcopy(sig), version=VERSION,
+               last_price=price, quote_at=now if quote_at is None else quote_at,
+               signal=copy.deepcopy(sig), version=VERSION,
                rules=copy.deepcopy(RULES), management_version=VERSION, management_rules=copy.deepcopy(RULES))
     s["cash"] -= total
     s["fees_paid"] += fee
@@ -303,117 +306,266 @@ def open_position(s, symbol, sig, price, now):
     return "Virtueller Kauf"
 
 
+def _new_pending_bar(target, now, closed=()):
+    return dict(bar_end=target, started_at=now, expires_at=target + ENTRY_WINDOW,
+                attempts=0, max_attempts=MAX_CANDLE_ATTEMPTS, last_attempt_at=None,
+                next_retry_at=max(now, target + 5), waiting_symbols=list(RULES["symbols"]),
+                signals={}, completed={}, entered_symbols=[], closed_symbols=sorted(set(closed)),
+                decision_records={}, executions={})
+
+
+def _remember_closed(pending, symbol, price=None, at=None, reason=None):
+    if pending is not None and symbol not in pending["closed_symbols"]:
+        pending["closed_symbols"].append(symbol)
+    if pending is not None and reason is not None:
+        event = dict(action="Virtueller Verkauf: " + reason, observed_at=at, reference=price)
+        pending.setdefault("executions", {}).setdefault(symbol, []).append(event)
+        previous = pending["completed"].get(symbol, {})
+        # Preserve an actual same-bar entry, with the later exit in its explicit
+        # execution history; a preliminary Hold must never cover a real exit.
+        if previous.get("action") != "Virtueller Kauf":
+            pending["completed"][symbol] = event
+
+
+def _candle_records(pending, now, errors=None, final=False, append_attempt=True):
+    """Append attempts; retain the time/action of any already executed fill."""
+    decisions = []
+    errors = errors or {}
+    for symbol in RULES["symbols"]:
+        completed = pending["completed"].get(symbol)
+        old = pending["decision_records"].get(symbol, {})
+        action = completed["action"] if completed else errors.get(symbol,
+            "Kerzenfenster beendet; keine vollstaendige Entscheidung" if final else "Wiederholung: vollstaendige Daten fehlen")
+        attempt = dict(attempt=pending["attempts"], observed_at=now, action=action,
+                       final=final, completed=bool(completed))
+        if symbol in errors:
+            attempt["data_error"] = errors[symbol]
+        history = copy.deepcopy(old.get("attempt_history", []))
+        if append_attempt:
+            history.append(attempt)
+        record = dict(pending["signals"].get(symbol, {}), symbol=symbol, bar_end=pending["bar_end"],
+                      version=VERSION, timeframe_hours=RULES["bar_seconds"] // 3600,
+                      decision_schema=2, final=final, completed=bool(completed), action=action,
+                      observed_at=completed["observed_at"] if completed else now,
+                      last_attempt_at=pending["last_attempt_at"], attempt_history=history,
+                      execution_history=copy.deepcopy(pending.get("executions", {}).get(symbol, [])))
+        if completed and "reference" in completed:
+            record["reference"] = completed["reference"]
+        pending["decision_records"][symbol] = record
+        decisions.append(record)
+    return decisions
+
+
+def _finish_candle(s, pending, now, success, errors=None, attempted=True):
+    errors = {} if success else (errors if errors is not None else pending.get("last_errors", {}))
+    if success:
+        s["last_candle_success_at"] = now
+        s["last_candle_bar_end"] = pending["bar_end"]
+        s["candle_error"] = None
+    else:
+        s["missed_hours"] += 1
+        s["candle_error"] = "Kerzenpruefung unvollstaendig; Fenster abgelaufen/Versuche ausgeschoepft"
+    s["last_bar_end"] = pending["bar_end"]
+    decisions = _candle_records(pending, now, errors, final=True, append_attempt=attempted)
+    s["pending_bar"] = None
+    return decisions
+
+
+def _attempt_candle(s, pending, bars, quote, clock, monitor_errors):
+    pending["attempts"] += 1
+    pending["last_attempt_at"] = clock()
+    errors, ticks = {}, {}
+    needed = [symbol for symbol in RULES["symbols"] if symbol not in pending["signals"]]
+    # A validated completed signal is immutable within this window. Retry only
+    # missing histories, but acquire/revalidate every quote before allocation.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {symbol: pool.submit(bars, symbol) for symbol in needed}
+    for symbol in RULES["symbols"]:
+        try:
+            if symbol in futures:
+                sig = signal(futures[symbol].result(), clock())
+                if sig["bar_end"] != pending["bar_end"]:
+                    raise ValueError("wrong_bar")
+                pending["signals"][symbol] = sig
+            if not pending["bar_end"] <= clock() <= pending["expires_at"]:
+                raise ValueError("outside_decision_window")
+            tick = quote(symbol)
+            valid_quote(tick, clock(), pending["bar_end"])
+            ticks[symbol] = tick
+        except Exception:
+            errors[symbol] = symbol + ": Kerzendaten/Kurs fehlen oder Fenster abgelaufen"
+
+    def completed(symbol, action, at, price):
+        pending["completed"].setdefault(symbol, dict(action=action, observed_at=at, reference=price))
+
+    # All exits/marks precede all entries. Protection still applies to a freshly
+    # observed stop/time breach even if fetching crossed the candle deadline.
+    ready = {}
+    for symbol, tick in ticks.items():
+        at = clock()
+        existing = next((p for p in s["positions"] if p["symbol"] == symbol), None)
+        try:
+            not_before = pending["bar_end"]
+            if existing:
+                if at < existing["opened_at"]:
+                    raise ValueError("clock_before_entry")
+                not_before = max(not_before, existing["opened_at"], existing.get("quote_at") or existing["opened_at"])
+            price = valid_quote(tick, at, not_before)
+        except ValueError:
+            errors[symbol] = symbol + ": Kurs vor Entscheidung veraltet"
+            continue
+        sig = pending["signals"][symbol]
+        within = pending["bar_end"] <= at <= pending["expires_at"]
+        if existing:
+            existing.update(last_price=price, quote_at=tick["market_at"])
+            reason = ("Stop-Loss" if price <= existing["stop_loss"] else
+                      "Zeit-Exit 336h" if at - existing["opened_at"] >= RULES["max_hold_hours"] * 3600 else
+                      f"12-Kerzen-Kanal ({RULES['exit_channel'] * RULES['bar_seconds'] // 3600}h) nach unten gebrochen" if within and sig["exit"] else None)
+            if reason:
+                close_position(s, existing, price, at, reason)
+                if within:
+                    _remember_closed(pending, symbol, price, at, reason)
+                    completed(symbol, "Virtueller Verkauf: " + reason, at, price)
+                else:
+                    # The independent protection fill is in the trade journal,
+                    # not a retrospectively successful expired candle decision.
+                    _remember_closed(pending, symbol)
+            elif within:
+                completed(symbol, "Halten", at, price)
+        if not within:
+            errors[symbol] = symbol + ": Kerzenfenster abgelaufen"
+            continue
+        ready[symbol] = tick
+        if symbol in pending["closed_symbols"] or symbol in pending["entered_symbols"]:
+            completed(symbol, "In dieser Kerze bereits gehandelt; kein Wiedereinstieg", at, price)
+        elif not existing and not sig["enter"]:
+            completed(symbol, "Abwarten", at, price)
+    mark(s)
+
+    # Incomplete universe or an unresolved protection quote forbids new risk.
+    if len(ready) == len(RULES["symbols"]) and not errors and not monitor_errors:
+        for symbol in RULES["symbols"]:
+            if symbol in pending["completed"]:
+                continue
+            at = clock()
+            try:
+                if not pending["bar_end"] <= at <= pending["expires_at"]:
+                    raise ValueError("outside_entry_window")
+                # Recheck the WHOLE universe at each fill, not only this symbol.
+                for tick in ready.values():
+                    valid_quote(tick, at, pending["bar_end"])
+                price = number(ready[symbol]["price"], True)
+                action = open_position(s, symbol, pending["signals"][symbol], price, at,
+                                       quote_at=ready[symbol]["market_at"])
+                completed(symbol, action, at, price)
+                if action == "Virtueller Kauf":
+                    pending["entered_symbols"].append(symbol)
+                    pending["executions"].setdefault(symbol, []).append(
+                        dict(action=action, observed_at=at, reference=price))
+            except ValueError:
+                errors[symbol] = symbol + ": Einstiegsfenster/Kurs abgelaufen"
+                break
+    elif monitor_errors:
+        errors.update({symbol: symbol + ": Schutzkurs fehlt/veraltet" for symbol in monitor_errors})
+
+    pending["waiting_symbols"] = [symbol for symbol in RULES["symbols"]
+                                  if symbol not in pending["completed"] or symbol in errors]
+    at = clock()
+    pending["next_retry_at"] = min(max(at, pending["last_attempt_at"]) + CANDLE_RETRY_SECONDS,
+                                   pending["expires_at"])
+    complete = len(ready) == len(RULES["symbols"]) and not errors and not pending["waiting_symbols"]
+    if complete:
+        return _finish_candle(s, pending, at, True), False
+    pending["last_errors"] = copy.deepcopy(errors)
+    details = "; ".join(errors.values()) or ", ".join(pending["waiting_symbols"])
+    s["candle_error"] = "Kerzenpruefung unvollstaendig; Wiederholung ausstehend: " + details
+    if at > pending["expires_at"] or pending["attempts"] >= pending["max_attempts"]:
+        return _finish_candle(s, pending, at, False, errors), bool(errors)
+    return _candle_records(pending, at, errors), bool(errors)
+
+
 def step(s, bars, quote, clock=time.time):
     now = clock()
     if s["rule_hash"] != RULE_HASH:
         raise ValueError("rules_changed_requires_new_version")
-    if s["last_success_at"] and now - s["last_success_at"] > MAX_AGE:
+    for key in ("pending_bar", "candle_error", "last_candle_success_at", "last_candle_bar_end", "monitor_error"):
+        s.setdefault(key, None)
+    s.setdefault("monitor_success_at", s.get("last_success_at"))
+    if s["monitor_success_at"] and now - s["monitor_success_at"] > MAX_AGE:
         s["observation_gaps"] += 1
-    errors = []
-    decisions = []
-    ticks = {}
-    closed_this_cycle = set()
-    # Protect existing paper positions before considering new entries.
+    monitor_errors, decisions, closed_this_cycle = [], [], []
+    # Always run protection, even during retry cooldown or after an expired bar.
     for pos in list(s["positions"]):
         try:
             tick = quote(pos["symbol"])
-            price = valid_quote(tick, clock())
-            ticks[pos["symbol"]] = tick
+            at = clock()
+            if at < pos["opened_at"]:
+                raise ValueError("clock_before_entry")
+            price = valid_quote(tick, at, max(pos["opened_at"], pos.get("quote_at") or pos["opened_at"]))
             pos.update(last_price=price, quote_at=tick["market_at"])
-            if price <= pos["stop_loss"]:
-                close_position(s, pos, price, clock(), "Stop-Loss")
-                closed_this_cycle.add(pos["symbol"])
-            elif clock() - pos["opened_at"] >= RULES["max_hold_hours"] * 3600:
-                close_position(s, pos, price, clock(), "Zeit-Exit 336h")
-                closed_this_cycle.add(pos["symbol"])
+            reason = ("Stop-Loss" if price <= pos["stop_loss"] else
+                      "Zeit-Exit 336h" if at - pos["opened_at"] >= RULES["max_hold_hours"] * 3600 else None)
+            if reason:
+                close_position(s, pos, price, at, reason)
+                closed_this_cycle.append((pos["symbol"], price, at, reason))
+                pending = s["pending_bar"]
+                if pending and pending["bar_end"] <= at <= pending["expires_at"]:
+                    _remember_closed(pending, pos["symbol"], price, at, reason)
         except Exception:
-            errors.append(pos["symbol"] + ": Kurs fehlt/veraltet")
+            monitor_errors.append(pos["symbol"])
     mark(s)
+    now = clock()
+    pending = s["pending_bar"]
+    if pending and now > pending["expires_at"]:
+        decisions.extend(_finish_candle(s, pending, now, False, attempted=False))
     target = int(now // RULES["bar_seconds"]) * RULES["bar_seconds"]
-    if target > s["last_bar_end"] and now - target >= 5:
-        missed = max(0, int((target - s["last_bar_end"]) / RULES["bar_seconds"]) - 1)
-        s["missed_hours"] += missed
-        if now - target > ENTRY_WINDOW:
-            s["missed_hours"] += 1
-            decisions.append(dict(bar_end=target, symbol="SYSTEM", action="Stundenfenster verpasst; kein rueckdatierter Handel"))
-        else:
-            signals = []
-            # Fetch all before opening: a partial universe cannot silently win a
-            # ranking/capacity decision. Fixed symbol order is pre-registered.
-            # Public candle histories are fetched in parallel, away from the
-            # original watcher. All network calls have bounded timeouts.
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futures = {symbol: pool.submit(bars, symbol) for symbol in RULES["symbols"]}
-            for symbol in RULES["symbols"]:
-                try:
-                    sig = signal(futures[symbol].result(), clock())
-                    if sig["bar_end"] != target:
-                        raise ValueError("wrong_bar")
-                    tick = quote(symbol)
-                    price = valid_quote(tick, clock(), target)
-                    if clock() - target > ENTRY_WINDOW:
-                        raise ValueError("late_decision")
-                    signals.append((symbol, sig, price, tick["market_at"]))
-                except Exception:
-                    errors.append(symbol + ": Stundendaten fehlen/veraltet")
-                    decisions.append(dict(bar_end=target, symbol=symbol, action="Datenfehler; keine neue Position"))
-            # Apply ALL fresh marks/exits before considering any allocation.
-            # A quote can become stale while the other symbols are fetched.
-            ready = []
-            actions = {}
-            for symbol, sig, price, market_at in signals:
-                try:
-                    valid_quote(dict(price=price, market_at=market_at), clock(), target)
-                except ValueError:
-                    errors.append(symbol + ": Kurs vor Entscheidung veraltet")
-                    actions[symbol] = "Kein Handel: Kurs vor Entscheidung veraltet"
-                    continue
-                existing = next((p for p in s["positions"] if p["symbol"] == symbol), None)
-                ready.append((symbol, sig, price, market_at))
-                if existing:
-                    existing.update(last_price=price, quote_at=market_at)
-                    reason = ("Stop-Loss" if price <= existing["stop_loss"] else
-                              "Zeit-Exit 336h" if clock() - existing["opened_at"] >= RULES["max_hold_hours"] * 3600 else
-                              f"12-Kerzen-Kanal ({RULES['exit_channel'] * RULES['bar_seconds'] // 3600}h) nach unten gebrochen" if sig["exit"] else None)
-                    if reason:
-                        close_position(s, existing, price, clock(), reason)
-                        closed_this_cycle.add(symbol)
-                        actions[symbol] = "Virtueller Verkauf: " + reason
-                    else:
-                        actions[symbol] = "Halten"
-            mark(s)
-            # Fixed BTC/ETH/SOL priority, now with released capital and all marks.
-            for symbol, sig, price, market_at in ready:
-                action = actions.get(symbol, "Abwarten")
-                if symbol in actions:
-                    continue
-                if symbol in closed_this_cycle:
-                    action = "Gerade geschlossen; kein sofortiger Wiedereinstieg"
-                elif sig["enter"] and not errors:
-                    try:
-                        valid_quote(dict(price=price, market_at=market_at), clock(), target)
-                        if clock() - target > ENTRY_WINDOW:
-                            raise ValueError("late_entry")
-                        action = open_position(s, symbol, sig, price, clock())
-                    except ValueError:
-                        errors.append(symbol + ": Einstiegsfenster/Kurs abgelaufen")
-                        action = "Kein Einstieg: Zeitpunkt/Kurs abgelaufen"
-                elif errors:
-                    action = "Kein Einstieg: unvollstaendige Daten"
-                actions[symbol] = action
-            for symbol, sig, price, market_at in signals:
-                decisions.append(dict(sig, symbol=symbol, reference=price, observed_at=clock(), action=actions[symbol]))
-        s["last_bar_end"] = target
+    if s["pending_bar"] is None and target > s["last_bar_end"]:
+        # Charge intervening windows only when creating their successor, never
+        # on every retry while last_bar_end deliberately remains unfinished.
+        s["missed_hours"] += max(0, int((target - s["last_bar_end"]) / RULES["bar_seconds"]) - 1)
+        s["pending_bar"] = _new_pending_bar(target, now)
+        for event in closed_this_cycle:
+            if target <= event[2] <= s["pending_bar"]["expires_at"]:
+                _remember_closed(s["pending_bar"], *event)
+    pending = s["pending_bar"]
+    had_data_error = False
+    if pending:
+        if now > pending["expires_at"]:
+            decisions.extend(_finish_candle(s, pending, now, False, attempted=False))
+        elif now >= pending["next_retry_at"]:
+            rows, had_data_error = _attempt_candle(s, pending, bars, quote, clock, monitor_errors)
+            decisions.extend(rows)
     mark(s)
     s["last_attempt_at"] = clock()
-    s["last_error"] = "; ".join(errors) or None
-    if errors:
+    s["monitor_error"] = "; ".join(symbol + ": Kurs fehlt/veraltet" for symbol in monitor_errors) or None
+    if not monitor_errors:
+        s["monitor_success_at"] = s["last_success_at"] = clock()
+    if monitor_errors or had_data_error:
         s["data_errors"] += 1
-    else:
-        s["last_success_at"] = clock()
-    for d in decisions:
-        d.update(version=VERSION, timeframe_hours=RULES["bar_seconds"] // 3600)
+    s["last_error"] = "; ".join(error for error in (s["monitor_error"], s["candle_error"]) if error) or None
     return decisions
+
+
+def _persist_decision(connection, uid, decision):
+    key = (uid, VERSION, decision["bar_end"], decision["symbol"])
+    row = connection.execute(
+        "SELECT data FROM astra_ultra_decisions WHERE user_id=? AND version=? AND bar_end=? AND symbol=?", key
+    ).fetchone()
+    encoded = json.dumps(decision, allow_nan=False)
+    if row is None:
+        connection.execute("INSERT INTO astra_ultra_decisions VALUES(?,?,?,?,?)", (*key, encoded))
+        return
+    previous = json.loads(row[0])
+    # Never reinterpret legacy rows or finalized history. Only the new protocol
+    # can extend an unfinished record, and all old attempts must stay a prefix.
+    if previous.get("decision_schema") != 2 or previous.get("final", True):
+        return
+    history = previous.get("attempt_history", [])
+    if decision.get("attempt_history", [])[:len(history)] != history:
+        raise ValueError("decision_retry_history_not_preserved")
+    connection.execute(
+        "UPDATE astra_ultra_decisions SET data=? WHERE user_id=? AND version=? AND bar_end=? AND symbol=?",
+        (encoded, *key))
 
 
 def cycle(path, uid=1, bars=fetch_bars, quote=fetch_quote, clock=time.time):
@@ -440,10 +592,10 @@ def cycle(path, uid=1, bars=fetch_bars, quote=fetch_quote, clock=time.time):
     with closing(connect(path)) as c, c:
         c.execute("INSERT OR REPLACE INTO astra_ultra_runs VALUES(?,?,?)", (uid, VERSION, json.dumps(s, allow_nan=False)))
         for d in decisions:
-            c.execute("INSERT OR IGNORE INTO astra_ultra_decisions VALUES(?,?,?,?,?)", (uid, VERSION, d["bar_end"], d["symbol"], json.dumps(d, allow_nan=False)))
+            _persist_decision(c, uid, d)
         if not s.get("last_sample_at") or now - s["last_sample_at"] >= 300 or decisions:
             sample = dict(equity=s["equity"], baseline_equity=s["baseline_equity"],
-                          baseline_fresh=bool(source_fresh), data_ok=not s["last_error"])
+                          baseline_fresh=bool(source_fresh), data_ok=not s["last_error"] and not s.get("pending_bar"))
             c.execute("INSERT OR IGNORE INTO astra_ultra_equity VALUES(?,?,?,?)", (uid, VERSION, now, json.dumps(sample)))
             s["last_sample_at"] = now
             c.execute("UPDATE astra_ultra_runs SET data=? WHERE user_id=? AND version=?", (json.dumps(s, allow_nan=False), uid, VERSION))
@@ -486,8 +638,11 @@ def report(path, uid, now=None):
     losses = -sum(t["pnl_eur"] for t in s["trades"] if t["pnl_eur"] < 0)
     s["profit_factor"] = wins / losses if losses else None
     s["trades"] = list(reversed(s["trades"][-100:]))
-    stamp = s.get("last_success_at")
-    return dict(ok=True, started=True, mode="paper_only", healthy=bool(stamp and 0 <= now - stamp <= MAX_AGE and not s["last_error"]),
+    stamp = s.get("monitor_success_at", s.get("last_success_at"))
+    monitor_healthy = bool(stamp and 0 <= now - stamp <= MAX_AGE and not s.get("monitor_error", s.get("last_error")))
+    candle_healthy = not s.get("candle_error") and not s.get("pending_bar")
+    return dict(ok=True, started=True, mode="paper_only", healthy=monitor_healthy and candle_healthy,
+                monitor_healthy=monitor_healthy, candle_healthy=candle_healthy,
                 enabled=os.environ.get("ASTRA_ULTRA_ENABLED", "1") == "1", run=s,
                 decisions=decisions, curve=list(reversed(curve)), daily=daily)
 
@@ -513,7 +668,7 @@ def start(path, maintenance):
                                 try:
                                     if not maintenance():
                                         result = cycle(path)
-                                        print("[AstraUltra] paper cycle " + ("ok" if result and not result["last_error"] else "waiting/incomplete"), flush=True)
+                                        print("[AstraUltra] paper cycle " + ("ok" if result and not result["last_error"] and not result.get("pending_bar") else "waiting/incomplete"), flush=True)
                                 except Exception as exc:
                                     print("[AstraUltra] paper cycle failed: " + type(exc).__name__, flush=True)
                                 _stop.wait(max(1, INTERVAL - (time.monotonic() - before)))

@@ -103,6 +103,36 @@ also retain their history. Inspect per-candle decisions as well as the heartbeat
 with no open positions, a routine monitor cycle alone does not establish that a
 new completed candle has been successfully evaluated.
 
+### Technical retry correction (2026-10-12; no strategy change)
+
+The quote-monitor heartbeat and candle-evaluation health are separate. A fresh
+`monitor_success_at` (also retained as legacy `last_success_at`) does not clear
+an unresolved `candle_error`. `last_candle_success_at` and `last_candle_bar_end`
+are recorded only after a complete successful candle evaluation; older runs
+without these fields are not retrospectively labelled as evaluated.
+
+Failed/partial candle checks keep a persistent `pending_bar` and retry only
+inside the original 180-second decision window (at most six attempts, at least
+30 seconds between attempts). The run records the attempt
+count, deadline and completed actions across restarts. A retry must not repeat
+an entry or re-enter a symbol already closed in that window. New entries still
+require fresh complete-universe data. Stop/time-exit monitoring continues
+independently, including while the candle check is incomplete.
+Position quotes must also be no earlier than the entry time or the last accepted
+market timestamp. A stale/backward tick cannot fabricate a protective exit.
+
+An expired/unresolved window is recorded as missed once; it is never backfilled.
+Its warning remains until a later complete candle check succeeds. The UI shows
+the monitor timestamp separately from the most recent confirmed candle and
+shows pending retries. This is execution reliability, not a new trading
+hypothesis: `VERSION`, `RULES`, rule hash, account balances, existing positions
+and historical trades are not reset or reinterpreted by this correction.
+
+New decision rows retain an append-only `attempt_history` and an explicit
+`execution_history`; the UI makes both inspectable. Only unfinished rows from
+this retry protocol may be extended. Legacy and finalized decisions are not
+overwritten. State, fills and their decision records still commit atomically.
+
 Workers start through Gunicorn's post_worker_init hook, never at app-module import.
 This remains safe if environment arguments override preload_app=False. A first
 HTTP request is an idempotent fallback for other WSGI hosts; standalone app.py

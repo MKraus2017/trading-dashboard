@@ -34,6 +34,13 @@ function astraDetails(p) {
   ];
   return '<details><summary>Details</summary>'+data.map(x=>'<div>'+astraEsc(x)+'</div>').join('')+'</details>';
 }
+function astraDecisionDetails(d) {
+  const attempts = d.attempt_history || [];
+  if (!attempts.length) return astraEsc(d.action);
+  const rows = attempts.map(a => `<div>${astraEsc(astraTime(a.observed_at))} · Versuch ${astraEsc(a.attempt)}: ${astraEsc(a.action)}${a.data_error ? ' · '+astraEsc(a.data_error) : ''}</div>`).join('');
+  const executions = (d.execution_history || []).map(e => `<div>${astraEsc(astraTime(e.observed_at))} · ${astraEsc(e.action)}</div>`).join('');
+  return astraEsc(d.action) + `<details><summary>Prüfversuche (${attempts.length})${d.final ? ' · abgeschlossen' : ' · ausstehend'}</summary>${rows}${executions ? '<strong>Virtuelle Ausführungen</strong>'+executions : ''}</details>`;
+}
 function renderAstraUltra(data) {
   const el = id => document.getElementById('astra-'+id);
   if (!el('status')) return;
@@ -41,7 +48,15 @@ function renderAstraUltra(data) {
   if (!data.started) { el('status').textContent = 'Wartet auf den ersten frischen Krypto-Depotstand. Noch kein Testkonto gestartet.'; return; }
   const s = data.run;
   const returnPct = value => (value/s.initial_capital-1)*100;
-  el('status').textContent = `${data.enabled && data.healthy ? '🟢 Virtuelle Überwachung aktiv' : '⚠️ Virtuelle Überwachung verzögert / nicht bestätigt'} · ${s.version} · ${astraRaster(s)} · Testbeginn: ${astraTime(s.started_at)} · letzte Prüfung: ${astraTime(s.last_success_at)} (Berlin)`;
+  const monitorAt = s.monitor_success_at ?? s.last_success_at;
+  const candleStatus = s.last_candle_success_at && s.last_candle_bar_end
+    ? `Zuletzt vollständig bestätigte Kerze: ${astraTime(s.last_candle_bar_end)} · geprüft: ${astraTime(s.last_candle_success_at)}`
+    : 'Kerzenprüfung: noch nicht separat bestätigt (ältere Historie bleibt erhalten)';
+  const pending = s.pending_bar;
+  const retryStatus = pending
+    ? ` · Wiederholung für Kerze ${astraTime(pending.bar_end)}: Versuch ${pending.attempts}/${pending.max_attempts} · Frist ${astraTime(pending.expires_at)}${pending.waiting_symbols?.length ? ' · Daten ausstehend: '+pending.waiting_symbols.join(', ') : ''}`
+    : '';
+  el('status').textContent = `${data.enabled && data.healthy ? '🟢 Virtuelle Überwachung aktiv' : '⚠️ Virtuelle Überwachung / Signalprüfung nicht vollständig bestätigt'} · ${s.version} · ${astraRaster(s)} · Testbeginn: ${astraTime(s.started_at)} · letzter erfolgreicher Überwachungslauf: ${astraTime(monitorAt)} (Berlin) · ${candleStatus}${retryStatus}${s.candle_error ? ' · ⚠️ '+s.candle_error : ''}`;
   if (el('versions')) {
     const versions = (s.prior_versions || []).map(v => [v.version,astraRaster(v),astraTime(v.version_started_at ?? v.started_at),astraTime(v.ended_at),astraMoney(v.equity)]);
     versions.push([s.version,astraRaster(s),astraTime(s.version_started_at ?? s.started_at),'Aktiv','—']);
@@ -64,7 +79,7 @@ function renderAstraUltra(data) {
     return [astraEsc(p.symbol)+' · LONG 1×',astraEsc(astraTime(p.opened_at)),astraEsc(astraMoney(p.entry_total)),astraEsc(astraNum(p.entry_price,8)+' / '+astraNum(p.last_price,8)),astraEsc(astraMoney(pnl)),astraEsc(astraNum(p.stop_loss,8)+' / Kanal-Exit'),astraDetails(p)];
   }),'Noch kein passendes Einstiegssignal. Cash zu halten ist eine bewusste Strategieentscheidung.');
   el('trades').innerHTML = astraTable(['Symbol','Kauf','Verkauf','P&L netto','Grund','Details'],s.trades.map(p=>[astraEsc(p.symbol),astraEsc(astraTime(p.opened_at)),astraEsc(astraTime(p.closed_at)),astraEsc(astraMoney(p.pnl_eur)),astraEsc(p.close_reason),astraDetails(p)]),'Noch keine abgeschlossenen Astra-Trades.');
-  el('decisions').innerHTML = astraTable(['Kerzenschluss (Berlin)','Raster / Version','Symbol','Ergebnis','Einstiegssignal','EMA200','ATR14'],data.decisions.map(d=>[astraEsc(astraTime(d.bar_end)),astraEsc(astraRaster(d)+' · '+(d.version ?? 'Version unbekannt')),astraEsc(d.symbol),astraEsc(d.action),typeof d.enter === 'boolean' ? (d.enter?'Ja':'Nein') : '—',astraEsc(astraNum(d.ema200,6)),astraEsc(astraNum(d.atr14,6))]),`Die erste vollständige ${astraRaster(s)}-Kerze nach dem Versionsstart wird abgewartet.`);
+  el('decisions').innerHTML = astraTable(['Kerzenschluss (Berlin)','Raster / Version','Symbol','Ergebnis','Einstiegssignal','EMA200','ATR14'],data.decisions.map(d=>[astraEsc(astraTime(d.bar_end)),astraEsc(astraRaster(d)+' · '+(d.version ?? 'Version unbekannt')),astraEsc(d.symbol),astraDecisionDetails(d),typeof d.enter === 'boolean' ? (d.enter?'Ja':'Nein') : '—',astraEsc(astraNum(d.ema200,6)),astraEsc(astraNum(d.atr14,6))]),`Die erste vollständige ${astraRaster(s)}-Kerze nach dem Versionsstart wird abgewartet.`);
   if (el('daily')) el('daily').innerHTML = astraTable(['Beobachtet (Berlin)','Astra · Modell netto','Referenz · Modell netto','Datenstatus'],(data.daily||[]).map(d=>[astraEsc(astraTime(d.at)),astraEsc(astraMoney(d.equity)),astraEsc(astraMoney(d.baseline_equity)),d.data_ok&&d.baseline_fresh?'Vollständig':'Unvollständig / veraltet']),'Noch keine Tagesstände.');
 }
 let astraLoading = false;

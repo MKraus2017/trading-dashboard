@@ -126,5 +126,53 @@ test('static instructions separate 2H current rules from old 4H evidence',()=>{
   assert.match(html,/kein Backtestnachweis für die aktuelle 2H-Version/);
   assert.match(html,/Kein eigener historischer Backtest vorgelegt/);
   assert.match(html,/\+5,79%/);
-  assert.match(html,/astra_ultra\.js\?v=2/);
+  assert.match(html,/astra_ultra\.js\?v=3/);
+});
+
+test('monitor heartbeat is visibly separate from successful candle evaluation',()=>{
+  const {context,elements}=setup();const d=data();
+  d.run.monitor_success_at=1791813600;d.run.last_candle_success_at=1791810010;d.run.last_candle_bar_end=1791810000;
+  context.renderAstraUltra(d);
+  const text=elements['astra-status'].textContent;
+  assert.match(text,/letzter erfolgreicher Überwachungslauf/);
+  assert.match(text,/Zuletzt vollständig bestätigte Kerze/);
+  assert.match(text,/geprüft:/);
+});
+
+test('pending retries cannot appear healthy just because monitoring succeeded',()=>{
+  const {context,elements}=setup();const d=data();d.healthy=false;d.monitor_healthy=true;
+  d.run.monitor_success_at=1791810030;d.run.candle_error='SOL: Daten fehlen <test>';
+  d.run.pending_bar={bar_end:1791810000,attempts:2,max_attempts:6,expires_at:1791810180,waiting_symbols:['SOL']};
+  context.renderAstraUltra(d);
+  const text=elements['astra-status'].textContent;
+  assert.doesNotMatch(text,/🟢/);assert.match(text,/Signalprüfung nicht vollständig bestätigt/);
+  assert.match(text,/Versuch 2\/6/);assert.match(text,/Daten ausstehend: SOL/);
+  assert.match(text,/SOL: Daten fehlen <test>/); // textContent, never interpolated HTML
+});
+
+test('legacy runs do not fabricate a successful historical candle check',()=>{
+  const {context,elements}=setup();context.renderAstraUltra(data());
+  assert.match(elements['astra-status'].textContent,/noch nicht separat bestätigt/);
+});
+
+test('unresolved expired candle error stays visible with no pending retry',()=>{
+  const {context,elements}=setup();const d=data();d.healthy=false;
+  d.run.candle_error='Kerzenfenster abgelaufen';d.run.pending_bar=null;d.run.monitor_success_at=1791811000;
+  context.renderAstraUltra(d);
+  const text=elements['astra-status'].textContent;
+  assert.match(text,/Kerzenfenster abgelaufen/);assert.doesNotMatch(text,/🟢/);
+  assert.doesNotMatch(text,/Wiederholung für Kerze/);
+});
+
+test('retry attempts and actual fills remain inspectable and escaped',()=>{
+  const {context,elements}=setup();const d=data();
+  d.decisions=[{symbol:'BTC',action:'Virtueller Kauf',final:true,attempt_history:[
+    {attempt:1,observed_at:1791810010,action:'Wiederholung',data_error:'<img src=x>'},
+    {attempt:2,observed_at:1791810040,action:'Virtueller Kauf'}
+  ],execution_history:[{observed_at:1791810040,action:'Virtueller Kauf <script>'}]}];
+  context.renderAstraUltra(d);
+  const html=elements['astra-decisions'].innerHTML;
+  assert.match(html,/Prüfversuche \(2\) · abgeschlossen/);
+  assert.match(html,/Versuch 1: Wiederholung/);assert.match(html,/Virtuelle Ausführungen/);
+  assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img|<script>/);
 });

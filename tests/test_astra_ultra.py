@@ -157,6 +157,259 @@ class AstraTests(unittest.TestCase):
         s=self.cycle()
         self.assertEqual(s['positions'],[])
 
+    def test_pending_error_survives_idle_cycle_and_retry_recovers_after_restart(self):
+        self.cycle(); self.next_hour()
+        target = int(self.now // B) * B
+        self.bars.side_effect = lambda sym: [] if sym == 'SOL' else self.candles()
+        first = self.cycle()
+        self.assertEqual(first['last_bar_end'], target - B)
+        self.assertEqual(first['pending_bar']['attempts'], 1)
+        self.assertEqual(first['pending_bar']['max_attempts'], 6)
+        old_decisions = a.report(self.path, 1, self.now)['decisions']
+        count = self.bars.call_count
+        self.now += 10; self.persist()
+        waiting = self.cycle()  # Fresh JSON state is loaded, as after a restart.
+        self.assertEqual(self.bars.call_count, count)
+        self.assertEqual(waiting['pending_bar']['attempts'], 1)
+        report = a.report(self.path, 1, self.now)
+        self.assertTrue(report['monitor_healthy'])
+        self.assertFalse(report['candle_healthy'])
+        self.assertFalse(report['healthy'])
+        self.assertTrue(waiting['candle_error'])
+        self.assertEqual(waiting['missed_hours'], 0)
+        self.now = waiting['pending_bar']['next_retry_at']; self.persist()
+        self.bars.side_effect = lambda sym: self.candles()
+        recovered = self.cycle()
+        self.assertEqual(self.bars.call_count, count + 1)  # Only missing SOL history.
+        self.assertIsNone(recovered['pending_bar'])
+        self.assertIsNone(recovered['candle_error'])
+        self.assertEqual(recovered['last_bar_end'], target)
+        self.assertEqual(recovered['last_candle_bar_end'], target)
+        self.assertEqual(recovered['last_candle_success_at'], self.now)
+        self.assertEqual(len(recovered['positions']), 2)
+        self.assertTrue(a.report(self.path, 1, self.now)['healthy'])
+        for row in a.report(self.path, 1, self.now)['decisions']:
+            old = next(x for x in old_decisions if x['symbol'] == row['symbol'])
+            self.assertEqual(row['attempt_history'][:1], old['attempt_history'])
+            self.assertEqual(len(row['attempt_history']), 2)
+            self.assertTrue(row['final'])
+
+    def test_expiry_counts_once_and_error_latches_until_true_candle_success(self):
+        self.cycle(); self.next_hour()
+        target = int(self.now // B) * B
+        self.bars.side_effect = TimeoutError()
+        self.cycle()
+        before = a.report(self.path, 1, self.now)['decisions']
+        count = self.bars.call_count
+        self.now = target + a.ENTRY_WINDOW + 1; self.persist()
+        expired = self.cycle()
+        self.assertIsNone(expired['pending_bar'])
+        self.assertEqual(expired['missed_hours'], 1)
+        self.assertEqual(self.bars.call_count, count)
+        final = a.report(self.path, 1, self.now)['decisions']
+        for row in final:
+            old = next(x for x in before if x['symbol'] == row['symbol'])
+            self.assertEqual(row['attempt_history'], old['attempt_history'])
+            self.assertTrue(row['final'])
+        self.now += 30; self.persist()
+        idle = self.cycle()
+        self.assertEqual(idle['missed_hours'], 1)
+        self.assertTrue(idle['candle_error'])
+        self.assertTrue(a.report(self.path, 1, self.now)['monitor_healthy'])
+        self.assertFalse(a.report(self.path, 1, self.now)['healthy'])
+        self.next_hour(); self.bars.side_effect = lambda sym: self.candles()
+        recovered = self.cycle()
+        self.assertIsNone(recovered['candle_error'])
+        self.assertEqual(recovered['missed_hours'], 1)
+
+    def test_attempts_are_bounded_even_with_continuous_feed_failure(self):
+        self.cycle(); self.next_hour()
+        self.bars.side_effect = TimeoutError()
+        for attempt in range(1, 7):
+            s = self.cycle()
+            self.assertEqual(self.bars.call_count, attempt * 3)
+            if attempt < 6:
+                self.assertEqual(s['pending_bar']['attempts'], attempt)
+                self.now = s['pending_bar']['next_retry_at']; self.persist()
+        self.assertIsNone(s['pending_bar'])
+        self.assertEqual(s['missed_hours'], 1)
+        self.now += 1; self.persist(); self.cycle()
+        self.assertEqual(self.bars.call_count, 18)
+
+    def test_partial_channel_exit_retained_across_retry_without_reentry(self):
+        self.cycle(); self.next_hour(); self.cycle(); self.next_hour()
+        self.bars.side_effect = lambda sym: [] if sym == 'SOL' else self.candles()
+        original = a.signal
+        def channel_exit(rows, now):
+            sig = original(rows, now); sig['exit'] = True
+            return sig
+        with patch.object(a, 'signal', side_effect=channel_exit):
+            first = self.cycle()
+        self.assertEqual(len(first['trades']), 2)
+        self.assertEqual(set(first['pending_bar']['closed_symbols']), {'BTC', 'ETH'})
+        self.now = first['pending_bar']['next_retry_at']; self.persist()
+        self.bars.side_effect = lambda sym: self.candles()
+        after = self.cycle()
+        self.assertEqual(len(after['trades']), 2)
+        self.assertFalse(any(p['symbol'] in ('BTC', 'ETH') for p in after['positions']))
+        rows = a.report(self.path, 1, self.now)['decisions']
+        for row in [d for d in rows if d['bar_end'] == after['last_bar_end'] and d['symbol'] in ('BTC', 'ETH')]:
+            self.assertIn('Virtueller Verkauf', row['action'])
+            self.assertEqual(len(row['execution_history']), 1)
+            self.assertEqual(len(row['attempt_history']), 2)
+
+    def test_stop_during_retry_cooldown_is_persisted_and_cannot_reopen(self):
+        self.cycle(); self.next_hour(); self.cycle(); self.next_hour()
+        self.bars.side_effect = lambda sym: [] if sym == 'SOL' else self.candles()
+        first = self.cycle(); count = self.bars.call_count
+        self.now += 10; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80 if sym == 'BTC' else 102, market_at=self.now)
+        stopped = self.cycle()
+        self.assertEqual(self.bars.call_count, count)
+        self.assertEqual(stopped['pending_bar']['closed_symbols'], ['BTC'])
+        self.assertEqual(len(stopped['trades']), 1)
+        self.now = first['pending_bar']['next_retry_at']; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=102, market_at=self.now)
+        self.bars.side_effect = lambda sym: self.candles()
+        after = self.cycle()
+        self.assertEqual(len(after['trades']), 1)
+        self.assertFalse(any(p['symbol'] == 'BTC' for p in after['positions']))
+        btc = next(d for d in a.report(self.path, 1, self.now)['decisions']
+                   if d['bar_end'] == after['last_bar_end'] and d['symbol'] == 'BTC')
+        self.assertIn('Virtueller Verkauf: Stop-Loss', btc['action'])
+
+    def test_partial_entry_then_stop_cannot_duplicate_after_retry(self):
+        self.cycle(); self.next_hour()
+        original = a.open_position
+        def delayed_fill(s, symbol, sig, price, now, quote_at=None):
+            result = original(s, symbol, sig, price, now, quote_at=quote_at)
+            if symbol == 'BTC': self.now += 65
+            return result
+        with patch.object(a, 'open_position', side_effect=delayed_fill): first = self.cycle()
+        self.assertEqual([p['symbol'] for p in first['positions']], ['BTC'])
+        self.assertEqual(first['pending_bar']['entered_symbols'], ['BTC'])
+        self.now += 1; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=self.now)
+        stopped = self.cycle()
+        self.assertEqual(len(stopped['trades']), 1)
+        self.now = stopped['pending_bar']['next_retry_at']; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=102, market_at=self.now)
+        after = self.cycle()
+        self.assertEqual(len(after['trades']), 1)
+        self.assertFalse(any(p['symbol'] == 'BTC' for p in after['positions']))
+        btc = next(d for d in a.report(self.path, 1, self.now)['decisions'] if d['symbol'] == 'BTC')
+        self.assertEqual(btc['action'], 'Virtueller Kauf')
+        self.assertEqual(len(btc['execution_history']), 2)
+
+    def test_exact_deadline_allowed_but_later_entries_forbidden(self):
+        self.cycle()
+        self.now = int(self.now // B) * B + B + a.ENTRY_WINDOW; self.persist()
+        at_boundary = self.cycle()
+        self.assertEqual(len(at_boundary['positions']), 2)
+        self.assertTrue(all(p['opened_at'] <= at_boundary['last_bar_end'] + a.ENTRY_WINDOW
+                            for p in at_boundary['positions']))
+
+    def test_quotes_crossing_deadline_cannot_execute_channel_exit(self):
+        self.cycle(); self.next_hour(); self.cycle(); self.next_hour()
+        target = int(self.now // B) * B
+        self.now = target + 170; self.persist()
+        counts = {}
+        def tick(sym):
+            counts[sym] = counts.get(sym, 0) + 1
+            if sym == 'BTC' and counts[sym] == 2: self.now += 11
+            return dict(price=102, market_at=self.now)
+        self.quote.side_effect = tick
+        original = a.signal
+        def channel_exit(rows, now):
+            sig = original(rows, now); sig['exit'] = True
+            return sig
+        with patch.object(a, 'signal', side_effect=channel_exit): after = self.cycle()
+        self.assertEqual(len(after['positions']), 2)
+        self.assertEqual(after['trades'], [])
+        self.assertEqual(after['missed_hours'], 1)
+        self.now += 30; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=self.now)
+        protected = self.cycle()
+        self.assertEqual(len(protected['trades']), 2)
+        self.assertFalse(protected['positions'])
+
+    def test_quote_crossing_deadline_can_stop_but_not_backdate_candle_success(self):
+        self.cycle(); self.next_hour(); self.cycle(); self.next_hour()
+        target = int(self.now // B) * B
+        self.now = target + 170; self.persist()
+        counts = {}
+        def tick(sym):
+            counts[sym] = counts.get(sym, 0) + 1
+            stop = sym == 'BTC' and counts[sym] == 2
+            if stop: self.now += 11
+            return dict(price=80 if stop else 102, market_at=self.now)
+        self.quote.side_effect = tick
+        after = self.cycle()
+        self.assertEqual(len(after['trades']), 1)
+        self.assertEqual(after['trades'][0]['closed_at'], target + 181)
+        self.assertEqual(after['trades'][0]['close_reason'], 'Stop-Loss')
+        self.assertEqual(after['missed_hours'], 1)
+        btc = next(d for d in a.report(self.path, 1, self.now)['decisions']
+                   if d['bar_end'] == target and d['symbol'] == 'BTC')
+        self.assertFalse(btc['completed'])
+        self.assertEqual(btc['execution_history'], [])
+
+    def test_expired_pending_and_later_skipped_windows_count_only_once(self):
+        self.cycle(); self.next_hour()
+        self.bars.side_effect = TimeoutError()
+        self.cycle()
+        self.now = int(self.now // B) * B + 3 * B + 10; self.persist()
+        after = self.cycle()
+        self.assertEqual(after['missed_hours'], 3)  # pending + two wholly skipped bars
+        self.now += 10; self.persist()
+        self.assertEqual(self.cycle()['missed_hours'], 3)
+
+    def test_current_stop_after_downtime_is_not_assigned_to_old_pending_bar(self):
+        self.cycle(); self.next_hour(); self.cycle(); self.next_hour()
+        old_target = int(self.now // B) * B
+        self.bars.side_effect = TimeoutError()
+        self.cycle()
+        self.now += B; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=self.now)
+        after = self.cycle()
+        self.assertEqual(len(after['trades']), 2)
+        decisions = a.report(self.path, 1, self.now)['decisions']
+        old = [d for d in decisions if d['bar_end'] == old_target]
+        self.assertTrue(all(d['execution_history'] == [] for d in old))
+        current = [d for d in decisions if d['bar_end'] == old_target + B and d['symbol'] in ('BTC', 'ETH')]
+        self.assertTrue(all(len(d['execution_history']) == 1 for d in current))
+
+    def test_legacy_and_final_decision_records_are_never_rewritten(self):
+        self.cycle()
+        with closing(sqlite3.connect(self.path)) as c, c:
+            for symbol, original in [('BTC', dict(action='legacy')),
+                                     ('ETH', dict(decision_schema=2, final=True, attempt_history=[]))]:
+                raw = json.dumps(original)
+                c.execute('INSERT INTO astra_ultra_decisions VALUES(?,?,?,?,?)', (1, a.VERSION, self.now, symbol, raw))
+                a._persist_decision(c, 1, dict(bar_end=self.now, symbol=symbol, decision_schema=2,
+                                              final=False, attempt_history=[dict(action='new')]))
+                kept = c.execute('SELECT data FROM astra_ultra_decisions WHERE symbol=?', (symbol,)).fetchone()[0]
+                self.assertEqual(kept, raw)
+
+    def test_retry_update_rejects_lost_attempt_history(self):
+        with closing(sqlite3.connect(self.path)) as c, c:
+            original = dict(bar_end=self.now, symbol='BTC', decision_schema=2, final=False,
+                            attempt_history=[dict(action='original failure')])
+            a._persist_decision(c, 1, original)
+            with self.assertRaisesRegex(ValueError, 'history_not_preserved'):
+                a._persist_decision(c, 1, dict(original, attempt_history=[]))
+
+    def test_pending_before_five_seconds_is_not_healthy_and_no_candle_is_fabricated(self):
+        self.cycle()
+        self.now = int(self.now // B) * B + B + 1; self.persist()
+        s = self.cycle()
+        self.assertEqual(s['pending_bar']['attempts'], 0)
+        self.assertIsNone(s['last_candle_success_at'])
+        report = a.report(self.path, 1, self.now)
+        self.assertFalse(report['healthy'])
+        self.assertTrue(report['monitor_healthy'])
+        self.assertFalse(report['curve'][-1]['data_ok'])
+
     def test_quotes_revalidated_after_other_symbols_finish(self):
         self.cycle();self.next_hour()
         def tick(sym):
@@ -178,6 +431,87 @@ class AstraTests(unittest.TestCase):
         self.assertEqual(len(s['trades']),2)
         self.assertFalse(any(p['symbol'] in ('BTC','ETH') for p in s['positions']))
         self.assertTrue(all(t['close_reason']=='Stop-Loss' for t in s['trades']))
+
+    def test_entry_records_market_time_and_monitor_rejects_backward_quotes(self):
+        self.cycle(); self.next_hour()
+        self.quote.side_effect = lambda sym: dict(price=102, market_at=self.now - 3)
+        opened = self.cycle()
+        entry_at = self.now
+        self.assertTrue(all(p['quote_at'] == entry_at - 3 and p['opened_at'] == entry_at
+                            for p in opened['positions']))
+        self.now += 30; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=entry_at - 1)
+        before_entry = self.cycle()
+        self.assertEqual(len(before_entry['positions']), 2)
+        self.assertEqual(before_entry['trades'], [])
+        self.assertFalse(a.report(self.path, 1, self.now)['monitor_healthy'])
+        self.now += 1; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=102, market_at=entry_at + 5)
+        forward = self.cycle()
+        self.assertTrue(all(p['quote_at'] == entry_at + 5 for p in forward['positions']))
+        self.now += 1; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=entry_at + 4)
+        backward = self.cycle()
+        self.assertEqual(len(backward['positions']), 2)
+        self.assertEqual(backward['trades'], [])
+        self.assertTrue(all(p['quote_at'] == entry_at + 5 for p in backward['positions']))
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=self.now)
+        self.assertEqual(len(self.cycle()['trades']), 2)
+
+    def test_cached_retry_clock_rollback_cannot_enter_before_signal_close(self):
+        self.cycle(); self.next_hour()
+        target = int(self.now // B) * B
+        self.quote.side_effect = TimeoutError()
+        first = self.cycle()
+        self.assertEqual(len(first['pending_bar']['signals']), 3)
+        retry_at = first['pending_bar']['next_retry_at']
+        self.now = retry_at; self.persist()
+        def rollback_quote(sym):
+            self.now = target - 1
+            return dict(price=102, market_at=target)  # Allowed +2s ticker tolerance.
+        self.quote.side_effect = rollback_quote
+        after = self.cycle()
+        self.assertEqual(after['positions'], [])
+        self.assertTrue(after['candle_error'])
+        self.assertEqual(after['pending_bar']['attempts'], 2)
+        self.assertGreaterEqual(after['pending_bar']['next_retry_at'], retry_at + a.CANDLE_RETRY_SECONDS)
+        calls = self.quote.call_count
+        self.now = retry_at - 1; self.persist()
+        self.cycle()
+        self.assertEqual(self.quote.call_count, calls)
+        self.now = after['pending_bar']['next_retry_at']; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=102, market_at=self.now)
+        recovered = self.cycle()
+        self.assertEqual(len(recovered['positions']), 2)
+        self.assertTrue(all(p['opened_at'] >= target for p in recovered['positions']))
+
+    def test_clock_rollback_cannot_close_before_position_entry(self):
+        self.cycle(); self.next_hour(); opened = self.cycle()
+        entry_at = self.now
+        self.now = entry_at - 1; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=entry_at)
+        after = self.cycle()
+        self.assertEqual(after['trades'], [])
+        self.assertEqual(after['positions'], opened['positions'])
+        self.assertTrue(after['monitor_error'])
+        self.now = entry_at + 30; self.persist()
+        self.quote.side_effect = lambda sym: dict(price=80, market_at=self.now)
+        recovered = self.cycle()
+        self.assertEqual(len(recovered['trades']), 2)
+        self.assertTrue(all(t['closed_at'] >= t['opened_at'] for t in recovered['trades']))
+
+    def test_candle_quote_cannot_regress_after_newer_protection_quote(self):
+        self.cycle(); self.next_hour(); self.cycle(); self.next_hour()
+        counts = {}
+        def tick(sym):
+            counts[sym] = counts.get(sym, 0) + 1
+            later = counts[sym] > 1
+            return dict(price=80 if later else 102, market_at=self.now - 1 if later else self.now)
+        self.quote.side_effect = tick
+        after = self.cycle()
+        self.assertEqual(len(after['positions']), 2)
+        self.assertEqual(after['trades'], [])
+        self.assertTrue(after['candle_error'])
 
     def test_exits_release_capacity_before_new_entries(self):
         self.cycle();self.next_hour();s=self.cycle()
