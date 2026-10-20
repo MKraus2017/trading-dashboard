@@ -196,6 +196,81 @@ losses or market this as an independently validated winner. Pre-register small
 candidate sets and preserve unsuccessful results. Ask before paid subscriptions,
 new access, real-money activity or publishing performance claims.
 
+### Ongoing paper-research authorization (20 October 2026)
+
+Martin authorized ongoing Astra paper research and tested strategy optimization,
+including using his continuously running local computer and choosing free public
+market/research sources. This supersedes the earlier freeze for Astra ONLY. It
+does not authorize changes to the reference portfolio, real orders, broker/OKX
+accounts, Telegram tests, paid subscriptions or additional infrastructure.
+The deterministic Render worker trades paper continuously; GPT reviews run in
+the existing five-day local Codex heartbeat. Local execution still requires the
+computer AND Codex app to be running and connected; it is not an always-running
+LLM process. No additional paid API-agent service is enabled.
+
+Candidate families must be preregistered before evaluation, use segregated/new
+data, model costs and report failed candidates. Do not change rules simply to
+force activity or to erase a loss. Keep the current 0.5% entry/1% aggregate
+planned-risk limits, no borrowing/martingale, and preserve capital, positions,
+fees, old versions and history. Each promoted rule change needs a new version,
+explicit carry-forward policy, offline accounting/safety tests, reviewable commit,
+deployment verification and a dated reason. A short five-day sample or a selected
+historical winner alone is not sufficient. Report a material change or blocker;
+do not promise profit or victory.
+
+### Browser-independent, read-only research access
+
+The optional blueprint `/api/astra/research/v1` is a dedicated capability for
+the fixed existing owner1's Astra and virtual crypto reference data only. It is
+NOT a session-login bypass or a trading/reset/configuration API. Other users,
+real portfolios, credentials and application settings are excluded by allowlists.
+Missing/invalid `ASTRA_RESEARCH_TOKEN_SHA256` disables it. The server stores only
+the SHA256 digest of a random256-bit token, never the raw token. The normal login
+and storage-maintenance guard stay intact. Research-path requests, including
+rejected methods, cannot invoke the general worker-bootstrap fallback.
+
+- `GET /snapshot`: one explicit read-only SQLite transaction captures the
+  allowlisted current run, full virtual ledger, decisions and equity history.
+- `GET /history`: frozen decision/equity pages share the same snapshot and
+  capture time. Maximum500 rows per page, default250. No caller-selected user,
+  database path or table is accepted. All writes are rejected.
+- Snapshots are process-local, immutable, limited to two,16MiB each, and expire
+  after10minutes. Creation is rate-limited. Restart/expiry requires a new capture.
+  Size/schema errors are explicit; history must never be silently truncated.
+- The current service has one Gunicorn worker. Do not scale to multiple workers
+  without redesigning consistent snapshot routing. Existing paper watchers
+  continue independently of this API and local computer availability.
+
+Local client: `scripts/astra-research.ps1`. Enrollment generates a dedicated
+token, encrypted by Windows DPAPI for the current Windows user, normally in
+`../astra-access/credential.dpapi` outside this repository. Only the digest is
+used for Render configuration. Never print/decrypt the raw token in chat, put it
+in command-line arguments, copy it into a browser URL or commit it. The client
+uses the fixed HTTPS service origin, rejects redirects, downloads all frozen
+pages and saves private research captures outside the repository. A different
+Windows user/profile cannot reuse this credential. Revocation: remove the single
+Render digest variable and redeploy; rotation requires generating a new local
+credential and replacing only that digest. Never replace all service variables.
+
+Read command (from the repository):
+`powershell.exe -NoProfile -File scripts/astra-research.ps1 -Action Read`.
+`-Action SelfTest` performs offline client checks without enrolling credentials.
+The client uses500-row pages to stay below the server request budget. If a
+deployment expires a snapshot (HTTP410) or a temporary rate limit occurs, wait
+60seconds and retry the WHOLE capture once; never combine pages across snapshots.
+On persistent failure, report the actual blocker. Do not regenerate credentials
+or remove authentication as an automatic recovery action.
+
+Deployment uses existing authorized GitHub/Render connections. Render workspace
+MKTest (`tea-d8a2qfnavr4c73d45540`) and service
+`srv-d8ni5jb7uimc739ud740` were explicitly confirmed. Auto-deploy was set to off on
+20October so reviewed commits can be explicitly deployed through the connector;
+recheck the actual service settings before each release. Do not apply the stale
+render.yaml or alter the existing1GB persistent disk. Do not dispatch the existing
+GitHub scheduler workflow: it contains unrelated real-OKX actions. If connector
+authorization expires, report the blocker instead of weakening security or
+searching for other account credentials.
+
 ## Verification
 
 `python tests/test_astra_ultra.py -v` exercises temporary databases and mocked

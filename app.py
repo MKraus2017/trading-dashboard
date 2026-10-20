@@ -20,6 +20,11 @@ from analyzer import stock_runtime
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
 
+# A separate read-only capability, never a session/login substitute. Its factory
+# performs no IO or worker startup and reads only the fixed paper owner.
+from analyzer.astra_research_api import create_blueprint as create_astra_research_blueprint
+app.register_blueprint(create_astra_research_blueprint(db_store.DB_PATH))
+
 
 @app.before_request
 def storage_migration_guard():
@@ -1713,6 +1718,10 @@ def start_background_watchers():
 
 @app.before_request
 def ensure_background_watchers():
+    # Include rejected/unknown methods and paths: Flask may not assign a
+    # blueprint to 404/405 requests. Research requests must never start workers.
+    if request.path == "/api/astra/research/v1" or request.path.startswith("/api/astra/research/v1/"):
+        return None
     # Other WSGI hosts get an idempotent first-request fallback. Never start
     # threads during module import: a preloading master may fork afterwards.
     start_background_watchers()
