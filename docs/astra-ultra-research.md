@@ -1,6 +1,81 @@
-# Astra Ultra: Forschung und ausgewählter virtueller 4H-Vergleich
+# Astra Ultra: Forschungsstand und erhaltenes 4H-Archiv
 
-> Versionshinweis vom 11.10.2026: Die laufende Strategie wird auf Nutzerwunsch als
+## Update 20.10.2026: experimentelle Version 3, kein bestätigter Gewinner
+
+Martin hat nach der negativen Robustheitsauswertung ausdrücklich verlangt, eine
+Strategie auszuwählen und im **virtuellen** Astra-Wettbewerb online einzusetzen.
+Ausgewählt wurde C2 als `astra_breakout_2h_volume_v3`. Das ist eine autorisierte
+neue Forschungshypothese, **keine bestandene Profitabilitätsprüfung**. Ob die
+Version bereits läuft, muss der authentifizierte Runtime-Bericht bestätigen.
+Das Referenzdepot bleibt unverändert. Kapital, offene Positionen, bisherige Kosten,
+Trade- und Versionshistorie werden fortgeführt, nicht zurückgesetzt.
+
+### Präzise Änderung gegenüber Version 2
+
+BTC/ETH/SOL, LONG 1x. Abgeschlossener 2H-Schluss über EMA200 und entweder
+über den vorherigen 24 Hochs (unveränderter Basisast) **oder** über den vorherigen
+12 Hochs bei steigender EMA200 gegenüber sechs Kerzen zuvor und RVOL20 ≥ 1,25.
+RVOL ist der USDT-Gesamtumsatz der fertigen Signalkerze im Verhältnis zum Mittel
+der vorherigen 20 Kerzen, kein Kaufdruck. Die Kanäle/Volumenmittel enthalten die
+Signalkerze nicht. Die aktuelle EMA/ATR nutzen die letzten 500 Kerzen, die
+sechs Kerzen frühere EMA ihr eigenes 500er-Fenster; insgesamt 506 Eingangskerzen.
+Ungültiges Volumen sperrt nur den Zusatzast, niemals einen gültigen Basisast.
+
+Unverändert: 0,5% geplantes Stop-Risiko je Einstieg einschließlich Kosten, 1%
+aggregiert, höchstens zwei Positionen und 40% Positionswert je Position; Stop
+2 ATR14, Exit bei Schluss unter den vorherigen 12 Tiefs oder nach 336 Stunden.
+Kein neues TP, kein nachträglich optimierter Stop, keine Shorts, kein Hebelanstieg.
+
+### Ergebnisse der getrennten Offlineprüfung vom 20.10.2026
+
+Gleiches Archivende 14.10.2026, 18:00 UTC. 1.000 USDT-Modell-Einheiten, jedes
+Fenster ohne Bestand gestartet; Hauptkosten je Seite 0,20% Gebühr und 0,05%
+Slippage. Höhere Kosten: 0,30% und 0,10%. Ausführung anhand von Stunden-OHLC,
+Rückgang stündlich markiert, nicht der vollständige Intrabar-Maximalverlust.
+
+| Variante | 360T netto | Größter Rückgang | Einstiege | 360T höhere Kosten |
+|---|---:|---:|---:|---:|
+| C0: Version 2, Basisast | −6,6814% | 20,4114% | 104 | −11,5739% |
+| C1: zusätzlich 24er-Schlusskurshoch + RVOL | −5,1671% | 19,5950% | 115 | −12,6587% |
+| **C2: Version 3, zusätzlich Hoch12 + Trend + RVOL** | **−1,6638%** | **16,3089%** | **106** | **−7,6299%** |
+
+C2 ist historisch weniger schlecht als C0, aber weiterhin negativ. Die vier
+getrennten 90-Tage-Blöcke ergaben −5,0822%, −1,8010%, −4,3164%, +11,4392%.
+Ohne den größten Gewinnbeitrag blieben −113,9180 Modell-Einheiten (arithmetische
+Konzentrationsdiagnose, kein neu finanzierter Gegenlauf).
+
+**C1 und C2 bestanden die vorab festgelegten Freigabekriterien nicht:** negative
+360-Tage-Rendite unter Haupt-/Stresskosten, weniger als drei positive Quartale,
+negative Bilanz ohne den größten Gewinnbeitrag. Die Schwellen bleiben unverändert;
+die Nutzerfreigabe für einen virtuellen Versuch wird nicht als wissenschaftliches
+Gütesiegel ausgegeben. Auswahl nach wiederholten Tests auf bekannter Historie ist
+keine unabhängige Validierung.
+
+Im ergänzten Zeitraum 14.–20.10.2026 (jeweils 18:00 UTC) hatten C0 und C2 keinen
+Einstieg. C1 hatte einen Stop-Verlust von 0,50% des Modellkapitals. Dieses Sechstage-
+Fenster wurde wegen der beobachteten Untätigkeit untersucht und war kein blinder
+Out-of-Sample-Test. Weder mehr Aktivität noch ein Sieg oder Gewinn ist belegt.
+
+Reproduktionsartefakte außerhalb des Repositorys:
+`../astra-optimization-20261020/Auswertung.txt`, `protocol.json`,
+`preregistration.json`, `variants.py`, `run_experiment.py`, `results.json`,
+`full_runs.jsonl.gz`, `verification.json` sowie originale Kursantworten unter
+`data/`. Die dort dokumentierten 48 Läufe enthalten 42 einzigartige Kombinationen
+und sechs explizite B4/last90-Duplikate, keine 48 unabhängigen Stichproben.
+Das ursprüngliche Offlineprotokoll bleibt unverändert und dokumentiert den damals
+korrekten Zustand „keine laufende Änderung“; die spätere Freigabe steht in diesem
+datierbaren Ergänzungsabschnitt.
+
+Prüfsummen des ausgewerteten Standes: Protokoll
+`9897c34cb7d3699a9b6372ee1135191eb4aeb135938deca8d907a1ae6813b60e`,
+vollständige Läufe
+`17abc2209f96b8d3346f1d4d70b632dcf87be4d04c602eb6e1740c6003e856af`.
+Die frühere historische 4H-Auswertung folgt unverändert als Archiv und darf nicht
+als Ergebnis der neuen Version bezeichnet werden.
+
+## Archiv: 4H-Forschung vom 10.10.2026
+
+> Historischer Versionshinweis vom 11.10.2026: Die laufende Strategie wird auf Nutzerwunsch als
 > `astra_breakout_2h_v2` mit 2H-Kerzen weitergeführt. Dieser Bericht bleibt der
 > unveränderte Forschungsstand der früheren 4H-Version `astra_breakout_4h_v1`.
 > Insbesondere +5,79 % über 360 Tage und die historische Signalkonsistenz gelten

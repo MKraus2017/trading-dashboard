@@ -11,6 +11,56 @@ function astraBarHours(record) {
   return null;
 }
 const astraRaster = record => astraBarHours(record) ? `${astraNum(astraBarHours(record))}H` : '—';
+function astraRuleLabel(record) {
+  if (record?.version === 'astra_breakout_2h_volume_v3') return 'Version 3 · 2H-Ausbruch + Trend/Volumen · experimentell';
+  if (record?.version === 'astra_breakout_2h_v2') return 'Version 2 · 2H-Ausbruch über 24 Hochs';
+  if (record?.version === 'astra_breakout_4h_v1') return 'Version 1 · früherer 4H-Ausbruch';
+  return `Regelversion: ${record?.version ?? 'noch nicht bestätigt'}`;
+}
+function astraRuleDescription(record) {
+  if (record?.version === 'astra_breakout_2h_volume_v3') {
+    return 'BTC, ETH, SOL · nur LONG 1×. Schlusskurs über EMA200 und entweder über den 24 vorherigen Hochs oder über den 12 vorherigen Hochs bei steigender EMA200 (gegenüber 6 Kerzen zuvor) und RVOL20 ≥ 1,25. Der Zusatzast ersetzt keinen gültigen 24er-Ausbruch. RVOL misst Gesamtumsatz in USDT, keinen Kaufdruck. Risiko und Ausstiegsregeln bleiben unverändert.';
+  }
+  if (record?.version === 'astra_breakout_2h_v2') return 'BTC, ETH, SOL · nur LONG 1×. Abgeschlossener 2H-Schluss über den vorherigen 24 Hochs und EMA200. Kein Volumen-Zusatzast in dieser Version.';
+  if (record?.version === 'astra_breakout_4h_v1') return 'Archivierte 4H-Version: BTC, ETH, SOL · nur LONG 1×. Abgeschlossener 4H-Schluss über den vorherigen 24 Hochs und EMA200.';
+  return 'Regeln für diese Version sind hier nicht bestätigt. Die angezeigte Versionskennung bleibt unverändert.';
+}
+const astraYesNo = value => typeof value === 'boolean' ? (value ? 'Ja' : 'Nein') : 'nicht bestätigt';
+function astraSignalEvidence(d) {
+  const keys = ['close','ema200','upper24','upper12','rvol20','entry_branch'];
+  if (!keys.some(k => d[k] !== undefined)) return '';
+  const above = n => Number.isFinite(d.close) && Number.isFinite(n) ? d.close > n : null;
+  const lines = [
+    `Signal-Schlusskurs: ${astraNum(d.close,8)} USDT`,
+    `Über EMA200 (${astraNum(d.ema200,8)}): ${astraYesNo(above(d.ema200))}`,
+    `Über vorherigem 24er-Hoch (${astraNum(d.upper24,8)}): ${astraYesNo(above(d.upper24))}`
+  ];
+  if (d.version === 'astra_breakout_2h_volume_v3' || d.entry_branch !== undefined) {
+    const volumeUsable = d.volume_valid === true && Number.isFinite(d.rvol20);
+    const branchLabels = {baseline:'24er-Ausbruch (Basisast)',additional:'12er-Ausbruch + Trend/Volumen (Zusatzast)',none:'Kein gültiger Einstiegsast'};
+    lines.push(
+      `Über vorherigem 12er-Hoch (${astraNum(d.upper12,8)}): ${astraYesNo(above(d.upper12))}`,
+      `EMA200 gegenüber 6 Kerzen zuvor (${astraNum(d.ema200_lag6,8)}): ${d.trend_rising === true ? 'steigend' : d.trend_rising === false ? 'nicht steigend' : 'nicht bestätigt'}`,
+      volumeUsable ? `RVOL20: ${astraNum(d.rvol20,4)} · mindestens 1,25: ${astraYesNo(d.rvol20 >= 1.25)}` : 'RVOL20: nicht verfügbar / ungültig · Zusatzast gesperrt; Basisast bleibt möglich',
+      `Basisast erfüllt: ${astraYesNo(d.baseline_enter)} · Zusatzast erfüllt: ${astraYesNo(d.additional_enter)}`,
+      `Einstiegsast: ${branchLabels[d.entry_branch] ?? d.entry_branch ?? 'nicht bestätigt'}`
+    );
+    if (d.enter === false) {
+      const reasons = [];
+      if (above(d.ema200) === false) reasons.push('Schlusskurs nicht über EMA200');
+      if (above(d.upper24) === false) reasons.push('24er-Ausbruch fehlt');
+      const extra = [];
+      if (above(d.upper12) === false) extra.push('12er-Ausbruch fehlt');
+      if (d.trend_rising === false) extra.push('EMA200 nicht steigend');
+      if (!volumeUsable) extra.push('Volumen nicht bestätigt');
+      else if (d.rvol20 < 1.25) extra.push('RVOL unter 1,25');
+      if (extra.length) reasons.push('Zusatzast: '+extra.join(', '));
+      lines.push('Warum kein Einstiegssignal: '+(reasons.join(' · ') || 'Bedingungen nicht vollständig bestätigt'));
+    }
+  }
+  if (d.enter === true) lines.push('Einstiegssignal erfüllt. Datenfrische, bestehende Positionen und Risikobudget entscheiden zusätzlich über eine virtuelle Ausführung.');
+  return '<details><summary>Signalprüfung / Gründe</summary>'+lines.map(x=>'<div>'+astraEsc(x)+'</div>').join('')+'</details>';
+}
 function astraTable(headers, rows, empty) {
   if (!rows.length) return `<div class="no-data">${astraEsc(empty)}</div>`;
   return '<table><thead><tr>'+headers.map(h=>'<th>'+astraEsc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(cells=>'<tr>'+cells.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
@@ -32,7 +82,7 @@ function astraDetails(p) {
     `Signal: ${astraTime(p.signal?.bar_end)} · EMA200 ${astraNum(p.signal?.ema200,8)} · ATR14 ${astraNum(p.signal?.atr14,8)}`,
     p.closed_at ? `Verkauf: ${astraTime(p.closed_at)} · Gebühr: ${astraMoney(p.exit_fee)} · ${p.close_reason}` : `Letzter Kurszeitpunkt: ${astraTime(p.quote_at)}`
   ];
-  return '<details><summary>Details</summary>'+data.map(x=>'<div>'+astraEsc(x)+'</div>').join('')+'</details>';
+  return '<details><summary>Details</summary>'+data.map(x=>'<div>'+astraEsc(x)+'</div>').join('')+astraSignalEvidence({...p.signal,version:p.version})+'</details>';
 }
 function astraDecisionDetails(d) {
   const attempts = d.attempt_history || [];
@@ -47,6 +97,7 @@ function renderAstraUltra(data) {
   if (!data?.ok) { el('status').textContent = '⚠️ Aktueller Vergleich nicht abrufbar. Vorherige Werte sind nicht als aktuell bestätigt.'; return; }
   if (!data.started) { el('status').textContent = 'Wartet auf den ersten frischen Krypto-Depotstand. Noch kein Testkonto gestartet.'; return; }
   const s = data.run;
+  if (el('rules-brief')) el('rules-brief').textContent = astraRuleLabel(s)+' — '+astraRuleDescription(s);
   const returnPct = value => (value/s.initial_capital-1)*100;
   const monitorAt = s.monitor_success_at ?? s.last_success_at;
   const candleStatus = s.last_candle_success_at && s.last_candle_bar_end
@@ -61,7 +112,7 @@ function renderAstraUltra(data) {
     const versions = (s.prior_versions || []).map(v => [v.version,astraRaster(v),astraTime(v.version_started_at ?? v.started_at),astraTime(v.ended_at),astraMoney(v.equity)]);
     versions.push([s.version,astraRaster(s),astraTime(s.version_started_at ?? s.started_at),'Aktiv','—']);
     el('versions').innerHTML = astraTable(['Version','Kerzen','Beginn (Berlin)','Ende (Berlin)','Depotwert beim Wechsel'],versions.map(r=>r.map(astraEsc)),'') +
-      '<p style="color:#8b949e;font-size:12px;">Kapital und Historie werden beim Versionswechsel weitergeführt. Rendite, Rückgang und Vergleich beziehen sich auf den ursprünglichen Testbeginn und können mehrere Versionen enthalten – keine isolierte 2H-Rendite.</p>';
+      '<p style="color:#8b949e;font-size:12px;">Kapital und Historie werden beim Versionswechsel weitergeführt. Rendite, Rückgang und Vergleich beziehen sich auf den ursprünglichen Testbeginn und können mehrere Versionen enthalten – keine isolierte Rendite der aktuellen Version.</p>';
   }
   const cards = [['Ursprüngliches Startkapital',astraMoney(s.initial_capital)],['Astra-Depotwert · Modell netto',astraMoney(s.equity)],['Cash',astraMoney(s.cash)],['Rendite seit Testbeginn · alle Versionen',astraNum(returnPct(s.equity))+'%'],['Offene Positionen',s.positions.length]];
   el('summary').innerHTML = cards.map(([k,v])=>`<div class="summary-card"><div class="label">${astraEsc(k)}</div><div class="value">${astraEsc(v)}</div></div>`).join('');
@@ -71,15 +122,15 @@ function renderAstraUltra(data) {
     [`Bisheriges Krypto · ${s.baseline_last_strategy || s.baseline_strategy}`,baseValid?astraMoney(s.baseline_equity):'Nicht belastbar / veraltet',baseValid?astraNum(returnPct(s.baseline_equity))+'%':'—',astraNum(s.baseline_max_drawdown_pct)+'%',s.baseline_closed_count]
   ];
   el('comparison').innerHTML = astraTable(['Ansatz','Depotwert · Modell netto','Rendite seit Testbeginn','Max. beobachteter Rückgang','Geschlossene Trades seit Testbeginn'],compare.map(r=>r.map(astraEsc)),'') +
-    `<p style="color:#8b949e;font-size:12px;">Startkapital beider Seiten: ${astraEsc(astraMoney(s.initial_capital))}. Referenz: ${s.baseline_inherited_count} übernommene Altpositionen, ${s.baseline_strategy_changes.length} Strategiewechsel. Unterschiedliche Risiken/Hebel – noch kein nachgewiesener Sieger. Astra-Planrisiko 0,5% pro Kauf, kein Garantielimit.</p>` +
-    `<p style="color:#d29922;font-size:12px;">Verpasste Kerzenprüfungen (alle Versionen): ${s.missed_hours} · Kurs-/Datenfehler: ${s.data_errors} · Beobachtungslücken: ${s.observation_gaps}${s.last_error?' · '+astraEsc(s.last_error):''}${s.baseline_invalid.length?' · Referenzhistorie verändert; Vergleich ungültig.':''}</p>`;
+    `<p style="color:#8b949e;font-size:12px;">Startkapital beider Seiten: ${astraEsc(astraMoney(s.initial_capital))}. Referenz: ${astraEsc(s.baseline_inherited_count)} übernommene Altpositionen, ${s.baseline_strategy_changes.length} Strategiewechsel. Unterschiedliche Risiken/Hebel – noch kein nachgewiesener Sieger. Astra-Planrisiko 0,5% pro Kauf, kein Garantielimit.</p>` +
+    `<p style="color:#d29922;font-size:12px;">Verpasste Kerzenprüfungen (alle Versionen): ${astraEsc(s.missed_hours)} · Kurs-/Datenfehler: ${astraEsc(s.data_errors)} · Beobachtungslücken: ${astraEsc(s.observation_gaps)}${s.last_error?' · '+astraEsc(s.last_error):''}${s.baseline_invalid.length?' · Referenzhistorie verändert; Vergleich ungültig.':''}</p>`;
   el('positions').innerHTML = astraTable(['Symbol','Kaufdatum (Berlin)','Einsatz','Entry / aktuell (USDT)','P&L · Modell netto','SL / TP','Details'],s.positions.map(p=>{
     const rules=p.rules || s.rules;
     const pnl=p.quantity*p.last_price*(1-rules.slippage_pct)*(1-rules.fee_pct)-p.entry_total;
     return [astraEsc(p.symbol)+' · LONG 1×',astraEsc(astraTime(p.opened_at)),astraEsc(astraMoney(p.entry_total)),astraEsc(astraNum(p.entry_price,8)+' / '+astraNum(p.last_price,8)),astraEsc(astraMoney(pnl)),astraEsc(astraNum(p.stop_loss,8)+' / Kanal-Exit'),astraDetails(p)];
   }),'Noch kein passendes Einstiegssignal. Cash zu halten ist eine bewusste Strategieentscheidung.');
   el('trades').innerHTML = astraTable(['Symbol','Kauf','Verkauf','P&L netto','Grund','Details'],s.trades.map(p=>[astraEsc(p.symbol),astraEsc(astraTime(p.opened_at)),astraEsc(astraTime(p.closed_at)),astraEsc(astraMoney(p.pnl_eur)),astraEsc(p.close_reason),astraDetails(p)]),'Noch keine abgeschlossenen Astra-Trades.');
-  el('decisions').innerHTML = astraTable(['Kerzenschluss (Berlin)','Raster / Version','Symbol','Ergebnis','Einstiegssignal','EMA200','ATR14'],data.decisions.map(d=>[astraEsc(astraTime(d.bar_end)),astraEsc(astraRaster(d)+' · '+(d.version ?? 'Version unbekannt')),astraEsc(d.symbol),astraDecisionDetails(d),typeof d.enter === 'boolean' ? (d.enter?'Ja':'Nein') : '—',astraEsc(astraNum(d.ema200,6)),astraEsc(astraNum(d.atr14,6))]),`Die erste vollständige ${astraRaster(s)}-Kerze nach dem Versionsstart wird abgewartet.`);
+  el('decisions').innerHTML = astraTable(['Kerzenschluss (Berlin)','Raster / Version','Symbol','Ergebnis','Einstiegssignal','EMA200','ATR14','Prüfdetails'],data.decisions.map(d=>[astraEsc(astraTime(d.bar_end)),astraEsc(astraRaster(d)+' · '+(d.version ?? 'Version unbekannt')),astraEsc(d.symbol),astraDecisionDetails(d),typeof d.enter === 'boolean' ? (d.enter?'Ja':'Nein') : '—',astraEsc(astraNum(d.ema200,6)),astraEsc(astraNum(d.atr14,6)),astraSignalEvidence(d)]),`Die erste vollständige ${astraRaster(s)}-Kerze nach dem Versionsstart wird abgewartet.`);
   if (el('daily')) el('daily').innerHTML = astraTable(['Beobachtet (Berlin)','Astra · Modell netto','Referenz · Modell netto','Datenstatus'],(data.daily||[]).map(d=>[astraEsc(astraTime(d.at)),astraEsc(astraMoney(d.equity)),astraEsc(astraMoney(d.baseline_equity)),d.data_ok&&d.baseline_fresh?'Vollständig':'Unvollständig / veraltet']),'Noch keine Tagesstände.');
 }
 let astraLoading = false;

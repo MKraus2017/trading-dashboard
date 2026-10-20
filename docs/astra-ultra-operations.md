@@ -5,14 +5,32 @@ trading system. Research/model review was delegated to GPT-6 Astra with Ultra
 reasoning. The deployed engine itself is deterministic Python; it never calls an
 LLM, a private exchange endpoint, a broker-order function or Telegram.
 
-## Current rules: 2H version, not the earlier 4H backtest
+## Current release rules: experimental 2H version 3
 
-As requested on 2026-10-11, the current named hypothesis is
-`astra_breakout_2h_v2`: BTC, ETH and SOL only, LONG/spot-like 1x. A completed
-2-hour candle must close strictly above the previous 24 candle highs (48 hours)
-AND its 2H EMA200. Both channels exclude the signal candle. Indicators use exactly
-500 completed, contiguous 2H candles. EMA starts at the first 200 closes' mean;
-ATR14 uses Wilder recursion with first true range equal to high minus low.
+Martin explicitly requested selection and online activation of a new **virtual**
+strategy on 2026-10-20. The selected C2 hypothesis is
+`astra_breakout_2h_volume_v3`: BTC, ETH and SOL only, LONG/spot-like 1x. Check the
+authenticated runtime report before asserting this release is actually active.
+A completed 2-hour candle must close strictly above its 2H EMA200 AND satisfy
+either of these entry branches:
+
+1. The original v2 branch: close above the previous 24 candle highs (48 hours).
+2. Additional branch: close above the previous 12 candle highs (24 hours), EMA200
+   strictly higher than six candles earlier, and RVOL20 at least 1.25.
+
+The original branch remains valid without volume confirmation; the new branch
+does not filter old valid signals. RVOL20 is the completed signal candle's USDT
+quote turnover divided by the mean turnover of its previous 20 candles. It is
+total turnover, **not buying pressure or historical taker-buy share**. Missing,
+non-finite, negative volume, a zero-volume signal candle or a non-positive reference mean disables only the
+additional branch; it never fabricates a zero RVOL or blocks an otherwise valid
+baseline signal. Price/confirmation/continuity errors still block new exposure.
+
+All price channels and the RVOL denominator exclude the signal candle. Fetch
+506 completed, contiguous 2H candles. Current EMA and ATR still use exactly the
+last 500; the six-candle-lagged EMA uses its own 500-candle window ending six bars
+earlier. EMA starts at its first 200 closes' mean; ATR14 uses Wilder recursion
+with first true range equal to high minus low. Older v1/v2 rules remain frozen.
 
 The initial stop remains 2 ATR14 below the adverse model entry fill. Exit on an
 observed stop breach, a completed 2H close below the previous 12 lows (24 hours),
@@ -22,10 +40,17 @@ planned risk, at most two positions, and at most 40% notional each. Entry requir
 fresh data for all three symbols, a fresh quote within 1% of the signal close,
 and sufficient budget. Shorter candles do not guarantee entries or better returns.
 
-The 4H results and historical signal-parity evidence in the research document
-belong to `astra_breakout_4h_v1`, not this 2H version. No new 2H historical backtest
-or profitability validation is presented. The 2H change is a new forward-test
-hypothesis, not a historically proven improvement. No other coins were added:
+The new 2H offline comparison is documented at the top of the research report.
+C2 lost 1.6638% over 360 days after main model costs, versus v2's 6.6814% loss;
+its hourly sampled drawdown was 16.3089% versus 20.4114%, with 106 versus 104
+entries. It still lost 7.6299% under higher costs; only one of four separate
+quarter blocks was profitable. **It failed the preregistered robustness gates.**
+The user-authorized forward experiment does not turn that failed assessment into
+a validated improvement. The six-day diagnostic window had no C2 entry and was
+not blind out-of-sample data. More activity or a victory is not promised.
+
+The archival 4H results and historical signal-parity evidence still belong to
+`astra_breakout_4h_v1`, not this 2H version. No other coins were added:
 the three-symbol universe is an experimental scope, not a claim that LINK, ADA,
 XRP or DOGE cannot be handled technically or have been shown to perform worse.
 
@@ -39,15 +64,17 @@ XRP or DOGE cannot be handled technically or have been shown to perform worse.
 - State, all closed trades and timestamped checks remain in persistent SQLite,
   including across deployments. Normal existing DB backups contain the tables.
 - Version and a hash of rules are stored. Editing rules under the same version
-  fails instead of silently reinterpreting history. The explicit v1-to-v2
-  transition retains the old persisted run and carries forward cash, positions,
+  fails instead of silently reinterpreting history. The explicit v1-to-v2 and
+  v2-to-v3 transitions retain the old persisted run and carry forward cash, positions,
   trades, fees, initial capital and original experiment start into the new run.
   `version_started_at` records the actual transition; `prior_versions` records
   each earlier version's start/end, ending equity/cash, counts and frozen rules.
   No synthetic close/reopen or capital reset is performed at the switch.
 - Carried positions retain their entry version, signal, quantity, entry costs and
-  existing stop. `management_version` / `management_rules` explicitly select new
-  2H channel management after the transition; a 4H entry is not relabelled as 2H.
+  existing stop. During the earlier v1-to-v2 change, `management_version` /
+  `management_rules` explicitly selected 2H channel management; a 4H entry was not
+  relabelled as 2H. The v2-to-v3 change alters entries only, so already-open positions
+  also keep their existing management version and rules unchanged.
   Closed historic trades retain their original details. The report combines old
   and current decision/equity history while labelling each decision's version and
   `timeframe_hours`. Future transitions require their own explicit policy.
@@ -56,6 +83,21 @@ XRP or DOGE cannot be handled technically or have been shown to perform worse.
 - Public OKX data time and candle-confirm fields checked. Missing/partial-universe
   data blocks new exposure; existing positions remain visible as stale and their
   exits are retried on subsequent fresh quotes.
+
+### Version 3 migration and rollback safety
+
+Once a user's v3 run exists, SQLite triggers reject inserts, updates and deletes
+on that user's older-version run, decision and equity rows. Rolling back to an
+old executable therefore fails closed (`astra_version_retired_no_rollback`)
+instead of resuming obsolete capital as a second account fork. Recovery requires
+an explicitly reviewed, forward-compatible fix that continues the current ledger;
+do not drop these triggers or delete history to force a rollback.
+
+At the explicit v2-to-v3 migration only, a pending v2 retry is preserved in the
+old state and the new run's `prior_versions` record, then cleared from the active
+retry slot. It is not replayed under new rules or falsely marked successful.
+An existing `candle_error` survives the transition and remains visible until a
+new complete candle evaluation succeeds. Routine restarts do not clear retries.
 
 ## Comparison conventions
 
@@ -79,17 +121,17 @@ conversion. Quantities are model units. Drawdown is sample-based portfolio MTM,
 not guaranteed intrabar maximum. Gap losses may exceed planned .5% stop risk.
 
 Research backtests in `docs/astra-ultra-research.md` are retrospective selection
-evidence for the former 4H hypothesis. Different historic execution resolution is
-disclosed there. Current displayed return, drawdown and comparison remain measured
-from the ORIGINAL experiment start and include both version periods; they are not
-isolated 2H results. The version-start timestamp does not reset these metrics.
-A few days of either version do not validate a strategy.
+evidence, with separate v3 and archived 4H sections. Different historic execution
+resolution is disclosed there. Current displayed return, drawdown and comparison remain measured
+from the ORIGINAL experiment start and include all version periods; they are not
+isolated v3 results. The version-start timestamp does not reset these metrics.
+A few days of any version do not validate a strategy.
 
 ## Runtime
 
 Separate30-second daemon and process leader lock keep HTTP data requests outside
 the original stop-monitor loop. Each public request has6-second timeout. New rule
-decisions use exactly500closed2H bars during the first180seconds after close, not on
+decisions request506closed2H bars (500 per EMA/ATR window) during the first180seconds after close, not on
 page refresh. The candle length is7200seconds. Boundaries use UTC epoch time;
 timestamps in the UI are shown in Europe/Berlin. Entry checks begin no earlier
 than5seconds after close. Seeding or changing version skips the current completed
@@ -160,12 +202,16 @@ new access, real-money activity or publishing performance claims.
 market data, authentication/isolation, source immutability, accounting, gap/stale
 data, rule freezing and duplicate prevention. `node tests/astra_ultra.test.cjs`
 checks read-only UI polling, escaping, navigation, mixed-version history and
-entry-versus-management candle labels. The full Flask smoke test
+entry-versus-management candle labels, v3 rule labels, nullable volume and
+decision evidence. The full Flask smoke test
 must run from a clean release with temporary DB, maintenance enabled, all workers
 disabled and sockets blocked, never against the user's production database.
 
 The former4H24/12-channel hypothesis is preserved in the research record. The
-earlier1H candidate was rejected and never deployed. The current2H hypothesis
-retains channel lengths24/12, EMA200, ATR14×2 and336h maximumhold, but these are
-different elapsed-time lookbacks. Old4H signal-parity tests do not validate new2H
-performance. Historical OHLCstop execution is not identical to observed live quotes.
+earlier1H candidate was rejected and never deployed. Version3 retains v2's
+24-high entry branch, 12-low exit, EMA200, ATR14×2 and336h maximumhold, adding
+only the explicit 12-high/trend/volume entry branch. Old4H signal-parity tests do
+not validate 2H performance. Historical OHLCstop execution is not identical to
+observed live quotes. Before deploying, compare the pure v3 signal definition to
+the frozen C2 research definition, test migration twice for idempotence, and
+verify the source-account ledger and all carried Astra capital/history survive.

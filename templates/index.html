@@ -265,6 +265,7 @@
       <p style="color:#8b949e;">Eigenständiges Testdepot, entwickelt und geprüft mit GPT‑6 Astra (Ultra).
         Die laufenden Handelsregeln sind fest programmiert – keine laufenden KI-Aufrufe, keine echten Orders und keine Telegram-Orderfreigaben.</p>
       <div id="astra-status" class="no-data" role="status">Vergleich wird geladen …</div>
+      <p id="astra-rules-brief" style="color:#8b949e;">Aktive Regelversion wird vom laufenden Test geladen …</p>
       <div class="section-title">🕒 Aktuelle 2H-Version und erhaltene Versionshistorie</div>
       <div id="astra-versions" style="overflow-x:auto;"></div>
       <div id="astra-summary" class="summary-grid"></div>
@@ -274,35 +275,54 @@
       <div id="astra-positions" style="overflow-x:auto;"></div>
       <div class="section-title">📝 Abgeschlossene Astra-Trades</div>
       <div id="astra-trades" style="overflow-x:auto;"></div>
-      <div class="section-title">💡 2-Stunden-Prüfungen · frühere 4H-Entscheidungen bleiben gekennzeichnet</div>
+      <div class="section-title">💡 2-Stunden-Prüfungen · Einstieg oder Abwarten mit Prüfdetails</div>
       <div id="astra-decisions" style="overflow-x:auto;"></div>
-      <div class="section-title">🔬 Frühere 4H-Forschung · kein Backtestnachweis für die aktuelle 2H-Version</div>
+      <div class="section-title">🔬 Forschungsstand 20.10.2026 · experimentelle Version 3</div>
       <p><a class="refresh-btn" href="/api/crypto/astra_ultra/research">Forschungsbericht mit allen Varianten und Quellen herunterladen</a></p>
+      <p style="color:#d29922;">Die Variante C2 (12er-Ausbruch + steigende EMA200 + RVOL) wird auf ausdrücklichen Wunsch
+        als virtueller Versuch eingesetzt, nicht als nachgewiesene Gewinnerstrategie. Sie hat die vorab festgelegte
+        Robustheitsprüfung nicht bestanden: 360-Tage-Ergebnis negativ, auch unter höheren Kosten; nur einer von vier
+        getrennten Quartalsblöcken positiv. Das bisherige Referenzdepot bleibt unverändert.</p>
+      <div style="overflow-x:auto;"><table><thead><tr><th>2H-Variante</th><th>360 Tage netto</th><th>Größter Rückgang</th><th>Einstiege</th><th>360 Tage bei höheren Kosten</th></tr></thead><tbody>
+        <tr><td>C0 · bisherige Version 2</td><td>−6,68%</td><td>20,41%</td><td>104</td><td>−11,57%</td></tr>
+        <tr><td>C2 · Version 3, zusätzlicher Trend-/Volumenast</td><td>−1,66%</td><td>16,31%</td><td>106</td><td>−7,63%</td></tr>
+      </tbody></table></div>
+      <p style="color:#8b949e;">Gleiches historisches Testende: 14.10.2026, 20:00 Uhr Berlin. Hauptkosten je Seite:
+        0,20% Gebühr + 0,05% Slippage; höhere Kosten: 0,30% + 0,10%. Stundenweise Modell-Ausführung, BTC/ETH/SOL LONG 1×.
+        Bekannte Auswahldaten, keine unabhängige Validierung. Vom 14.–20.10. (jeweils 20 Uhr Berlin) hätte C2 keinen Einstieg
+        erzeugt; dieses durch die beobachtete Untätigkeit motivierte Diagnosefenster ist kein blinder Zukunftstest.
+        Mehr Trades oder Gewinne sind nicht garantiert. Kapital und sämtliche bisherigen Ergebnisse werden fortgeführt.</p>
+      <details style="margin:20px 0;"><summary>Archiv: frühere 4H-Forschung vom 10.10.2026</summary>
       <p style="color:#8b949e;">Auswahl am 10.10.2026, gemeinsames Testende 14:00 Uhr Berlin.
         Drei Coins, begrenztes Modellkapital, 0,20% Gebühr + 0,05% Slippage je Seite.
-        Alle betrachteten Zeiträume sind bekannte Auswahldaten. Die Änderung auf 2H am 11.10.2026
-        ist eine neue, historisch nicht validierte Version; die folgenden 4H-Ergebnisse gelten nicht für sie.</p>
+        Alle betrachteten Zeiträume sind bekannte Auswahldaten. Die folgenden 4H-Ergebnisse gelten weder für Version 2
+        noch für Version 3; sie sind kein Backtestnachweis für die aktuelle 2H-Version.</p>
       <div style="overflow-x:auto;"><table><thead><tr><th>Kandidat</th><th>90 Tage</th><th>180 Tage</th><th>360 Tage</th><th>Einordnung</th></tr></thead><tbody>
         <tr><td>Astra · frühere 4H-Version (24/12)</td><td>+10,98%</td><td>+7,85%</td><td>+5,79%</td><td>Nur historische 4H-Auswahl; kein Nachweis für 2H</td></tr>
-        <tr><td>Astra · aktuelle 2H-Version (24/12)</td><td colspan="3">Kein eigener historischer Backtest vorgelegt</td><td>Neue virtuelle Vorwärtsbeobachtung, kein bewiesener Sieger</td></tr>
         <tr><td>Astra · 1H-Ausbruch (24/12)</td><td colspan="2">Kurzfristig teilweise positiv</td><td>−21,83%*</td><td>Verworfen: schwaches Langzeitergebnis</td></tr>
         <tr><td>Cash · keine Position</td><td>0%</td><td>0%</td><td>0%</td><td>Ohne Zinsen / Wechselkurseffekt</td></tr>
       </tbody></table></div>
       <p style="color:#d29922;">Wichtige Einschränkung: Zwei von vier getrennten 90-Tage-Blöcken der früheren 4H-Variante waren negativ.
         Ohne den größten Gewinntrade wäre ihr Gesamtergebnis negativ. Auch +5,79% beweisen deshalb keinen dauerhaften Vorteil.
         *Der erste 1H-Lauf endete drei Stunden später; kein minutengenau identisches Vergleichsfenster.</p>
+      </details>
       <details style="margin:20px 0;"><summary>Depotverlauf · letzter beobachteter Stand je UTC-Tag</summary>
         <div id="astra-daily" style="overflow-x:auto;"></div>
       </details>
       <details style="margin:20px 0;">
         <summary>Regeln, Kosten und Grenzen des Vergleichs</summary>
-        <p>Version 2 (astra_breakout_2h_v2): BTC, ETH und SOL. LONG/Spot 1×. Einstieg erst nach abgeschlossener 2H-Kerze:
-          Schlusskurs über dem Hoch der vorherigen 24 Kerzen (48 Stunden) und über EMA200 auf 2H-Kerzen.
+        <p>Version 3 (astra_breakout_2h_volume_v3): BTC, ETH und SOL. LONG/Spot 1×. Einstieg erst nach abgeschlossener 2H-Kerze:
+          Schlusskurs über EMA200 und entweder über dem Hoch der vorherigen 24 Kerzen (48 Stunden),
+          oder über den vorherigen 12 Hochs mit gegenüber sechs Kerzen zuvor steigender EMA200 und RVOL20 ≥ 1,25.
+          RVOL20 ist der USDT-Umsatz der Signalkerze geteilt durch den mittleren Umsatz der vorherigen 20 Kerzen,
+          kein Käuferanteil. Fehlendes/ungültiges Volumen sperrt nur den Zusatzast; gültige Basis-Signale bleiben erhalten.
           Anfangs-Stop 2× ATR14 unter dem ausgeführten Modellkurs. Ausstieg bei Stop,
           Schluss unter dem vorherigen 12-Kerzen-Tief (24 Stunden) oder spätestens nach 336 Stunden. Kein festes TP.
-          EMA und ATR werden reproduzierbar aus genau den letzten 500 abgeschlossenen 2H-Kerzen berechnet.
+          Es werden 506 abgeschlossene 2H-Kerzen geladen: aktuelle EMA und ATR aus den letzten 500 abgeschlossenen 2H-Kerzen;
+          die EMA sechs Kerzen zuvor aus ihrem eigenen 500er-Fenster. Kanäle und Volumenmittel schließen die Signalkerze aus.
           Vor dem Wechsel eröffnete Positionen behalten Kaufwerte, Gebühren und ihren bestehenden Stop.
-          Ihre Kanal-Ausstiege folgen ab dem Wechsel den neuen 2H-Regeln; Details trennen Kauf- und Ausstiegsversion.</p>
+          Beim Wechsel von Version 2 auf 3 bleiben auch die bisherigen Ausstiegsregeln und deren Versionskennzeichnung erhalten;
+          Details trennen Kauf- und Ausstiegsversion. Der frühere 4H-zu-2H-Wechsel bleibt separat dokumentiert.</p>
         <p>Geplantes Stop-Risiko einschließlich Modellkosten höchstens 0,5% des Depotwerts pro Kauf,
           insgesamt höchstens 1%; maximal zwei Positionen und je 40% Positionswert.
           Das sind Planwerte, keine Verlustgarantie bei Kurslücken oder Datenausfällen.
@@ -382,6 +402,6 @@
   </div>
 <script src="/static/app.js?v=30"></script>
 <script src="/static/crypto_exit_shadow.js?v=1"></script>
-<script src="/static/astra_ultra.js?v=3"></script>
+<script src="/static/astra_ultra.js?v=4"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@ const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../static/astra_ultra.js'),'utf8');
 function data(){return {ok:true,started:true,healthy:true,enabled:true,run:{version:'astra_breakout_2h_v2',started_at:1791630000,version_started_at:1791720000,initial_capital:1000,equity:1000,cash:1000,positions:[],trades:[],closed_count:0,prior_versions:[],baseline_fresh:true,baseline_invalid:[],baseline_equity:1000,baseline_strategy:'classic',baseline_inherited_count:0,baseline_strategy_changes:[],missed_hours:0,data_errors:0,observation_gaps:0,rules:{bar_seconds:7200,exit_channel:12,max_hold_hours:336,fee_pct:.002,slippage_pct:.0005}},decisions:[]};}
 function setup(){
-  const elements=Object.fromEntries(['status','versions','summary','comparison','positions','trades','decisions','daily'].map(n=>['astra-'+n,{innerHTML:'',textContent:''}]));
+  const elements=Object.fromEntries(['status','rules-brief','versions','summary','comparison','positions','trades','decisions','daily'].map(n=>['astra-'+n,{innerHTML:'',textContent:''}]));
   const calls=[];
   const context=vm.createContext({document:{addEventListener(){},getElementById:id=>elements[id]},AbortSignal,fetch:async(url,opts)=>{calls.push({url,opts});return{ok:true,json:async()=>data()};}});
   vm.runInContext(source,context);return{elements,calls,context};
@@ -70,7 +70,7 @@ test('version transition keeps original capital and all-time return basis visibl
   const html=elements['astra-versions'].innerHTML;
   assert.match(html,/astra_breakout_4h_v1/);assert.match(html,/astra_breakout_2h_v2/);
   assert.match(html,/900,00/);assert.match(html,/Aktiv/);
-  assert.match(html,/keine isolierte 2H-Rendite/);
+  assert.match(html,/keine isolierte Rendite der aktuellen Version/);
   assert.match(elements['astra-summary'].innerHTML,/Ursprüngliches Startkapital/);
   assert.match(elements['astra-summary'].innerHTML,/alle Versionen/);
   assert.match(elements['astra-summary'].innerHTML,/>-5%</);
@@ -116,17 +116,103 @@ test('version metadata and position management labels are escaped',()=>{
   assert.doesNotMatch(context.astraDetails({management_version:'<img>',version:'astra_breakout_2h_v2'}),/<img>/);
 });
 
-test('static instructions separate 2H current rules from old 4H evidence',()=>{
+test('static instructions separate v3 failed research gates from old 4H evidence',()=>{
   const html=fs.readFileSync(path.join(__dirname,'../templates/index.html'),'utf8');
-  assert.match(html,/astra_breakout_2h_v2/);
+  assert.match(html,/astra_breakout_2h_volume_v3/);
   assert.match(html,/24 Kerzen \(48 Stunden\)/);
   assert.match(html,/12-Kerzen-Tief \(24 Stunden\)/);
   assert.match(html,/500 abgeschlossenen 2H-Kerzen/);
+  assert.match(html,/506 abgeschlossene 2H-Kerzen/);
+  assert.match(html,/RVOL20 ≥ 1,25/);
   assert.match(html,/etwa alle 30 Sekunden/);
   assert.match(html,/kein Backtestnachweis für die aktuelle 2H-Version/);
-  assert.match(html,/Kein eigener historischer Backtest vorgelegt/);
+  assert.match(html,/Robustheitsprüfung nicht bestanden/);
+  assert.doesNotMatch(html,/Kein eigener historischer Backtest vorgelegt/);
+  assert.match(html,/−1,66%/);assert.match(html,/−7,63%/);
   assert.match(html,/\+5,79%/);
-  assert.match(html,/astra_ultra\.js\?v=3/);
+  assert.match(html,/astra_ultra\.js\?v=4/);
+});
+
+test('dynamic active rule label identifies v3 and does not relabel an old runtime',()=>{
+  const {context,elements}=setup();const d=data();
+  context.renderAstraUltra(d);
+  assert.match(elements['astra-rules-brief'].textContent,/Version 2/);
+  assert.match(elements['astra-rules-brief'].textContent,/Kein Volumen-Zusatzast/);
+  d.run.version='astra_breakout_2h_volume_v3';context.renderAstraUltra(d);
+  assert.match(elements['astra-rules-brief'].textContent,/Version 3/);
+  assert.match(elements['astra-rules-brief'].textContent,/experimentell/);
+  assert.match(elements['astra-rules-brief'].textContent,/RVOL20 ≥ 1,25/);
+  assert.match(elements['astra-rules-brief'].textContent,/keinen Kaufdruck/);
+  d.run.version='<img src=x onerror=bad>';context.renderAstraUltra(d);
+  assert.match(elements['astra-rules-brief'].textContent,/Regelversion: <img/);
+  assert.equal(elements['astra-rules-brief'].innerHTML,''); // textContent only.
+});
+
+function v3Decision(){return {version:'astra_breakout_2h_volume_v3',symbol:'BTC',action:'Abwarten',enter:false,
+  close:110,ema200:105,upper24:115,upper12:111,ema200_lag6:106,rvol20:1.1,volume_valid:true,
+  trend_rising:false,baseline_enter:false,additional_enter:false,additional_only:false,entry_branch:'none'};}
+
+test('v3 wait reasons expose each entry threshold and distinguish trend from volume',()=>{
+  const {context,elements}=setup();const d=data();d.run.version='astra_breakout_2h_volume_v3';d.decisions=[v3Decision()];
+  context.renderAstraUltra(d);const html=elements['astra-decisions'].innerHTML;
+  assert.match(html,/Signalprüfung \/ Gründe/);
+  assert.match(html,/Über EMA200 \(105\): Ja/);
+  assert.match(html,/24er-Hoch \(115\): Nein/);assert.match(html,/12er-Hoch \(111\): Nein/);
+  assert.match(html,/EMA200 nicht steigend/);assert.match(html,/RVOL unter 1,25/);
+  assert.match(html,/Warum kein Einstiegssignal/);assert.match(html,/Kein gültiger Einstiegsast/);
+});
+
+test('null volume is never shown as zero and does not claim baseline signals are blocked',()=>{
+  const {context}=setup();const d={...v3Decision(),rvol20:null,volume_valid:false,entry_branch:'baseline',
+    baseline_enter:true,close:120,enter:true};
+  const html=context.astraSignalEvidence(d);
+  assert.match(html,/RVOL20: nicht verfügbar \/ ungültig/);
+  assert.match(html,/Zusatzast gesperrt; Basisast bleibt möglich/);
+  assert.doesNotMatch(html,/RVOL20: 0|Warum kein Einstiegssignal/);
+  assert.match(html,/24er-Ausbruch \(Basisast\)/);
+  assert.match(html,/Einstiegssignal erfüllt/);
+});
+
+test('v3 additional entry is identified without pretending a signal guarantees a fill',()=>{
+  const {context}=setup();const d={...v3Decision(),close:112,ema200_lag6:104,trend_rising:true,
+    rvol20:1.25,additional_enter:true,additional_only:true,entry_branch:'additional',enter:true};
+  const html=context.astraSignalEvidence(d);
+  assert.match(html,/12er-Ausbruch \+ Trend\/Volumen \(Zusatzast\)/);
+  assert.match(html,/mindestens 1,25: Ja/);
+  assert.match(html,/Risikobudget/);
+  assert.doesNotMatch(html,/Warum kein Einstiegssignal/);
+});
+
+test('legacy decision evidence neither invents volume tests nor rewrites version history',()=>{
+  const {context,elements}=setup();const d=data();d.run.version='astra_breakout_2h_volume_v3';
+  d.run.prior_versions=[{version:'astra_breakout_4h_v1',started_at:1,ended_at:2,equity:1000},
+    {version:'astra_breakout_2h_v2',started_at:2,ended_at:3,equity:990}];
+  d.decisions=[{version:'astra_breakout_2h_v2',symbol:'BTC',close:100,ema200:105,upper24:110,enter:false}];
+  context.renderAstraUltra(d);
+  assert.doesNotMatch(elements['astra-decisions'].innerHTML,/RVOL|Zusatzast|12er-Hoch/);
+  assert.match(elements['astra-versions'].innerHTML,/astra_breakout_4h_v1/);
+  assert.match(elements['astra-versions'].innerHTML,/astra_breakout_2h_v2/);
+  assert.match(elements['astra-versions'].innerHTML,/astra_breakout_2h_volume_v3/);
+  assert.equal(context.astraSignalEvidence({version:'astra_breakout_2h_v2',action:'Datenfehler'}),'');
+});
+
+test('v2 carried positions keep entry and management identity after the v3 switch',()=>{
+  const {context,elements}=setup();const d=data();d.run.version='astra_breakout_2h_volume_v3';
+  d.run.positions=[{version:'astra_breakout_2h_v2',management_version:'astra_breakout_2h_v2',
+    rules:d.run.rules,management_rules:d.run.rules,symbol:'BTC',quantity:1,entry_total:100,last_price:105}];
+  context.renderAstraUltra(d);const html=elements['astra-positions'].innerHTML;
+  assert.match(html,/Version beim Kauf: astra_breakout_2h_v2/);
+  assert.match(html,/Ausstiegsregeln: astra_breakout_2h_v2/);
+  assert.doesNotMatch(html,/Version beim Kauf: astra_breakout_2h_volume_v3/);
+});
+
+test('new evidence and existing source counters are escaped',()=>{
+  const {context,elements}=setup();const d=data();d.decisions=[{...v3Decision(),entry_branch:'<img src=x onerror=bad>',upper12:'<script>'}];
+  d.run.missed_hours='<img>';d.run.data_errors='<script>';d.run.baseline_inherited_count='<svg onload=bad>';
+  context.renderAstraUltra(d);
+  assert.match(elements['astra-decisions'].innerHTML,/&lt;img/);
+  assert.doesNotMatch(elements['astra-decisions'].innerHTML,/<img|<script>/);
+  assert.doesNotMatch(elements['astra-comparison'].innerHTML,/<img|<script>|<svg/);
 });
 
 test('monitor heartbeat is visibly separate from successful candle evaluation',()=>{

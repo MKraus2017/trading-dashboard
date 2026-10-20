@@ -16,16 +16,23 @@ from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "astra_breakout_2h_v2"
-RULES = dict(symbols=["BTC", "ETH", "SOL"], bar_seconds=7200, warmup_bars=500, entry_channel=24,
+VERSION = "astra_breakout_2h_volume_v3"
+PREVIOUS_VERSION = "astra_breakout_2h_v2"
+PREVIOUS_RULES = dict(symbols=["BTC", "ETH", "SOL"], bar_seconds=7200, warmup_bars=500, entry_channel=24,
              exit_channel=12, ema_period=200, atr_period=14, stop_atr=2,
              risk_pct=0.005, max_open_risk_pct=0.01, max_positions=2,
              max_notional_pct=0.40, leverage=1, max_hold_hours=336,
              fee_pct=0.002, slippage_pct=0.0005, direction="LONG")
+RULES = dict(copy.deepcopy(PREVIOUS_RULES), signal_history_bars=506,
+             entry_extension="astra_high12_slope_rvol_add", additional_entry_channel=12,
+             ema_slope_lag=6, rvol_period=20, rvol_min=1.25)
 RULE_HASH = hashlib.sha256(json.dumps(RULES, sort_keys=True).encode()).hexdigest()
-PREVIOUS_VERSION = "astra_breakout_4h_v1"
-PREVIOUS_RULES = dict(copy.deepcopy(RULES), bar_seconds=14400)
 PREVIOUS_RULE_HASH = hashlib.sha256(json.dumps(PREVIOUS_RULES, sort_keys=True).encode()).hexdigest()
+LEGACY_VERSION = "astra_breakout_4h_v1"
+LEGACY_RULES = dict(copy.deepcopy(PREVIOUS_RULES), bar_seconds=14400)
+LEGACY_RULE_HASH = hashlib.sha256(json.dumps(LEGACY_RULES, sort_keys=True).encode()).hexdigest()
+VERSION_RULES = {LEGACY_VERSION: (LEGACY_RULES, LEGACY_RULE_HASH),
+                 PREVIOUS_VERSION: (PREVIOUS_RULES, PREVIOUS_RULE_HASH), VERSION: (RULES, RULE_HASH)}
 INTERVAL = 30
 MAX_AGE = 90
 ENTRY_WINDOW = 180
@@ -57,6 +64,16 @@ def init_schema(path):
             user_id INTEGER NOT NULL, version TEXT NOT NULL, observed_at REAL NOT NULL,
             data TEXT NOT NULL, PRIMARY KEY(user_id,version,observed_at));
         """)
+        # A deployment rollback must not resume an obsolete account fork. These
+        # guards also freeze all historic rows once this user's v3 exists. They
+        # are inert before migration and never touch the source account tables.
+        for table in ("runs", "decisions", "equity"):
+            for operation, row in (("INSERT", "NEW"), ("UPDATE", "OLD"), ("DELETE", "OLD")):
+                c.execute(f"""CREATE TRIGGER IF NOT EXISTS astra_v3_frozen_{table}_{operation.lower()}
+                  BEFORE {operation} ON astra_ultra_{table}
+                  WHEN {row}.version IN ('{LEGACY_VERSION}', '{PREVIOUS_VERSION}') AND EXISTS (
+                    SELECT 1 FROM astra_ultra_runs WHERE user_id={row}.user_id AND version='{VERSION}')
+                  BEGIN SELECT RAISE(ABORT, 'astra_version_retired_no_rollback'); END""")
 
 
 def number(value, positive=False):
@@ -100,30 +117,48 @@ def seed(p, strategy, now):
                 baseline_costs=0, baseline_closed_count=0)
 
 
-def carry_forward(previous, now):
-    """Explicit 4H -> 2H transition: same account, no reset or backdated fills.
+def _state_hash(state):
+    return hashlib.sha256(json.dumps(state, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
-    The old database row remains untouched. Entry facts and stops are retained;
-    any inherited open position uses the new channel for future management.
-    """
-    if (previous.get("version") != PREVIOUS_VERSION
-            or previous.get("rule_hash") != PREVIOUS_RULE_HASH
-            or previous.get("rules") != PREVIOUS_RULES):
+
+def _validate_run(state, version):
+    rules, rule_hash = VERSION_RULES[version]
+    if (state.get("version") != version or state.get("rule_hash") != rule_hash
+            or state.get("rules") != rules):
         raise ValueError("version_transition_requires_capital_carry_forward")
+
+
+def _transition(previous, now, target_version):
+    """Copy a recognized predecessor; preserve its persisted row and economics."""
+    predecessor = LEGACY_VERSION if target_version == PREVIOUS_VERSION else PREVIOUS_VERSION
+    _validate_run(previous, predecessor)
+    target_rules, target_hash = VERSION_RULES[target_version]
     s = copy.deepcopy(previous)
     s.setdefault("prior_versions", []).append(dict(
         version=previous["version"], started_at=previous.get("version_started_at", previous["started_at"]),
         ended_at=now, equity=previous["equity"], cash=previous["cash"],
         closed_count=len(previous["trades"]), positions_count=len(previous["positions"]),
-        rule_hash=previous["rule_hash"], rules=copy.deepcopy(previous["rules"])))
-    s.update(version=VERSION, rule_hash=RULE_HASH, rules=copy.deepcopy(RULES),
-             version_started_at=now, version_change_reason="User-requested 4H to 2H transition",
-             last_bar_end=int(now // RULES["bar_seconds"]) * RULES["bar_seconds"],
+        rule_hash=previous["rule_hash"], rules=copy.deepcopy(previous["rules"]),
+        state_sha256=_state_hash(previous), pending_bar=copy.deepcopy(previous.get("pending_bar"))))
+    s.update(version=target_version, rule_hash=target_hash, rules=copy.deepcopy(target_rules),
+             version_started_at=now,
+             version_change_reason=("User-requested 4H to 2H transition" if target_version == PREVIOUS_VERSION else
+                                    "User-authorized experimental C2 paper competition; profitability screen failed"),
+             last_bar_end=int(now // target_rules["bar_seconds"]) * target_rules["bar_seconds"],
+             pending_bar=None,
              last_sample_at=None)
-    for pos in s["positions"]:
-        pos.setdefault("rules", copy.deepcopy(PREVIOUS_RULES))
-        pos.update(management_version=VERSION, management_rules=copy.deepcopy(RULES))
+    if target_version == PREVIOUS_VERSION:
+        # Preserve the original, explicit v1 -> v2 management policy. The v3
+        # transition below leaves every position field unchanged: exits agree.
+        for pos in s["positions"]:
+            pos.setdefault("rules", copy.deepcopy(LEGACY_RULES))
+            pos.update(management_version=PREVIOUS_VERSION, management_rules=copy.deepcopy(PREVIOUS_RULES))
     return s
+
+
+def carry_forward(previous, now):
+    """Explicit v2 -> v3 carry; no reset, relabelled entry or backdated fill."""
+    return _transition(previous, now, VERSION)
 
 
 def exit_cost(pos, price):
@@ -180,7 +215,8 @@ def fetch_bars(symbol):
     rows = {}
     cursor = None
     # Bounded pagination. Public history may cap a response below the requested
-    # limit. Six requests suffice for500confirmed bars at100/page; otherwise fail.
+    # limit. Six requests suffice for506confirmed bars at100/page (including
+    # a possible unfinished newest candle); the signal still validates all506.
     for _ in range(6):
         bar = str(RULES["bar_seconds"] // 3600) + "H"
         batch = public_get(symbol, "history-candles?bar=" + bar + "&limit=300" + ("&after=" + str(cursor) if cursor else ""))
@@ -190,12 +226,12 @@ def fetch_bars(symbol):
             if len(r) >= 9 and str(r[8]) == "1":
                 rows[int(r[0])] = r
         oldest = min(int(r[0]) for r in batch)
-        if len(rows) >= RULES["warmup_bars"]:
+        if len(rows) >= RULES["signal_history_bars"]:
             break
         if cursor and oldest >= cursor:
             raise ValueError("pagination_not_advancing")
         cursor = oldest
-    return [rows[t] for t in sorted(rows)[-RULES["warmup_bars"]:]]
+    return [rows[t] for t in sorted(rows)[-RULES["signal_history_bars"]:]]
 
 
 def fetch_quote(symbol):
@@ -204,7 +240,12 @@ def fetch_quote(symbol):
 
 
 def signal(rows, now):
-    """Only completed contiguous bars; current bar never enters a channel."""
+    """Frozen C2: baseline OR earlier high12 breakout with EMA slope and RVOL.
+
+    The current and lag6 EMA each own exactly500 bars. Current EMA/ATR retain
+    v2 arithmetic; the six extra bars exist solely for the causal lagged EMA.
+    OKX field7 is quote-currency turnover for the whole completed2H candle.
+    """
     bars = []
     for r in rows:
         if len(r) < 9 or str(r[8]) != "1":
@@ -212,18 +253,31 @@ def signal(rows, now):
         b = dict(start=number(r[0], True) / 1000, open=number(r[1], True),
                  high=number(r[2], True), low=number(r[3], True), close=number(r[4], True))
         if b["start"] + RULES["bar_seconds"] <= now:
+            if b["start"] % RULES["bar_seconds"]:
+                raise ValueError("unaligned_bar")
             if not b["low"] <= min(b["open"], b["close"]) <= max(b["open"], b["close"]) <= b["high"]:
                 raise ValueError("invalid_ohlc")
+            try:
+                b["quote_volume"] = None if isinstance(r[7], bool) else number(r[7])
+                if b["quote_volume"] is not None and b["quote_volume"] < 0:
+                    b["quote_volume"] = None
+            except (ValueError, TypeError, OverflowError):
+                b["quote_volume"] = None
             bars.append(b)
     bars.sort(key=lambda b: b["start"])
-    bars = bars[-RULES["warmup_bars"]:]
-    if len(bars) < RULES["warmup_bars"]:
+    bars = bars[-RULES["signal_history_bars"]:]
+    if len(bars) < RULES["signal_history_bars"]:
         raise ValueError("insufficient_warmup")
     if any(b["start"] - a["start"] != RULES["bar_seconds"] for a, b in zip(bars, bars[1:])):
         raise ValueError("non_contiguous_bars")
     bar_end = bars[-1]["start"] + RULES["bar_seconds"]
     if not 0 <= now - bar_end <= ENTRY_WINDOW:
         raise ValueError("stale_bar")
+    lag_bars = bars[:-RULES["ema_slope_lag"]]
+    lag_ema = sum(b["close"] for b in lag_bars[:200]) / 200
+    for b in lag_bars[200:]:
+        lag_ema += 2 / 201 * (b["close"] - lag_ema)
+    bars = bars[-RULES["warmup_bars"]:]
     ema = sum(b["close"] for b in bars[:200]) / 200
     for b in bars[200:]:
         ema += 2 / 201 * (b["close"] - ema)
@@ -237,8 +291,25 @@ def signal(rows, now):
     upper = max(b["high"] for b in bars[-25:-1])
     lower = min(b["low"] for b in bars[-13:-1])
     close = bars[-1]["close"]
+    upper12 = max(b["high"] for b in bars[-13:-1])
+    volume = bars[-1]["quote_volume"]
+    prior_volumes = [b["quote_volume"] for b in bars[-21:-1]]
+    rvol = None
+    if volume is not None and volume > 0 and all(v is not None for v in prior_volumes):
+        mean = sum(prior_volumes) / RULES["rvol_period"]
+        if math.isfinite(mean) and mean > 0:
+            ratio = volume / mean
+            if math.isfinite(ratio):
+                rvol = ratio
+    baseline = close > upper and close > ema
+    additional = bool(close > upper12 and close > ema and ema > lag_ema
+                      and rvol is not None and rvol >= RULES["rvol_min"])
     return dict(bar_end=bar_end, bar_seconds=RULES["bar_seconds"], close=close, ema200=ema, atr14=atr,
-                upper24=upper, lower12=lower, enter=close > upper and close > ema,
+                upper24=upper, lower12=lower, upper12=upper12, ema200_lag6=lag_ema,
+                quote_volume=volume, rvol20=rvol, volume_valid=rvol is not None, trend_rising=ema > lag_ema,
+                baseline_enter=baseline, additional_enter=additional, additional_only=additional and not baseline,
+                entry_branch="baseline" if baseline else "additional" if additional else "none",
+                enter=baseline or additional,
                 exit=close < lower)
 
 
@@ -486,7 +557,7 @@ def _attempt_candle(s, pending, bars, quote, clock, monitor_errors):
 
 def step(s, bars, quote, clock=time.time):
     now = clock()
-    if s["rule_hash"] != RULE_HASH:
+    if s.get("version") != VERSION or s["rule_hash"] != RULE_HASH or s.get("rules") != RULES:
         raise ValueError("rules_changed_requires_new_version")
     for key in ("pending_bar", "candle_error", "last_candle_success_at", "last_candle_bar_end", "monitor_error"):
         s.setdefault(key, None)
@@ -568,20 +639,54 @@ def _persist_decision(connection, uid, decision):
         (encoded, *key))
 
 
+def _stored_runs(connection, uid):
+    return {r["version"]: r["data"] for r in connection.execute(
+        "SELECT version,data FROM astra_ultra_runs WHERE user_id=?", (uid,))}
+
+
+def _validated_states(raw):
+    if any(version not in VERSION_RULES for version in raw):
+        raise ValueError("version_transition_requires_capital_carry_forward")
+    states = {version: json.loads(data) for version, data in raw.items()}
+    for version, state in states.items():
+        _validate_run(state, version)
+    if states:
+        latest = next(version for version in reversed(VERSION_RULES) if version in states)
+        state = states[latest]
+        history = state.get("prior_versions", [])
+        lineage = [record["version"] for record in history]
+        if len(set(lineage)) != len(lineage) or set(lineage) != set(states) - {latest}:
+            raise ValueError("version_transition_requires_capital_carry_forward")
+        for record in history:
+            ancestor = states[record["version"]]
+            _validate_run(record, record["version"])
+            if record.get("state_sha256") and record["state_sha256"] != _state_hash(ancestor):
+                raise ValueError("archived_version_changed_no_rollback")
+    return states
+
+
 def cycle(path, uid=1, bars=fetch_bars, quote=fetch_quote, clock=time.time):
     now = clock()
     p, strategy = source(path, uid)
     if p is None:
         return
     with closing(connect(path, True)) as c:
-        row = c.execute("SELECT data FROM astra_ultra_runs WHERE user_id=? AND version=?", (uid, VERSION)).fetchone()
-        older = c.execute("SELECT version,data FROM astra_ultra_runs WHERE user_id=?", (uid,)).fetchall()
-    if not row and older:
-        if len(older) != 1 or older[0]["version"] != PREVIOUS_VERSION:
-            raise ValueError("version_transition_requires_capital_carry_forward")
-        s = carry_forward(json.loads(older[0]["data"]), now)
+        original_runs = _stored_runs(c, uid)
+    states = _validated_states(original_runs)
+    intermediate = None
+    if VERSION in states:
+        s = states[VERSION]
+    elif states:
+        previous = states.get(PREVIOUS_VERSION, states.get(LEGACY_VERSION))
+        if now < max(previous.get("version_started_at", previous["started_at"]),
+                     previous.get("last_attempt_at") or previous["started_at"]):
+            raise ValueError("version_transition_clock_before_predecessor")
+        if previous["version"] == LEGACY_VERSION:
+            intermediate = _transition(previous, now, PREVIOUS_VERSION)
+            previous = intermediate
+        s = carry_forward(previous, now)
     else:
-        s = json.loads(row[0]) if row else seed(p, strategy, now)
+        s = seed(p, strategy, now)
     source_fresh = 0 <= now - number(p.get("monitor_success_at", 0)) <= MAX_AGE and not p.get("monitor_missing_symbols")
     if source_fresh:
         benchmark(s, p, strategy, now)
@@ -590,6 +695,12 @@ def cycle(path, uid=1, bars=fetch_bars, quote=fetch_quote, clock=time.time):
     decisions = step(s, bars, quote, clock)
     # One short transaction persists fills, decisions and equity atomically.
     with closing(connect(path)) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        if _stored_runs(c, uid) != original_runs:
+            raise ValueError("run_changed_during_cycle")
+        if intermediate is not None:
+            c.execute("INSERT INTO astra_ultra_runs VALUES(?,?,?)",
+                      (uid, PREVIOUS_VERSION, json.dumps(intermediate, allow_nan=False)))
         c.execute("INSERT OR REPLACE INTO astra_ultra_runs VALUES(?,?,?)", (uid, VERSION, json.dumps(s, allow_nan=False)))
         for d in decisions:
             _persist_decision(c, uid, d)
@@ -606,13 +717,14 @@ def report(path, uid, now=None):
     now = time.time() if now is None else now
     with closing(connect(path, True)) as c:
         exists = c.execute("SELECT 1 FROM sqlite_master WHERE name='astra_ultra_runs'").fetchone()
-        row = c.execute("SELECT data FROM astra_ultra_runs WHERE user_id=? AND version=?", (uid, VERSION)).fetchone() if exists else None
-        if not row:
+        states = _validated_states(_stored_runs(c, uid)) if exists else {}
+        if not states:
             return dict(ok=True, started=False, version=VERSION)
-        s = json.loads(row[0])
-        versions = list(dict.fromkeys([v["version"] for v in s.get("prior_versions", [])] + [VERSION]))
+        actual_version = next(version for version in reversed(VERSION_RULES) if version in states)
+        s = states[actual_version]
+        versions = list(dict.fromkeys([v["version"] for v in s.get("prior_versions", [])] + [actual_version]))
         hours = {v["version"]: v["rules"]["bar_seconds"] // 3600 for v in s.get("prior_versions", [])}
-        hours[VERSION] = RULES["bar_seconds"] // 3600
+        hours[actual_version] = s["rules"]["bar_seconds"] // 3600
         where = "user_id=? AND version IN (" + ",".join("?" for _ in versions) + ")"
         args = (uid, *versions)
         decisions = [dict(json.loads(r["data"]), version=r["version"], timeframe_hours=hours[r["version"]])
@@ -642,6 +754,7 @@ def report(path, uid, now=None):
     monitor_healthy = bool(stamp and 0 <= now - stamp <= MAX_AGE and not s.get("monitor_error", s.get("last_error")))
     candle_healthy = not s.get("candle_error") and not s.get("pending_bar")
     return dict(ok=True, started=True, mode="paper_only", healthy=monitor_healthy and candle_healthy,
+                version=actual_version, expected_version=VERSION, migration_required=actual_version != VERSION,
                 monitor_healthy=monitor_healthy, candle_healthy=candle_healthy,
                 enabled=os.environ.get("ASTRA_ULTRA_ENABLED", "1") == "1", run=s,
                 decisions=decisions, curve=list(reversed(curve)), daily=daily)
