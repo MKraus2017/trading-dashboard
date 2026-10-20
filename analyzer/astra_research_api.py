@@ -161,7 +161,7 @@ def _read_document(connection, table, version=None):
     return _decode(connection.execute("SELECT data FROM " + table + " WHERE " + where, args).fetchone()[0])
 
 
-def _capture(path, captured_at, monotonic):
+def _capture(path, captured_at, monotonic, wallclock=None):
     """One read transaction pins all source rows; no schema/bootstrap calls."""
     deadline = monotonic() + MAX_QUERY_SECONDS
     with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=1)) as connection:
@@ -170,6 +170,11 @@ def _capture(path, captured_at, monotonic):
         connection.execute("BEGIN")
         versions = [r[0] for r in connection.execute(
             "SELECT version FROM astra_ultra_runs WHERE user_id=? ORDER BY version LIMIT 17", (OWNER,))]
+        # The first SELECT pins SQLite's view. Stamp immediately afterwards so
+        # a monitor commit between opening the connection and that first read
+        # cannot make a just-captured heartbeat appear spuriously in the future.
+        if wallclock is not None:
+            captured_at = wallclock()
         if not versions:
             raise ResearchError(503, "paper_data_unavailable")
         if len(versions) > 16:
@@ -270,10 +275,11 @@ class SnapshotStore:
             while len(self.snapshots) >= MAX_SNAPSHOTS:
                 self.snapshots.popitem(last=False)
             captured_at = self.clock()
-            document, histories = _capture(self.path, captured_at, self.monotonic)
+            document, histories = _capture(self.path, captured_at, self.monotonic, self.clock)
             snapshot_id = secrets.token_hex(16)
             counts = {kind: len(values[0]) for kind, values in histories.items()}
             envelope = json.loads(document)
+            captured_at = envelope["captured_at"]
             envelope.update(snapshot_id=snapshot_id, counts=counts)
             encoded = _encode(envelope)
             if len(encoded) + sum(sum(len(row) + 1 for row in values[1]) for values in histories.values()) > MAX_SNAPSHOT_BYTES:
