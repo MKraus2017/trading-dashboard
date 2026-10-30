@@ -142,6 +142,62 @@ def _close_position(p: dict, pos: dict, price: float, reason: str, liquidated: b
     return trade
 
 
+def _owner_quote_time(pos: dict, ticker: dict, now: float):
+    """Validate the actual exchange time before owner-1 marks or exits.
+
+    A local fetch/cache timestamp is never evidence of a fresh market price.
+    Existing malformed timestamps fail closed; ISO fallback is only for an
+    absent legacy opened_at_ts and must contain an explicit timezone.
+    """
+    def positive(value):
+        return (not isinstance(value, bool) and isinstance(value, (int, float))
+                and math.isfinite(value) and value > 0)
+
+    if not positive(now):
+        return None, "invalid_clock"
+    if not isinstance(ticker, dict):
+        return None, "missing_quote"
+    if "market_timestamp" not in ticker or ticker["market_timestamp"] is None:
+        return None, "missing_timestamp"
+    stamp = ticker["market_timestamp"]
+    if not positive(stamp):
+        return None, "invalid_market_timestamp"
+    if stamp < now - 60:
+        return None, "stale_quote"
+    if stamp > now + 5:
+        return None, "future_quote"
+    if "opened_at_ts" in pos:
+        opened = pos["opened_at_ts"]
+        if not positive(opened):
+            return None, "invalid_entry_time"
+    else:
+        raw = pos.get("opened_at")
+        if not isinstance(raw, str) or not raw:
+            return None, "missing_entry_time"
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return None, "invalid_entry_time"
+            opened = parsed.timestamp()
+        except (ValueError, TypeError, OverflowError, OSError):
+            return None, "invalid_entry_time"
+        if not positive(opened):
+            return None, "invalid_entry_time"
+    if stamp < opened:
+        return None, "before_entry"
+    if "entry_quote_at" in pos:
+        if not positive(pos["entry_quote_at"]):
+            return None, "invalid_entry_quote_time"
+        if stamp < pos["entry_quote_at"]:
+            return None, "before_entry"
+    if "last_quote_at" in pos:
+        if not positive(pos["last_quote_at"]):
+            return None, "invalid_previous_quote_time"
+        if stamp < pos["last_quote_at"]:
+            return None, "time_regression"
+    return stamp, None
+
+
 @serialized
 def evaluate_crypto_portfolio(user_id: int, *, background: bool = False) -> dict:
     """Bewertet alle offenen Positionen mit Live-Preisen: SL/TP/Liquidation pruefen.
@@ -152,14 +208,31 @@ def evaluate_crypto_portfolio(user_id: int, *, background: bool = False) -> dict
     remaining = []
     events = []
     missing_symbols = []
+    quote_errors = {}
+    checked_quotes = {}
 
     for pos in positions:
+        original = pos
         ticker = okx_client.fetch_ticker(pos["symbol"])
-        price = (ticker or {}).get("last")
-        if not isinstance(price, (int, float)) or not math.isfinite(price) or price <= 0:
+        price = ((ticker if isinstance(ticker, dict) else {}) if user_id == 1 else (ticker or {})).get("last")
+        if (not isinstance(price, (int, float)) or not math.isfinite(price) or price <= 0
+                or (user_id == 1 and isinstance(price, bool))):
             missing_symbols.append(pos["symbol"])
+            if user_id == 1:
+                quote_errors[pos["symbol"]] = "missing_quote" if ticker is None else "invalid_price"
             remaining.append(pos)
             continue
+        if user_id == 1:
+            quote_at, error = _owner_quote_time(pos, ticker, time.time())
+            if error:
+                missing_symbols.append(pos["symbol"])
+                quote_errors[pos["symbol"]] = error
+                remaining.append(pos)
+                continue
+            # Work on a copy so a quote expiring during this check cannot leave
+            # a changed mark or trailing stop behind when the final guard fails.
+            pos = dict(pos)
+            checked_quotes[pos["symbol"]] = ticker
         pos["last_price"] = price
         direction = pos["direction"]
         pnl_pct_leveraged = _pnl_pct(direction, pos["entry_price"], price) / 100.0 * pos["leverage"] * 100
@@ -209,6 +282,14 @@ def evaluate_crypto_portfolio(user_id: int, *, background: bool = False) -> dict
             hours_held = round((time.time() - pos.get("opened_at_ts", time.time())) / 3600.0, 1)
             triggered, reason = True, f"Zeit-Exit nach {hours_held}h ({config.CRYPTO_MAX_HOLD_HOURS}h Limit, Gewinn {round(pnl_pct_leveraged,1)}% < {config.CRYPTO_TIME_EXIT_MIN_PROFIT_PCT}%)"
 
+        if user_id == 1:
+            quote_at, error = _owner_quote_time(original, ticker, time.time())
+            if error:
+                missing_symbols.append(pos["symbol"])
+                quote_errors[pos["symbol"]] = error
+                remaining.append(original)
+                continue
+            pos["last_quote_at"] = quote_at
         if triggered:
             trade = _close_position(p, pos, price, reason, liquidated=liquidated)
             events.append({"type": "liquidation" if liquidated else "close", "symbol": pos["symbol"],
@@ -228,6 +309,20 @@ def evaluate_crypto_portfolio(user_id: int, *, background: bool = False) -> dict
     drawdown_pct = round((start_capital - total_value) / start_capital * 100, 2) if start_capital else 0
     p["drawdown_pct"] = max(drawdown_pct, 0)
     was_halted = p.get("trading_halted", False)
+
+    if user_id == 1:
+        # Later symbols can take time to fetch. Revalidate EVERY remaining quote
+        # before reporting success or taking an emergency action. A previously
+        # valid mark/exit is not rolled back; expiry now makes this cycle stale.
+        # Never refetch or invent a fallback market timestamp.
+        final_quote_now = time.time()
+        for pos in p["positions"]:
+            if pos["symbol"] in quote_errors:
+                continue
+            _, error = _owner_quote_time(pos, checked_quotes.get(pos["symbol"]), final_quote_now)
+            if error:
+                missing_symbols.append(pos["symbol"])
+                quote_errors[pos["symbol"]] = error
 
     if not missing_symbols and drawdown_pct >= config.CRYPTO_CRITICAL_DRAWDOWN_PCT:
         # Kritischer Drawdown: alle verbleibenden Positionen notfallschliessen
@@ -278,10 +373,14 @@ def evaluate_crypto_portfolio(user_id: int, *, background: bool = False) -> dict
         # A page refresh must not make a failed background watcher look healthy.
         p["monitor_attempt_at"] = now
         p["monitor_missing_symbols"] = missing_symbols
+        if user_id == 1:
+            p["monitor_quote_errors"] = quote_errors
+            p["monitor_quote_policy"] = "fresh_exit_quotes_v1"
         if not missing_symbols:
             p["monitor_success_at"] = now
 
     # Do not run synchronous Git commit/push for each price tick. Durable storage
     # and separate regular backups are prerequisites for the server-side watcher.
     db_store.save_crypto_portfolio(user_id, p, backup=False)
-    return {"portfolio": p, "events": events, "missing_symbols": missing_symbols}
+    return {"portfolio": p, "events": events, "missing_symbols": missing_symbols,
+            **({"quote_errors": quote_errors} if user_id == 1 else {})}

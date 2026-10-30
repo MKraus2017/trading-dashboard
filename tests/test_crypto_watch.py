@@ -43,13 +43,24 @@ class CryptoWatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.now = time.time()
+        clock_patch = patch("time.time", side_effect=lambda: self.now)
+        clock_patch.start()
+        self.addCleanup(clock_patch.stop)
+        network_patch = patch("urllib.request.urlopen", side_effect=AssertionError("Network forbidden in isolated tests"))
+        network_patch.start()
+        self.addCleanup(network_patch.stop)
         self.p = dict(cash=1000, start_capital=1000, positions=[], trades=[], value_history=[])
         db = types.ModuleType("analyzer.db_store")
         db.DB_PATH = str(Path(self.tmp.name) / "test.db")
+        with closing(sqlite3.connect(db.DB_PATH)) as conn, conn:
+            conn.execute("CREATE TABLE ledger(user_id INTEGER PRIMARY KEY, data TEXT)")
         db.load_crypto_portfolio = lambda uid: copy.deepcopy(self.p)
         db._default_crypto_portfolio = lambda: dict(cash=1000, start_capital=1000, positions=[], trades=[], value_history=[])
         def save(uid, value, **kwargs):
             self.p = copy.deepcopy(value)
+            with closing(sqlite3.connect(db.DB_PATH)) as conn, conn:
+                conn.execute("INSERT OR REPLACE INTO ledger VALUES(?,?)", (uid, json.dumps(value)))
         db.save_crypto_portfolio = Mock(side_effect=save)
         self.db = db
         config = types.ModuleType("config")
@@ -64,7 +75,7 @@ class CryptoWatchTests(unittest.TestCase):
                             pass
         self.config = config
         okx = types.ModuleType("analyzer.okx_client")
-        okx.fetch_ticker = Mock(return_value={"last": 100})
+        okx.fetch_ticker = Mock(return_value=self.quote(100))
         self.okx = okx
         package = types.ModuleType("analyzer")
         package.__path__ = [str(ROOT / "analyzer")]
@@ -82,9 +93,12 @@ class CryptoWatchTests(unittest.TestCase):
                                      95 if direction == "LONG" else 105,
                                      110 if direction == "LONG" else 90)
 
+    def quote(self, price, stamp=None):
+        return {"last": price, "market_timestamp": self.now if stamp is None else stamp}
+
     def test_parallel_stop_checks_close_once_at_observed_price(self):
         self.open()
-        self.okx.fetch_ticker.return_value = {"last": 90}
+        self.okx.fetch_ticker.return_value = self.quote(90)
         with ThreadPoolExecutor(max_workers=8) as pool:
             results = list(pool.map(lambda _: self.cp.evaluate_crypto_portfolio(1, background=True), range(16)))
         self.assertEqual(sum(len(r["events"]) for r in results), 1)
@@ -129,25 +143,203 @@ class CryptoWatchTests(unittest.TestCase):
 
     def test_short_take_profit_and_liquidation(self):
         self.open(direction="SHORT")
-        self.okx.fetch_ticker.return_value = {"last": 89}
+        self.okx.fetch_ticker.return_value = self.quote(89)
         result = self.cp.evaluate_crypto_portfolio(1)
         self.assertIn("Take-Profit", result["events"][0]["msg"])
         self.assertEqual(self.p["cash"], 1022)
         self.open()
-        self.okx.fetch_ticker.return_value = {"last": 1}
+        self.okx.fetch_ticker.return_value = self.quote(1)
         result = self.cp.evaluate_crypto_portfolio(1)
         self.assertEqual(result["events"][0]["type"], "liquidation")
         self.assertEqual(self.p["cash"], 922)
 
     def test_trailing_never_moves_backward(self):
         self.open()
-        self.okx.fetch_ticker.return_value = {"last": 104}
+        self.okx.fetch_ticker.return_value = self.quote(104)
         self.cp.evaluate_crypto_portfolio(1)
         stop = self.p["positions"][0]["stop_loss"]
         self.assertTrue(self.p["positions"][0]["trailing_active"])
-        self.okx.fetch_ticker.return_value = {"last": 103}
+        self.okx.fetch_ticker.return_value = self.quote(103)
         self.cp.evaluate_crypto_portfolio(1)
         self.assertEqual(self.p["positions"][0]["stop_loss"], stop)
+
+    def test_bad_market_time_cannot_mark_trail_stop_take_profit_or_liquidate(self):
+        self.open()
+        # A healthy quote would also activate the existing critical drawdown
+        # close, so every invalid timestamp must protect that path as well.
+        self.p["cash"] = 600
+        self.p["positions"][0]["opened_at_ts"] = self.now - 1000
+        self.p["positions"][0]["last_quote_at"] = self.now - 30
+        original = copy.deepcopy(self.p["positions"][0])
+        self.p["monitor_success_at"] = self.now - 1
+        cases = [(None, "missing_timestamp"), (self.now-61, "stale_quote"),
+                 (self.now+5.001, "future_quote"), (self.now-31, "time_regression"),
+                 (float("nan"), "invalid_market_timestamp"), (float("inf"), "invalid_market_timestamp"),
+                 (True, "invalid_market_timestamp"), (0, "invalid_market_timestamp")]
+        for price in (90, 111, 1, 104):
+            for stamp, error in cases:
+                with self.subTest(price=price, stamp=stamp):
+                    self.okx.fetch_ticker.return_value = {"last": price, "market_timestamp": stamp}
+                    result = self.cp.evaluate_crypto_portfolio(1, background=True)
+                    self.assertEqual(result["events"], [])
+                    self.assertEqual(self.p["positions"], [original])
+                    self.assertEqual(self.p["cash"], 600)
+                    self.assertEqual(self.p["trades"], [])
+                    self.assertEqual(result["missing_symbols"], ["BTC"])
+                    self.assertEqual(self.p["monitor_quote_errors"], {"BTC": error})
+                    self.assertEqual(self.p["monitor_success_at"], self.now-1)
+                    self.assertEqual(self.p["monitor_quote_policy"], "fresh_exit_quotes_v1")
+                    self.assertFalse(self.watch.status(self.p)["healthy"])
+
+    def test_quote_before_entry_or_prior_entry_quote_is_rejected(self):
+        self.open()
+        original = copy.deepcopy(self.p["positions"][0])
+        self.okx.fetch_ticker.return_value = self.quote(90, self.now-1)
+        self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(self.p["positions"], [original])
+        self.assertEqual(self.p["monitor_quote_errors"], {"BTC": "before_entry"})
+        self.p["positions"][0]["opened_at_ts"] -= 100
+        self.p["positions"][0]["entry_quote_at"] = self.now
+        original = copy.deepcopy(self.p["positions"][0])
+        self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(self.p["positions"], [original])
+        self.assertEqual(self.p["monitor_quote_errors"], {"BTC": "before_entry"})
+
+    def test_valid_legacy_iso_entry_and_missing_or_corrupt_entry_times(self):
+        self.open()
+        self.p["positions"][0].pop("opened_at_ts")
+        self.p["positions"][0]["opened_at"] = datetime.fromtimestamp(self.now-3600, timezone.utc).isoformat()
+        self.okx.fetch_ticker.return_value = self.quote(100)
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(result["missing_symbols"], [])
+        self.assertEqual(self.p["positions"][0]["last_quote_at"], self.now)
+        good = copy.deepcopy(self.p["positions"][0])
+        for key, value, error in [("opened_at", None, "missing_entry_time"),
+                                  ("opened_at", "2026-10-01T00:00:00", "invalid_entry_time"),
+                                  ("opened_at", "not-a-date", "invalid_entry_time"),
+                                  ("opened_at_ts", None, "invalid_entry_time"),
+                                  ("last_quote_at", float("nan"), "invalid_previous_quote_time"),
+                                  ("entry_quote_at", 0, "invalid_entry_quote_time")]:
+            with self.subTest(key=key, value=value):
+                bad = {**good, key: value}
+                self.p["positions"] = [bad]
+                self.okx.fetch_ticker.return_value = self.quote(90)
+                self.cp.evaluate_crypto_portfolio(1, background=True)
+                self.assertEqual(self.p["positions"], [bad])
+                self.assertEqual(self.p["monitor_quote_errors"], {"BTC": error})
+
+    def test_stale_time_exit_blocks_then_fresh_quote_recovers(self):
+        self.open()
+        self.p["positions"][0]["opened_at_ts"] = self.now - 73*3600
+        original = copy.deepcopy(self.p["positions"][0])
+        self.okx.fetch_ticker.return_value = self.quote(100, self.now-61)
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(result["events"], [])
+        self.assertEqual(self.p["positions"], [original])
+        self.okx.fetch_ticker.return_value = self.quote(100)
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertIn("Zeit-Exit", result["events"][0]["msg"])
+        self.assertEqual(self.p["monitor_quote_errors"], {})
+        self.assertEqual(self.p["trades"][0]["last_quote_at"], self.now)
+        self.assertTrue(self.watch.status(self.p)["healthy"])
+
+    def test_fresh_mark_and_timestamp_are_saved_together_and_regression_blocked(self):
+        self.open()
+        self.now += 1
+        self.okx.fetch_ticker.return_value = self.quote(104)
+        self.cp.evaluate_crypto_portfolio(1, background=True)
+        with closing(sqlite3.connect(self.db.DB_PATH)) as conn:
+            saved = json.loads(conn.execute("SELECT data FROM ledger WHERE user_id=1").fetchone()[0])
+        self.assertEqual(saved, self.p)
+        self.assertEqual(saved["positions"][0]["last_price"], 104)
+        self.assertEqual(saved["positions"][0]["last_quote_at"], self.now)
+        original = copy.deepcopy(self.p["positions"][0])
+        self.okx.fetch_ticker.return_value = self.quote(90, self.now-.5)
+        self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(self.p["positions"], [original])
+        self.assertEqual(self.p["monitor_quote_errors"], {"BTC": "time_regression"})
+        self.now += 1
+        self.okx.fetch_ticker.return_value = self.quote(90)
+        self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(self.p["positions"], [])
+        self.assertEqual(self.p["trades"][0]["exit_price"], 90)
+        self.assertEqual(self.p["monitor_quote_errors"], {})
+
+    def test_stale_quote_blocks_emergency_close_then_valid_quote_closes_once(self):
+        self.open()
+        self.p["cash"] = 600
+        self.p["positions"][0]["opened_at_ts"] = self.now - 100
+        original = copy.deepcopy(self.p["positions"][0])
+        self.okx.fetch_ticker.return_value = self.quote(100, self.now-61)
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(result["events"], [])
+        self.assertEqual(self.p["positions"], [original])
+        self.assertEqual(self.p["cash"], 600)
+        self.okx.fetch_ticker.return_value = self.quote(100)
+        self.okx.fetch_ticker.reset_mock()
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(self.okx.fetch_ticker.call_count, 1)
+        self.assertEqual(len(self.p["trades"]), 1)
+        self.assertEqual(result["events"][0]["type"], "emergency_close")
+        self.assertEqual(self.p["cash"], 700)
+
+    def test_slow_other_symbol_cannot_turn_old_quote_into_emergency_fill(self):
+        self.open("BTC")
+        self.open("ETH")
+        self.p["cash"] = 500
+        for pos in self.p["positions"]:
+            pos["opened_at_ts"] = self.now-1000
+        first_stamp = self.now
+        def delayed(symbol):
+            if symbol == "ETH":
+                self.now += 61
+            return self.quote(100, first_stamp if symbol == "BTC" else self.now)
+        self.okx.fetch_ticker.side_effect = delayed
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(result["events"], [])
+        self.assertEqual(self.p["cash"], 500)
+        self.assertEqual(len(self.p["positions"]), 2)
+        self.assertEqual(self.p["trades"], [])
+        self.assertEqual(self.p["monitor_quote_errors"], {"BTC": "stale_quote"})
+        self.assertEqual(self.okx.fetch_ticker.call_count, 2)
+
+    def test_slow_fetch_also_marks_noncritical_cycle_unhealthy_without_undoing_valid_mark(self):
+        self.open("BTC")
+        self.open("ETH")
+        for pos in self.p["positions"]:
+            pos["opened_at_ts"] = self.now-1000
+        first_stamp = self.now
+        self.p["monitor_success_at"] = self.now-1
+        def delayed(symbol):
+            if symbol == "ETH":
+                self.now += 61
+            return self.quote(104 if symbol == "BTC" else 100, first_stamp if symbol == "BTC" else self.now)
+        self.okx.fetch_ticker.side_effect = delayed
+        result = self.cp.evaluate_crypto_portfolio(1, background=True)
+        self.assertEqual(result["events"], [])
+        self.assertEqual(self.p["monitor_quote_errors"], {"BTC": "stale_quote"})
+        self.assertEqual(self.p["monitor_success_at"], first_stamp-1)
+        self.assertFalse(self.watch.status(self.p)["healthy"])
+        btc = next(p for p in self.p["positions"] if p["symbol"] == "BTC")
+        self.assertEqual(btc["last_quote_at"], first_stamp)
+        self.assertEqual(btc["last_price"], 104)
+        self.assertTrue(btc["trailing_active"])
+
+    def test_freshness_thresholds_are_inclusive_and_require_entry_floor(self):
+        pos = dict(opened_at_ts=self.now-1000)
+        for stamp in (self.now-60, self.now+5):
+            self.assertEqual(self.cp._owner_quote_time(pos, self.quote(100, stamp), self.now), (stamp, None))
+        self.assertEqual(self.cp._owner_quote_time(pos, self.quote(100, self.now-60.001), self.now)[1], "stale_quote")
+        self.assertEqual(self.cp._owner_quote_time(pos, self.quote(100, self.now+5.001), self.now)[1], "future_quote")
+
+    def test_other_user_keeps_legacy_quote_behavior(self):
+        self.cp.open_position(2, "BTC", "LONG", 100, 2, 100, 95, 110)
+        self.okx.fetch_ticker.return_value = {"last": 90}
+        result = self.cp.evaluate_crypto_portfolio(2, background=True)
+        self.assertEqual(result["events"][0]["trade"]["exit_price"], 90)
+        self.assertNotIn("last_quote_at", self.p["trades"][0])
+        self.assertNotIn("monitor_quote_errors", self.p)
+        self.assertNotIn("monitor_quote_policy", self.p)
 
     def test_status_stale_future_missing_or_failed(self):
         for stamp in [None, 0, 800, 1001, float("nan")]:

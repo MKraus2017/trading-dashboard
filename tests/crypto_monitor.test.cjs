@@ -25,6 +25,18 @@ test('failed polling clears old green confirmation', async()=>{
   assert.match(element.textContent,/nicht bestätigt/);
   assert.equal(element.style.color,'#f85149');
 });
+
+test('invalid quote clock explains missing protection and cannot appear healthy',()=>{
+  const {context,element}=setup();
+  context.renderCryptoMonitor({healthy:true,age_seconds:2,oldest_quote_age_seconds:80,quote_errors:{BTC:'stale_quote',ETH:'missing_timestamp'}});
+  assert.match(element.textContent,/Börsenkurs veraltet/);
+  assert.match(element.textContent,/Börsenzeit fehlt/);
+  assert.match(element.textContent,/Ältester Positionskurs: 80 Sekunden/);
+  assert.equal(element.style.color,'#f85149');
+  context.renderCryptoMonitor({healthy:false,age_seconds:2,quote_errors:{'<img>':'<script>'}});
+  assert.match(element.textContent,/Kurs nicht validierbar/);
+  assert.equal(element.innerHTML,undefined);
+});
 test('stale or absent server state is never shown as healthy',()=>{
   const {context,element}=setup();
   for(const state of [null,{healthy:false,age_seconds:500}]){

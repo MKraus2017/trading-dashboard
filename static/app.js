@@ -1151,10 +1151,16 @@ function renderCryptoMonitor(monitor) {
   if (!el) return;
   const seconds = monitor && Number.isFinite(monitor.age_seconds) ? Math.round(monitor.age_seconds) : null;
   const timeText = seconds === null ? 'noch keine bestätigte Prüfung' : `letzte erfolgreiche Prüfung vor ${seconds} Sekunden`;
-  el.textContent = monitor && monitor.healthy
+  const errors = monitor && monitor.quote_errors && typeof monitor.quote_errors === 'object' && !Array.isArray(monitor.quote_errors) ? monitor.quote_errors : {};
+  const errorLabels = {missing_timestamp:'Börsenzeit fehlt', stale_quote:'Börsenkurs veraltet', future_quote:'Börsenzeit liegt in der Zukunft', time_regression:'Börsenzeit läuft rückwärts', before_entry:'Kurs liegt vor dem Einstieg'};
+  const affected = Object.entries(errors).map(([symbol, code]) => `${symbol}: ${errorLabels[code] || 'Kurs nicht validierbar'}`);
+  const healthy = monitor && monitor.healthy && affected.length === 0;
+  el.textContent = healthy
     ? `🟢 Virtuelle Stop-Überwachung aktiv · ${timeText} · Zielintervall 30 Sekunden`
     : `⚠️ Virtuelle Stop-Überwachung nicht bestätigt oder verzögert · ${timeText}. Stop-Ausführung nicht garantiert.`;
-  el.style.color = monitor && monitor.healthy ? '#3fb950' : '#f85149';
+  if (affected.length) el.textContent += ` Kursdaten prüfen: ${affected.join('; ')}.`;
+  if (monitor && Number.isFinite(monitor.oldest_quote_age_seconds)) el.textContent += ` Ältester Positionskurs: ${Math.round(monitor.oldest_quote_age_seconds)} Sekunden.`;
+  el.style.color = healthy ? '#3fb950' : '#f85149';
 }
 
 async function refreshCryptoMonitor() {

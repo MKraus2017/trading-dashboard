@@ -1,5 +1,6 @@
 """Server-side SL/TP checks for virtual crypto only. Never opens positions."""
 import os
+import math
 import threading
 import time
 import storage_runtime
@@ -17,11 +18,35 @@ def status(portfolio, now=None):
     now = time.time() if now is None else now
     stamp = portfolio.get("monitor_success_at")
     age = max(0, now - stamp) if isinstance(stamp, (int, float)) and 0 < stamp <= now else None
+    stored_errors = portfolio.get("monitor_quote_errors", {})
+    quote_errors = dict(stored_errors) if isinstance(stored_errors, dict) else {}
+    missing = list(portfolio.get("monitor_missing_symbols", []))
+    quote_ages = []
+    if portfolio.get("monitor_quote_policy") == "fresh_exit_quotes_v1":
+        for pos in portfolio.get("positions", []):
+            symbol = pos.get("symbol", "?")
+            accepted = pos.get("last_quote_at")
+            error = None
+            if isinstance(accepted, bool) or not isinstance(accepted, (int, float)) or not math.isfinite(accepted) or accepted <= 0:
+                error = "missing_timestamp"
+            elif accepted > now + 5:
+                error = "future_quote"
+            else:
+                quote_ages.append(max(0, now - accepted))
+                if now - accepted > 60:
+                    error = "stale_quote"
+            if error:
+                quote_errors.setdefault(symbol, error)
+                if symbol not in missing:
+                    missing.append(symbol)
     return {
-        "healthy": age is not None and age <= STALE_SECONDS and not portfolio.get("monitor_missing_symbols"),
+        "healthy": age is not None and age <= STALE_SECONDS and not missing and not quote_errors,
         "last_success_at": stamp,
         "age_seconds": round(age, 1) if age is not None else None,
-        "missing_symbols": portfolio.get("monitor_missing_symbols", []),
+        "missing_symbols": missing,
+        "quote_errors": quote_errors,
+        "oldest_quote_age_seconds": round(max(quote_ages), 1) if quote_ages else None,
+        "quote_policy": portfolio.get("monitor_quote_policy"),
         "interval_seconds": INTERVAL_SECONDS,
         "stale_after_seconds": STALE_SECONDS,
         "scope": "virtual_crypto_only",

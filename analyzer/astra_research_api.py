@@ -85,7 +85,7 @@ REFERENCE_POSITION = fields("id symbol direction leverage margin_eur notional_eu
                             "last_price unrealized_pct unrealized_eur trailing_active exit_price closed_at "
                             "pnl_eur pnl_pct close_reason liquidated paper_policy_version paper_policy_rule_hash "
                             "planned_risk_eur estimated_entry_cost_eur estimated_exit_cost_eur signal_bar_end "
-                            "entry_quote_at signal_price signal_strategy_version risk_equity_eur")
+                            "entry_quote_at signal_price signal_strategy_version risk_equity_eur last_quote_at")
 PAPER_EXECUTION_RULES = fields("owner_user_id signal_timeframe closed_only max_quote_age_seconds "
                               "max_quote_future_seconds max_entry_drift_pct max_entry_risk_pct "
                               "max_aggregate_risk_pct max_positions max_leverage max_cash_margin_pct "
@@ -94,11 +94,12 @@ PAPER_EXECUTION_RULES = fields("owner_user_id signal_timeframe closed_only max_q
                               "stop_before_liquidation positive_model_net_target")
 PAPER_EXECUTION_POLICY = dict(fields("version started_at rule_hash reason"), rules=PAPER_EXECUTION_RULES)
 REFERENCE = dict(fields("cash start_capital total_value total_return_pct drawdown_pct trading_halted "
-                        "monitor_attempt_at monitor_success_at"),
+                        "monitor_attempt_at monitor_success_at monitor_quote_policy"),
                  positions=[REFERENCE_POSITION], trades=[REFERENCE_POSITION],
                  value_history=[fields("date value")], monitor_missing_symbols=[None],
                  paper_execution_policy=PAPER_EXECUTION_POLICY,
-                 paper_policy_quote_times=fields("BTC ETH SOL ADA XRP DOGE LINK AVAX DOT BNB"))
+                 paper_policy_quote_times=fields("BTC ETH SOL ADA XRP DOGE LINK AVAX DOT BNB"),
+                 monitor_quote_errors=fields("BTC ETH SOL ADA XRP DOGE LINK AVAX DOT BNB"))
 EQUITY = fields("equity baseline_equity baseline_fresh data_ok")
 
 
