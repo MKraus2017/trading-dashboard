@@ -7,6 +7,13 @@ LLM, a private exchange endpoint, a broker-order function or Telegram.
 
 ## Current release rules: experimental 2H version 3
 
+30 October 2026 review: Astra v3 is retained. Martin separately authorized an
+aggressive **reference crypto paper** policy with confirmed candles, fresh quotes
+and cost-aware initial-risk sizing; see [crypto-paper-quality.md](crypto-paper-quality.md).
+The reference identifier now also records that execution policy version. This
+creates a reference rule boundary without resetting either account or removing
+prior costs/losses. It does not alter Astra's rule hash, risk or trade management.
+
 Martin explicitly requested selection and online activation of a new **virtual**
 strategy on 2026-10-20. The selected C2 hypothesis is
 `astra_breakout_2h_volume_v3`: BTC, ETH and SOL only, LONG/spot-like 1x. Check the

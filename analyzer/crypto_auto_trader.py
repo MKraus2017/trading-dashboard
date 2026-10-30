@@ -11,6 +11,9 @@ from analyzer import crypto_portfolio, crypto_signals, db_store, okx_client, tel
 
 
 def run_crypto_auto_trading(user_id: int, dry_run: bool = False) -> dict:
+    if user_id == 1:
+        from analyzer import crypto_paper_policy
+        return crypto_paper_policy.run(user_id, dry_run=dry_run)
     actions = []
 
     # 1. Bestehende Positionen bewerten (SL/TP/Liquidation) - IMMER, unabhaengig vom Analyse-Fenster

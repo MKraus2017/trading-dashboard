@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8')
 
 function setup(positions = []) {
   const elements = Object.fromEntries(
-    ['crypto-summary', 'crypto-positions', 'crypto-trade-history', 'error']
+    ['crypto-summary', 'crypto-positions', 'crypto-trade-history', 'crypto-paper-policy', 'error']
       .map(id => [id, { innerHTML: '', style: {} }])
   );
   const requests = [];
@@ -25,6 +25,19 @@ function setup(positions = []) {
   requests.length = 0;
   return { context, elements, requests };
 }
+
+test('policy status identifies gross model and scope without HTML injection', () => {
+  const {context, elements} = setup();
+  const target = elements['crypto-paper-policy'];
+  context.showCryptoPaperPolicy(null);
+  assert.equal(target.hidden, true);
+  context.showCryptoPaperPolicy({version: '<img onerror=alert(1)>', started_at: 1793379087});
+  assert.equal(target.hidden, false);
+  assert.match(target.textContent, /Krypto Offensiv/);
+  assert.match(target.textContent, /1,5 %/);
+  assert.match(target.textContent, /brutto/i);
+  assert.equal(target.innerHTML, '');
+});
 
 test('purchase dates support ISO, legacy Unix seconds, and missing data', () => {
   const { context } = setup();

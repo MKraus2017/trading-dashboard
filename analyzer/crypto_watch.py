@@ -58,6 +58,13 @@ def start():
                             def check():
                                 if storage_runtime.maintenance_required(db_store.DB_PATH):
                                     return {"ok": False}
+                                try:
+                                    from analyzer import crypto_paper_policy
+                                    crypto_paper_policy.initialize(1)
+                                except Exception:
+                                    # A policy-enrollment failure must never stop
+                                    # protection of already open paper positions.
+                                    print("[CryptoPaperPolicy] initialization failed; exits remain monitored", flush=True)
                                 result = scheduler_tasks.crypto_monitor_positions()
                                 if storage_runtime.is_render():
                                     storage_runtime.private_backup(db_store.DB_PATH)

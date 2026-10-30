@@ -6,6 +6,7 @@ sondern aus Score-Konfidenz und annualisierter Volatilität abgeleitet (hart gec
 bei config.CRYPTO_MAX_LEVERAGE).
 """
 import math
+import time
 from typing import Optional
 
 import config
@@ -16,6 +17,56 @@ STRATEGY_VOLUME_CONFIRMED = "volume_confirmed"
 VALID_STRATEGY_VERSIONS = {STRATEGY_CLASSIC, STRATEGY_VOLUME_CONFIRMED}
 RELATIVE_VOLUME_CONFIRMATION = 1.25
 BUY_PRESSURE_CONFIRMATION = 0.55
+
+
+def confirmed_hourly_candles(candles: dict, now: float = None) -> Optional[dict]:
+    """Paper opt-in: one aligned, completed OHLC/volume window; never infer confirmation.
+
+    Shared broker callers keep their existing default. Invalid or stale paper
+    inputs produce no signal, rather than silently mixing different candle rows.
+    """
+    if not isinstance(candles, dict):
+        return None
+    now = time.time() if now is None else now
+    names = ("opens", "highs", "lows", "closes", "volumes", "quote_volumes",
+             "timestamps", "confirmed")
+    arrays = [candles.get(name) for name in names]
+    if any(not isinstance(values, list) for values in arrays):
+        return None
+    count = len(arrays[0])
+    if count < 50 or any(len(values) != count for values in arrays):
+        return None
+    indexes, previous = [], None
+    for i in range(count):
+        stamp = candles["timestamps"][i]
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or not math.isfinite(stamp):
+            return None
+        if stamp % 3_600_000 or (previous is not None and stamp <= previous):
+            return None
+        previous = stamp
+        flag = candles["confirmed"][i]
+        confirmed = flag is True or (type(flag) is int and flag == 1) or flag == "1"
+        if not confirmed or stamp / 1000 + 3600 > now:
+            continue
+        values = [candles[name][i] for name in names[:6]]
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               or not math.isfinite(value) for value in values):
+            return None
+        op, high, low, close, volume, quote_volume = values
+        if not 0 < low <= min(op, close) <= max(op, close) <= high or min(volume, quote_volume) < 0:
+            return None
+        indexes.append(i)
+    if len(indexes) < 50:
+        return None
+    stamps = [candles["timestamps"][i] for i in indexes]
+    if any(b - a != 3_600_000 for a, b in zip(stamps, stamps[1:])):
+        return None
+    if stamps[-1] / 1000 + 3600 != int(now // 3600) * 3600:
+        return None
+    result = dict(candles)
+    result.update({name: [candles[name][i] for i in indexes] for name in names})
+    result["signal_bar_end"] = stamps[-1] / 1000 + 3600
+    return result
 
 
 def normalize_strategy_version(value: str) -> str:
@@ -76,9 +127,12 @@ def _leverage_from_signal(score: float, volatility_pct: float) -> int:
 
 
 def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200,
-                          strategy_version: str = STRATEGY_CLASSIC) -> Optional[dict]:
+                          strategy_version: str = STRATEGY_CLASSIC, *,
+                          closed_only: bool = False) -> Optional[dict]:
     strategy_version = normalize_strategy_version(strategy_version)
     candles = okx_client.fetch_candles(symbol, bar=bar, limit=limit)
+    if closed_only:
+        candles = confirmed_hourly_candles(candles) if bar == "1H" else None
     if not candles or len(candles["closes"]) < 50:
         return None
 
@@ -213,16 +267,20 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200,
         "buy_pressure_pct": round(volume_metrics["buy_pressure"] * 100, 1) if volume_metrics and volume_metrics["buy_pressure"] is not None else None,
         "volume_confirmed": bool(volume_metrics and volume_metrics["confirmed"]),
         "volume_filter_blocked": volume_filter_blocked,
+        **({"signal_bar_end": candles["signal_bar_end"], "closed_candles_only": True}
+           if closed_only else {}),
     }
 
 
-def generate_crypto_recommendations(strategy_version: str = STRATEGY_CLASSIC) -> dict:
+def generate_crypto_recommendations(strategy_version: str = STRATEGY_CLASSIC, *,
+                                    closed_only: bool = False) -> dict:
     strategy_version = normalize_strategy_version(strategy_version)
     suggestions = []
     blocked = []
     for item in config.get_crypto_universe():
         try:
-            analysis = analyze_crypto_symbol(item["symbol"], strategy_version=strategy_version)
+            analysis = analyze_crypto_symbol(item["symbol"], strategy_version=strategy_version,
+                                             **({"closed_only": True} if closed_only else {}))
             if analysis and analysis["direction"] != "HALTEN":
                 suggestions.append(analysis)
             elif analysis and analysis.get("volume_filter_blocked"):

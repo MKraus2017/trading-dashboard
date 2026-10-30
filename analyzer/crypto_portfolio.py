@@ -53,7 +53,19 @@ def _liquidation_price(entry: float, leverage: int, direction: str, buffer_pct: 
 @serialized
 def open_position(user_id: int, symbol: str, direction: str, margin_eur: float,
                    leverage: int, entry_price: float, stop_loss: float, take_profit: float,
-                   reason: str = "") -> dict:
+                   reason: str = "", *, paper_metadata: Optional[dict] = None) -> dict:
+    if paper_metadata is not None:
+        allowed = {"paper_policy_version", "paper_policy_rule_hash", "planned_risk_eur",
+                   "estimated_entry_cost_eur", "estimated_exit_cost_eur", "signal_bar_end",
+                   "entry_quote_at", "signal_price", "signal_strategy_version", "risk_equity_eur"}
+        if user_id != 1 or not isinstance(paper_metadata, dict) or set(paper_metadata) != allowed:
+            return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
+        for name, value in paper_metadata.items():
+            if name in {"paper_policy_version", "paper_policy_rule_hash", "signal_strategy_version"}:
+                if not isinstance(value, str) or not value or len(value) > 128:
+                    return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
+            elif isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
     p = get_crypto_portfolio(user_id)
     if any(pos["symbol"] == symbol.upper() for pos in p["positions"]):
         return {"ok": False, "error": "Krypto-Position auf diesem Symbol bereits offen"}
@@ -92,8 +104,11 @@ def open_position(user_id: int, symbol: str, direction: str, margin_eur: float,
         "trailing_active": False,
     }
     p["cash"] = round(p["cash"] - margin_eur, 2)
+    if paper_metadata is not None:
+        pos.update(paper_metadata)
+        p.setdefault("paper_policy_quote_times", {})[symbol.upper()] = paper_metadata["entry_quote_at"]
     p["positions"].append(pos)
-    db_store.save_crypto_portfolio(user_id, p)
+    db_store.save_crypto_portfolio(user_id, p, backup=paper_metadata is None)
     return {"ok": True, "position": pos}
 
 

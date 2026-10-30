@@ -69,6 +69,12 @@ def fetch_ticker(symbol: str) -> Optional[dict]:
         }
     except (KeyError, ValueError, ZeroDivisionError):
         return None
+    # Public exchange time is separate from local cache time. Existing consumers
+    # retain their behavior; the paper execution policy explicitly validates it.
+    try:
+        result["market_timestamp"] = float(t["ts"]) / 1000
+    except (KeyError, TypeError, ValueError, OverflowError):
+        result["market_timestamp"] = None
     _price_cache[inst_id] = {"ts": now, "value": result}
     return result
 

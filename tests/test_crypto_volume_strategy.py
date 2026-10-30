@@ -1,8 +1,40 @@
 import unittest
 import sqlite3
+import ast
+import importlib.util
+from pathlib import Path
+import sys
+import types
 from unittest.mock import patch
 
-from analyzer import crypto_signals, db_store, okx_client
+# Import isolated sources, never db_store's production bootstrap/backup side effects.
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+okx_client = load('volume_test_okx', ROOT / 'analyzer/okx_client.py')
+package = types.ModuleType('analyzer')
+package.okx_client = okx_client
+package.indicators = load('volume_test_indicators', ROOT / 'analyzer/indicators.py')
+config = types.ModuleType('config')
+for node in ast.parse((ROOT / 'config.py').read_text(encoding='utf-8')).body:
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id.startswith('CRYPTO_'):
+        setattr(config, node.targets[0].id, ast.literal_eval(node.value))
+config.get_crypto_symbol_name = lambda symbol: symbol
+config.get_crypto_universe = lambda: [{'symbol': 'BTC'}]
+with patch.dict(sys.modules, {'analyzer': package, 'config': config}):
+    crypto_signals = load('volume_test_signals', ROOT / 'analyzer/crypto_signals.py')
+schema = next(node for node in ast.parse((ROOT / 'analyzer/db_store.py').read_text(encoding='utf-8')).body
+              if isinstance(node, ast.FunctionDef) and node.name == '_ensure_settings_schema')
+namespace = {}
+exec(compile(ast.Module(body=[schema], type_ignores=[]), 'db_store_schema_only', 'exec'), namespace)
+db_store = types.SimpleNamespace(_ensure_settings_schema=namespace['_ensure_settings_schema'])
 
 
 def candles(relative_volume=1.0):
@@ -64,6 +96,17 @@ class CryptoVolumeStrategyTests(unittest.TestCase):
 
 
 class OkxTradePressureTests(unittest.TestCase):
+    def test_exchange_timestamp_is_not_local_cache_time(self):
+        row = dict(last='100', high24h='101', low24h='99', open24h='100', ts='1793379087123')
+        for stamp, expected in [('1793379087123', 1793379087.123), ('broken', None), (None, None)]:
+            row['ts'] = stamp
+            okx_client._price_cache.clear()
+            with patch.object(okx_client, '_http_get', return_value={'data': [row]}), patch.object(okx_client.time, 'time', return_value=1800000000.):
+                result = okx_client.fetch_ticker('BTC')
+                self.assertEqual(result['market_timestamp'], expected)
+                self.assertEqual(result['ts'], 1800000000.)
+                self.assertEqual(result['last'], 100.)
+
     def test_trade_pressure_is_quote_weighted(self):
         okx_client._trade_pressure_cache.clear()
         payload = {"data": [

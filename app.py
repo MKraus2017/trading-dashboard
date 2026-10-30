@@ -1150,7 +1150,8 @@ def api_crypto_recommendations():
     uid = get_current_user_id()
     try:
         strategy_version = db_store.get_settings(uid).get("crypto_strategy_version", "classic")
-        recs = crypto_signals.generate_crypto_recommendations(strategy_version=strategy_version)
+        recs = crypto_signals.generate_crypto_recommendations(
+            strategy_version=strategy_version, **({"closed_only": True} if uid == 1 else {}))
         return jsonify({"ok": True, **recs})
     except Exception as e:
         import traceback
@@ -1196,13 +1197,16 @@ def api_astra_research():
 @login_required
 def api_crypto_strategy():
     uid = get_current_user_id()
+    # Read-only status; enrollment belongs to the paper worker, never this GET.
+    paper_policy = ((db_store.load_crypto_portfolio(uid) or {}).get("paper_execution_policy")
+                    if uid == 1 else None)
     if request.method == "GET":
         version = db_store.get_settings(uid).get("crypto_strategy_version", "classic")
-        return jsonify({"ok": True, "version": version})
+        return jsonify({"ok": True, "version": version, "execution_policy": paper_policy})
     body = request.get_json() or {}
     try:
         db_store.set_crypto_strategy_version(uid, body.get("version", ""))
-        return jsonify({"ok": True, "version": body["version"]})
+        return jsonify({"ok": True, "version": body["version"], "execution_policy": paper_policy})
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 

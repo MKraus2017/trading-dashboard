@@ -1303,6 +1303,21 @@ async function resetCryptoDepot() {
   }
 }
 
+function showCryptoPaperPolicy(policy) {
+  const el = document.getElementById('crypto-paper-policy');
+  if (!el) return;
+  el.hidden = !policy;
+  if (!policy) { el.textContent = ''; return; }
+  const started = Number(policy.started_at);
+  const date = Number.isFinite(started) && started > 0
+    ? new Date(started * 1000).toLocaleString('de-DE', {timeZone: 'Europe/Berlin'}) : '—';
+  el.textContent = `Krypto Offensiv · neue Einstiege seit ${date}: Long/Short, höchstens vier Positionen. ` +
+    'Geplantes Stop-Risiko inklusive Modellkosten: bis 1,5 % je Einstieg, bis 6 % insgesamt. ' +
+    'Nur abgeschlossene Stundenkerzen und frische Einstiegskurse. Bestehende Positionen behalten ihre Regeln. ' +
+    'Die Krypto-Depotwerte sind weiterhin brutto; Kostenvergleich separat bei Astra Ultra. ' +
+    'Modell je Seite: 0,20 % Gebühr + 0,05 % Slippage. Kurssprünge können das geplante Risiko überschreiten.';
+}
+
 async function loadCryptoStrategyVersion() {
   const select = document.getElementById('crypto-strategy-version');
   const status = document.getElementById('crypto-strategy-status');
@@ -1312,6 +1327,7 @@ async function loadCryptoStrategyVersion() {
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'unbekannt');
     select.value = data.version || 'classic';
+    showCryptoPaperPolicy(data.execution_policy);
     status.textContent = select.value === 'volume_confirmed' ? 'Aktiv: Volumenbestätigt' : 'Aktiv: Klassisch';
     status.style.color = '#3fb950';
   } catch (e) {
@@ -1335,7 +1351,8 @@ async function saveCryptoStrategyVersion() {
     if (!data.ok) throw new Error(data.error || 'unbekannt');
     status.textContent = select.value === 'volume_confirmed'
       ? 'Aktiv: Volumenbestätigt – gilt ab dem nächsten Signallauf'
-      : 'Aktiv: Klassisch – bisherige Logik wiederhergestellt';
+      : 'Aktiv: Klassisch – gilt ab dem nächsten Signallauf';
+    showCryptoPaperPolicy(data.execution_policy);
     status.style.color = '#3fb950';
     document.getElementById('crypto-recommendations').innerHTML = '';
   } catch (e) {

@@ -87,7 +87,14 @@ def source(path, uid):
     with closing(connect(path, True)) as c:
         row = c.execute("SELECT data FROM crypto_portfolios WHERE user_id=?", (uid,)).fetchone()
         settings = c.execute("SELECT crypto_strategy_version FROM settings WHERE user_id=?", (uid,)).fetchone()
-    return (json.loads(row[0]) if row else None), (settings[0] if settings else "classic")
+    portfolio = json.loads(row[0]) if row else None
+    strategy = settings[0] if settings else "classic"
+    # Keep the original comparison/cost ledger. Record a changed paper execution
+    # policy as a new reference rule period instead of silently relabelling it.
+    policy = (portfolio or {}).get("paper_execution_policy")
+    if uid == 1 and isinstance(policy, dict) and isinstance(policy.get("version"), str):
+        strategy += "|" + policy["version"]
+    return portfolio, strategy
 
 
 def source_equity(p):
