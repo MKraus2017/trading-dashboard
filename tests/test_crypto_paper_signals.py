@@ -100,6 +100,50 @@ class ClosedPaperSignalTests(unittest.TestCase):
             result = self.signals.analyze_crypto_symbol('BTC')
         self.assertNotIn('signal_bar_end', result)
 
+    def volume_signal(self, pressure, *, closed_only=True, rsi=75):
+        self.rows['quote_volumes'][-2] = 1500.
+        self.okx.fetch_recent_trade_pressure.return_value = pressure
+        with (patch.object(self.signals.time, 'time', return_value=self.now+20),
+              patch.object(self.signals.indicators, 'ema', side_effect=lambda values, period: [110. if period == 20 else 100.]),
+              patch.object(self.signals.indicators, 'rsi', return_value=[rsi]),
+              patch.object(self.signals.indicators, 'macd', return_value={'macd': [2.], 'signal': [1.]}),
+              patch.object(self.signals.indicators, 'bollinger', return_value={'upper': [200.], 'lower': [0.]}),
+              patch.object(self.signals.indicators, 'atr', return_value=[2.]),
+              patch.object(self.signals.indicators, 'adx', return_value=[70.])):
+            return self.signals.analyze_crypto_symbol('BTC', strategy_version='volume_confirmed', closed_only=closed_only)
+
+    def test_paper_volume_requests_strict_pressure_and_preserves_verifiable_sample(self):
+        pressure = {'version': 'fresh_trade_pressure_v1', 'ok': True, 'buy_ratio': .6,
+                    'trade_count': 2, 'market_timestamp': self.now+19, 'oldest_trade_at': self.now+18,
+                    'fetched_at': self.now+20, 'checked_at': self.now+20, 'trades': []}
+        result = self.volume_signal(pressure)
+        self.okx.fetch_recent_trade_pressure.assert_called_once_with('BTC', limit=300, strict=True)
+        self.assertEqual(result['trade_pressure'], pressure)
+        self.assertEqual(result['direction'], 'LONG')
+        self.assertEqual(result['score'], 73.)
+        self.assertTrue(result['volume_confirmed'])
+        self.assertTrue(any('2 Trades' in detail for detail in result['details']))
+
+    def test_unknown_pressure_never_confirms_but_does_not_add_a_universal_gate(self):
+        pressure = {'version': 'fresh_trade_pressure_v1', 'ok': False, 'reason': 'pressure_stale',
+                    'buy_ratio': .99, 'trade_count': 0, 'trades': []}
+        result = self.volume_signal(pressure)
+        self.assertEqual(result['direction'], 'HALTEN')
+        self.assertEqual(result['score'], 68.)
+        self.assertFalse(result['volume_confirmed'])
+        self.assertIsNone(result['buy_pressure_pct'])
+        self.assertTrue(result['volume_filter_blocked'])
+        result = self.volume_signal(pressure, rsi=50)
+        self.assertEqual(result['direction'], 'LONG')
+        self.assertFalse(result['volume_filter_blocked'])
+
+    def test_legacy_volume_keeps_unversioned_pressure_call_and_output(self):
+        pressure = {'buy_ratio': .6, 'trade_count': 300}
+        result = self.volume_signal(pressure, closed_only=False)
+        self.okx.fetch_recent_trade_pressure.assert_called_once_with('BTC', limit=300)
+        self.assertNotIn('trade_pressure', result)
+        self.assertEqual(result['buy_pressure_pct'], 60.)
+
     def test_recommendations_forward_only_explicit_opt_in(self):
         with patch.object(self.signals, 'analyze_crypto_symbol', return_value=None) as analyze:
             self.signals.generate_crypto_recommendations()

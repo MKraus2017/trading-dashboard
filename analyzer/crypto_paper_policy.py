@@ -32,6 +32,38 @@ RULES = {
 }
 RULE_HASH = hashlib.sha256(json.dumps(RULES, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 _COST = RULES["fee_pct"] + RULES["slippage_pct"]
+SIGNAL_DATA_VERSION = "fresh_trade_pressure_v1"
+
+
+def _pressure_evidence(signal, now):
+    """Recheck the exact pressure evidence that influenced this paper signal.
+
+    No network under the ledger lock. A delayed/changed valid sample needs a new
+    analysis, not a stale score. Unknown pressure keeps the existing no-bonus
+    semantics; this is not a new universal volume-entry rule.
+    """
+    if signal.get("strategy_version") != "volume_confirmed":
+        return {}
+    sample = signal.get("trade_pressure")
+    if not isinstance(sample, dict) or sample.get("version") != SIGNAL_DATA_VERSION:
+        raise ValueError("trade_pressure_evidence_missing")
+    if type(sample.get("ok")) is not bool:
+        raise ValueError("trade_pressure_evidence_invalid")
+    current = okx_client.revalidate_trade_pressure(sample, signal["symbol"], now=now)
+    metadata = {"signal_data_version": SIGNAL_DATA_VERSION}
+    if sample["ok"]:
+        same = (current.get("ok") is True and all(current.get(key) == sample.get(key)
+                for key in ("buy_ratio", "buy_quote", "sell_quote", "trade_count",
+                            "oldest_trade_at", "market_timestamp")))
+        if not same:
+            raise ValueError("trade_pressure_changed_or_expired")
+        metadata.update(pressure_oldest_at=current["oldest_trade_at"],
+                        pressure_latest_at=current["market_timestamp"],
+                        pressure_trade_count=current["trade_count"],
+                        pressure_buy_ratio=current["buy_ratio"])
+    elif signal.get("volume_confirmed") or signal.get("buy_pressure_pct") is not None:
+        raise ValueError("trade_pressure_unknown_but_used")
+    return metadata
 
 
 def _number(value, name, positive=False):
@@ -147,6 +179,7 @@ def plan_entry(portfolio, signal, quotes, now=None):
         direction = signal.get("direction")
         if not isinstance(symbol, str) or not symbol or direction not in ("LONG", "SHORT"):
             raise ValueError("signal_symbol_or_direction_invalid")
+        pressure_metadata = _pressure_evidence(signal, now)
         if symbol in held:
             raise ValueError("already_open")
         if len(held) >= min(RULES["max_positions"], config.CRYPTO_MAX_POSITIONS):
@@ -205,6 +238,7 @@ def plan_entry(portfolio, signal, quotes, now=None):
             "signal_price": signal_price,
             "signal_strategy_version": str(signal.get("strategy_version") or "classic"),
             "risk_equity_eur": equity,
+            **pressure_metadata,
         }
         return {"ok": True, "symbol": symbol, "direction": direction,
                 "entry_price": price, "stop_loss": stop, "take_profit": target,

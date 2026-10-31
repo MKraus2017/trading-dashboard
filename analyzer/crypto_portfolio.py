@@ -58,13 +58,27 @@ def open_position(user_id: int, symbol: str, direction: str, margin_eur: float,
         allowed = {"paper_policy_version", "paper_policy_rule_hash", "planned_risk_eur",
                    "estimated_entry_cost_eur", "estimated_exit_cost_eur", "signal_bar_end",
                    "entry_quote_at", "signal_price", "signal_strategy_version", "risk_equity_eur"}
-        if user_id != 1 or not isinstance(paper_metadata, dict) or set(paper_metadata) != allowed:
+        extra = {"signal_data_version", "pressure_oldest_at", "pressure_latest_at",
+                 "pressure_trade_count", "pressure_buy_ratio"}
+        if (user_id != 1 or not isinstance(paper_metadata, dict)
+                or not allowed <= set(paper_metadata) or set(paper_metadata) - allowed - extra):
+            return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
+        pressure_fields = extra - {"signal_data_version"}
+        if ((set(paper_metadata) & pressure_fields and not pressure_fields <= set(paper_metadata))
+                or (set(paper_metadata) & pressure_fields and paper_metadata.get("signal_data_version") != "fresh_trade_pressure_v1")):
             return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
         for name, value in paper_metadata.items():
-            if name in {"paper_policy_version", "paper_policy_rule_hash", "signal_strategy_version"}:
+            if name == "pressure_buy_ratio":
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+                    return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
+            elif name in {"paper_policy_version", "paper_policy_rule_hash", "signal_strategy_version", "signal_data_version"}:
                 if not isinstance(value, str) or not value or len(value) > 128:
                     return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
             elif isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
+        if pressure_fields <= set(paper_metadata):
+            if (paper_metadata["pressure_trade_count"] != int(paper_metadata["pressure_trade_count"])
+                    or paper_metadata["pressure_oldest_at"] > paper_metadata["pressure_latest_at"]):
                 return {"ok": False, "error": "Ungültige Papertrade-Metadaten"}
     p = get_crypto_portfolio(user_id)
     if any(pos["symbol"] == symbol.upper() for pos in p["positions"]):

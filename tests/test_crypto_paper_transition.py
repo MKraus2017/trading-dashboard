@@ -219,7 +219,9 @@ class ReadonlySurfaceTests(unittest.TestCase):
         metadata = dict(paper_policy_version='crypto_offensive_quality_v1', paper_policy_rule_hash='fixture',
                         planned_risk_eur=15., estimated_entry_cost_eur=1., estimated_exit_cost_eur=1.,
                         signal_bar_end=1_793_376_000, entry_quote_at=1_793_376_010,
-                        signal_price=100., signal_strategy_version='volume_confirmed', risk_equity_eur=1000.)
+                        signal_price=100., signal_strategy_version='volume_confirmed', risk_equity_eur=1000.,
+                        signal_data_version='fresh_trade_pressure_v1', pressure_oldest_at=1793376000.,
+                        pressure_latest_at=1793376010., pressure_trade_count=2, pressure_buy_ratio=0.)
         reference = dict(paper_execution_policy=dict(self.policy, secret='SECRET'),
                          paper_policy_quote_times={'BTC': 123, 'private_key': 'SECRET'},
                          positions=[dict(id='new', **metadata, password='SECRET')],

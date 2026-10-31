@@ -85,7 +85,8 @@ REFERENCE_POSITION = fields("id symbol direction leverage margin_eur notional_eu
                             "last_price unrealized_pct unrealized_eur trailing_active exit_price closed_at "
                             "pnl_eur pnl_pct close_reason liquidated paper_policy_version paper_policy_rule_hash "
                             "planned_risk_eur estimated_entry_cost_eur estimated_exit_cost_eur signal_bar_end "
-                            "entry_quote_at signal_price signal_strategy_version risk_equity_eur last_quote_at")
+                            "entry_quote_at signal_price signal_strategy_version risk_equity_eur last_quote_at "
+                            "signal_data_version pressure_oldest_at pressure_latest_at pressure_trade_count pressure_buy_ratio")
 PAPER_EXECUTION_RULES = fields("owner_user_id signal_timeframe closed_only max_quote_age_seconds "
                               "max_quote_future_seconds max_entry_drift_pct max_entry_risk_pct "
                               "max_aggregate_risk_pct max_positions max_leverage max_cash_margin_pct "
@@ -206,7 +207,8 @@ def _capture(path, captured_at, monotonic, wallclock=None):
         reference = _project(_read_document(connection, "crypto_portfolios"), REFERENCE)
         document = dict(ok=True, schema_version=1, mode="paper_only", captured_at=captured_at,
                         expires_at=captured_at + SNAPSHOT_TTL, available_versions=versions,
-                        astra=run, reference=reference)
+                        astra=run, reference=reference,
+                        technical_versions={"crypto_trade_pressure": "fresh_trade_pressure_v1"})
         document_bytes = _encode(document)
         used = len(document_bytes)
         histories = {}

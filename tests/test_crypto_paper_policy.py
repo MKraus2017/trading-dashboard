@@ -59,10 +59,14 @@ class PolicyTests(unittest.TestCase):
         self.db.save_crypto_portfolio(1, self.original)
         self.db.save_crypto_portfolio.reset_mock()
         self.market = types.ModuleType("analyzer.okx_client")
+        self.pressure_client = load("policy_pressure_client", "analyzer/okx_client.py")
+        self.market.revalidate_trade_pressure = self.pressure_client.revalidate_trade_pressure
         self.signals = types.ModuleType("analyzer.crypto_signals")
         self.signal = dict(symbol="ETH", direction="LONG", score=75, leverage=5,
                            price=100., stop_loss=98., take_profit=102.8,
                            signal_bar_end=self.now - 7, strategy_version="volume_confirmed")
+        self.signal["trade_pressure"] = dict(version="fresh_trade_pressure_v1", ok=False,
+                                             reason="missing", trades=[])
         self.quotes = {s: {"last": 100., "market_timestamp": self.now, "change_pct": 0.} for s in ("BTC", "ETH", "SOL", "ADA", "XRP")}
         self.signals.generate_crypto_recommendations = Mock(side_effect=lambda **kwargs: {"count": 1, "suggestions": [copy.deepcopy(self.signal)]})
         fake.db_store, fake.okx_client, fake.crypto_signals = self.db, self.market, self.signals
@@ -94,6 +98,51 @@ class PolicyTests(unittest.TestCase):
     def plan(self, p=None, signal=None, quotes=None):
         return self.policy.plan_entry(p or self.read(), signal or self.signal,
                                       self.quotes if quotes is None else quotes, now=self.now)
+
+    def pressure_signal(self):
+        rows = [dict(instId="ETH-USDT", tradeId="1", side="buy", px="100", sz="2", ts=str(int((self.now-5)*1000))),
+                dict(instId="ETH-USDT", tradeId="2", side="sell", px="100", sz="1", ts=str(int((self.now-10)*1000)))]
+        with patch.object(self.pressure_client, "_http_get", return_value={"code": "0", "data": rows}):
+            pressure = self.pressure_client.fetch_recent_trade_pressure("ETH", strict=True)
+        self.assertTrue(pressure["ok"])
+        return dict(self.signal, trade_pressure=pressure, buy_pressure_pct=66.7, volume_confirmed=True)
+
+    def test_pressure_rechecked_at_entry_without_network_and_compact_evidence_saved(self):
+        self.signal = self.pressure_signal()
+        result = self.policy._execute(1, {"suggestions": [self.signal]}, self.quotes)
+        self.assertEqual(len(result["actions"]), 1)
+        p = self.read()
+        pos = p["positions"][0]
+        self.assertEqual(pos["signal_data_version"], "fresh_trade_pressure_v1")
+        self.assertEqual(pos["pressure_trade_count"], 2)
+        self.assertAlmostEqual(pos["pressure_buy_ratio"], 2/3)
+        self.assertNotIn("trade_pressure", pos)
+        self.assertEqual(p["trades"], self.original["trades"])
+        self.assertEqual(p["value_history"], self.original["value_history"])
+
+    def test_expired_changed_missing_and_conflicting_pressure_never_book(self):
+        fresh = self.pressure_signal()
+        expired = copy.deepcopy(fresh)
+        for trade in expired["trade_pressure"]["trades"]:
+            trade["timestamp"] -= 100
+        changed = copy.deepcopy(fresh)
+        changed["trade_pressure"]["buy_ratio"] = .99
+        missing = copy.deepcopy(fresh); missing.pop("trade_pressure")
+        unknown_used = dict(self.signal, volume_confirmed=True)
+        before = self.read()
+        for sig in (expired, changed, missing, unknown_used):
+            result = self.policy._execute(1, {"suggestions": [sig]}, self.quotes, dry_run=True)
+            self.assertEqual(result["actions"], [])
+            self.assertTrue(result["policy_blocks"])
+            self.assertEqual(self.read(), before)
+
+    def test_unknown_volume_keeps_no_bonus_semantics_and_classic_needs_no_pressure(self):
+        self.assertTrue(self.plan()["ok"])
+        classic = dict(self.signal, strategy_version="classic")
+        classic.pop("trade_pressure")
+        planned = self.plan(signal=classic)
+        self.assertTrue(planned["ok"])
+        self.assertNotIn("signal_data_version", planned["paper_metadata"])
 
     def test_initialization_preserves_ledger_and_missing_or_other_account(self):
         self.assertFalse(self.policy.initialize(2)["ok"])

@@ -13,7 +13,8 @@ exit. The existing portfolio loss circuit remains unchanged. Astra separately
 checks stops/time exits every 30 seconds and its channel exit on completed 2H
 candles. The schedule is a target, not guaranteed tick-by-tick execution.
 
-The additional hourly assistant check reviews every open position: accepted
+Since Martin's 31 October instruction, the additional assistant check runs every
+15 minutes and reviews every open position: accepted
 quote age, price movement, unrealized PnL and estimated costs, original/current
 stop risk, TP and liquidation distance, holding time, concentration, completed
 candle trend, ATR/volatility, RSI/MACD, relative volume and available fresh buying
@@ -29,6 +30,14 @@ rule is enabled by this release. The existing 15-minute volume-exit observer is
 still hypothetical. Extra discretionary exits are not inferred from one adverse
 candle; rule changes require offline evidence, versioning, independent review,
 temporary-database tests and preserved capital/positions/history.
+
+On a new completed Astra 2H candle, the review also checks the trade thesis and
+existing research. Material new evidence can start a small preregistered offline
+test between the broader five-day strategy reviews. Empty accounts do not cause
+forced entries or a new parameter search every 15 minutes. Krypto remains the
+aggressive rule-based paper sleeve; Astra remains conservative. Neither schedule
+changes the existing entry/aggregate risk caps. Both saved automations remain
+attached to the existing chat and retain notifications only for relevant changes.
 
 ## Technical repair: accepted quote time for Krypto exits
 

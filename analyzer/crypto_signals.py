@@ -73,7 +73,7 @@ def normalize_strategy_version(value: str) -> str:
     return value if value in VALID_STRATEGY_VERSIONS else STRATEGY_CLASSIC
 
 
-def _volume_metrics(candles: dict, symbol: str) -> dict:
+def _volume_metrics(candles: dict, symbol: str, *, strict_pressure: bool = False) -> dict:
     # Quote-Volumen (USDT) ist ueber verschiedene Preisniveaus besser vergleichbar.
     volumes = candles.get("quote_volumes") or candles.get("volumes") or []
     confirmed = candles.get("confirmed") or []
@@ -86,8 +86,10 @@ def _volume_metrics(candles: dict, symbol: str) -> dict:
         if baseline:
             relative_volume = volumes[current_index] / (sum(baseline) / len(baseline))
 
-    pressure = okx_client.fetch_recent_trade_pressure(symbol, limit=300)
-    buy_ratio = pressure.get("buy_ratio") if pressure else None
+    pressure = okx_client.fetch_recent_trade_pressure(
+        symbol, limit=300, **({"strict": True} if strict_pressure else {}))
+    buy_ratio = (pressure.get("buy_ratio") if pressure and
+                 (not strict_pressure or pressure.get("ok") is True) else None)
     is_confirmed = (
         relative_volume is not None and relative_volume >= RELATIVE_VOLUME_CONFIRMATION
         and buy_ratio is not None and buy_ratio >= BUY_PRESSURE_CONFIRMATION
@@ -97,6 +99,7 @@ def _volume_metrics(candles: dict, symbol: str) -> dict:
         "buy_pressure": buy_ratio,
         "trade_count": pressure.get("trade_count", 0) if pressure else 0,
         "confirmed": is_confirmed,
+        **({"trade_pressure": pressure} if strict_pressure else {}),
     }
 
 
@@ -204,7 +207,7 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200,
     volume_metrics = None
     volume_filter_blocked = False
     if strategy_version == STRATEGY_VOLUME_CONFIRMED:
-        volume_metrics = _volume_metrics(candles, symbol)
+        volume_metrics = _volume_metrics(candles, symbol, strict_pressure=closed_only)
         relative_volume = volume_metrics["relative_volume"]
         buy_pressure = volume_metrics["buy_pressure"]
         details.append(
@@ -213,12 +216,20 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200,
         details.append(
             "Kaufanteil (juengste OKX-Trades) " + (f"{buy_pressure * 100:.1f}%" if buy_pressure is not None else "nicht verfuegbar")
         )
+        if closed_only:
+            pressure = volume_metrics["trade_pressure"] or {}
+            if pressure.get("ok"):
+                details.append(f"Kurzfristige Stichprobe: {pressure['trade_count']} Trades aus maximal 5 Minuten; kein Gesamtmarkt-Mass")
+            else:
+                details.append("Trade-Stichprobe nicht nutzbar: " + str(pressure.get("reason") or "pressure_unavailable"))
         if volume_metrics["confirmed"]:
             score += 5
-            details.append("Volumen und Kaufdruck bestaetigen das Signal")
+            details.append("Volumen und kurzfristiger Kaufdruck (bullisch)" if closed_only
+                           else "Volumen und Kaufdruck bestaetigen das Signal")
         elif buy_pressure is not None and buy_pressure < 0.45:
             score -= 5
-            details.append("Verkaufsdruck schwaecht das Signal")
+            details.append("Kurzfristiger Verkaufsdruck (bearisch)" if closed_only
+                           else "Verkaufsdruck schwaecht das Signal")
 
     score = max(0, min(100, score))
 
@@ -267,6 +278,8 @@ def analyze_crypto_symbol(symbol: str, bar: str = "1H", limit: int = 200,
         "buy_pressure_pct": round(volume_metrics["buy_pressure"] * 100, 1) if volume_metrics and volume_metrics["buy_pressure"] is not None else None,
         "volume_confirmed": bool(volume_metrics and volume_metrics["confirmed"]),
         "volume_filter_blocked": volume_filter_blocked,
+        **({"trade_pressure": volume_metrics["trade_pressure"]}
+           if closed_only and volume_metrics else {}),
         **({"signal_bar_end": candles["signal_bar_end"], "closed_candles_only": True}
            if closed_only else {}),
     }

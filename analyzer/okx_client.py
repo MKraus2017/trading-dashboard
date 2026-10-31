@@ -1,5 +1,6 @@
 """OKX Public API Client — Live-Krypto-Preise ohne API-Key (nur öffentliche Marktdaten)."""
 import time
+import math
 import urllib.request
 import json as _json
 from typing import Optional, List, Dict
@@ -8,7 +9,12 @@ OKX_BASE = "https://www.okx.com"
 
 _price_cache: Dict[str, dict] = {}
 _trade_pressure_cache: Dict[str, dict] = {}
+_strict_trade_pressure_cache: Dict[str, dict] = {}
 _CACHE_TTL = 30  # Sekunden
+TRADE_PRESSURE_VERSION = "fresh_trade_pressure_v1"
+TRADE_PRESSURE_WINDOW_SECONDS = 300
+TRADE_PRESSURE_MAX_AGE_SECONDS = 60
+TRADE_PRESSURE_MAX_FUTURE_SECONDS = 5
 
 _FETCH_STATS = {"calls": 0, "errors": 0, "cache_hits": 0}
 
@@ -110,14 +116,130 @@ def fetch_candles(symbol: str, bar: str = "1H", limit: int = 200) -> Optional[di
     }
 
 
-def fetch_recent_trade_pressure(symbol: str, limit: int = 300) -> Optional[dict]:
+def _pressure_number(value, name):
+    if isinstance(value, bool):
+        raise ValueError(name)
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(name) from None
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(name)
+    return number
+
+
+def _pressure_unavailable(reason, now, fetched_at=None):
+    return {"version": TRADE_PRESSURE_VERSION, "ok": False, "reason": reason,
+            "buy_ratio": None, "buy_quote": None, "sell_quote": None,
+            "trade_count": 0, "market_timestamp": None, "oldest_trade_at": None,
+            "fetched_at": fetched_at, "checked_at": now, "trades": []}
+
+
+def revalidate_trade_pressure(sample: dict, symbol: str, now: float = None) -> dict:
+    """Pure owner-paper check; recalculate the rolling sample at decision time.
+
+    Canonical trades retain exchange timestamps, so cache hits and delayed entry
+    plans can expire individual rows. A single valid trade is allowed but its
+    count/duration remain visible; this is never a whole-market pressure claim.
+    """
+    now = time.time() if now is None else now
+    fetched_at = None
+    try:
+        now = _pressure_number(now, "pressure_check_time_invalid")
+        if not isinstance(sample, dict) or sample.get("version") != TRADE_PRESSURE_VERSION:
+            raise ValueError("pressure_version_missing_or_invalid")
+        fetched_at = _pressure_number(sample.get("fetched_at"), "pressure_fetch_time_invalid")
+        if fetched_at > now + TRADE_PRESSURE_MAX_FUTURE_SECONDS:
+            raise ValueError("pressure_fetch_time_future")
+        if sample.get("ok") is False:
+            raise ValueError(str(sample.get("reason") or "pressure_unavailable"))
+        rows = sample.get("trades")
+        if not isinstance(rows, list):
+            raise ValueError("pressure_trades_invalid")
+        expected = to_okx_symbol(symbol)
+        unique = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("pressure_trade_invalid")
+            trade_id = row.get("trade_id")
+            if not isinstance(trade_id, str) or not trade_id.strip():
+                raise ValueError("pressure_trade_id_invalid")
+            if row.get("inst_id") != expected:
+                raise ValueError("pressure_instrument_mismatch")
+            if row.get("side") not in ("buy", "sell"):
+                raise ValueError("pressure_side_invalid")
+            price = _pressure_number(row.get("price"), "pressure_price_invalid")
+            size = _pressure_number(row.get("size"), "pressure_size_invalid")
+            _pressure_number(price * size, "pressure_notional_invalid")
+            stamp = _pressure_number(row.get("timestamp"), "pressure_timestamp_invalid")
+            if stamp > now + TRADE_PRESSURE_MAX_FUTURE_SECONDS:
+                raise ValueError("pressure_trade_future")
+            trade = {"trade_id": trade_id, "inst_id": expected, "side": row["side"],
+                     "price": price, "size": size, "timestamp": stamp}
+            if trade_id in unique and unique[trade_id] != trade:
+                raise ValueError("pressure_conflicting_duplicate")
+            unique[trade_id] = trade
+        # Validate every returned row before discarding old observations.
+        trades = sorted((row for row in unique.values()
+                         if row["timestamp"] >= now - TRADE_PRESSURE_WINDOW_SECONDS),
+                        key=lambda row: (row["timestamp"], row["trade_id"]))
+        if not trades:
+            raise ValueError("pressure_no_recent_trades")
+        latest = trades[-1]["timestamp"]
+        if latest < now - TRADE_PRESSURE_MAX_AGE_SECONDS:
+            raise ValueError("pressure_stale")
+        buy = math.fsum(row["price"] * row["size"] for row in trades if row["side"] == "buy")
+        sell = math.fsum(row["price"] * row["size"] for row in trades if row["side"] == "sell")
+        total = _pressure_number(buy + sell, "pressure_total_invalid")
+        return {"version": TRADE_PRESSURE_VERSION, "ok": True, "reason": None,
+                "buy_ratio": buy / total, "buy_quote": buy, "sell_quote": sell,
+                "trade_count": len(trades), "market_timestamp": latest,
+                "oldest_trade_at": trades[0]["timestamp"], "fetched_at": fetched_at,
+                "checked_at": now, "trades": trades}
+    except (ValueError, TypeError, OverflowError) as exc:
+        return _pressure_unavailable(str(exc), now, fetched_at)
+
+
+def _fetch_strict_trade_pressure(symbol: str, limit: int) -> dict:
+    inst_id = to_okx_symbol(symbol)
+    cache_key = f"{inst_id}:{limit}"
+    now = time.time()
+    cached = _strict_trade_pressure_cache.get(cache_key)
+    if cached and 0 <= now - cached["fetched_at"] < _CACHE_TTL:
+        _FETCH_STATS["cache_hits"] += 1
+    else:
+        data = _http_get(f"/api/v5/market/trades?instId={inst_id}&limit={limit}")
+        fetched_at = time.time()
+        cached = {"fetched_at": fetched_at, "rows": data.get("data") if isinstance(data, dict) else None}
+        _strict_trade_pressure_cache[cache_key] = cached
+    now = time.time()
+    rows = cached["rows"]
+    if not isinstance(rows, list):
+        return _pressure_unavailable("pressure_response_invalid", now, cached["fetched_at"])
+    canonical = []
+    try:
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("pressure_trade_invalid")
+            canonical.append({"trade_id": row.get("tradeId"), "inst_id": row.get("instId"),
+                              "side": row.get("side"), "price": row.get("px"), "size": row.get("sz"),
+                              "timestamp": _pressure_number(row.get("ts"), "pressure_timestamp_invalid") / 1000})
+    except ValueError as exc:
+        return _pressure_unavailable(str(exc), now, cached["fetched_at"])
+    return revalidate_trade_pressure({"version": TRADE_PRESSURE_VERSION,
+                                     "fetched_at": cached["fetched_at"], "trades": canonical}, symbol, now)
+
+
+def fetch_recent_trade_pressure(symbol: str, limit: int = 300, *, strict: bool = False) -> Optional[dict]:
     """Kaufdruck aus den juengsten oeffentlichen OKX-Trades (buy/sell-Seite, quote-gewichtet).
 
     Das ist eine kurzfristige Stichprobe und kein vollstaendiges Orderbuch. Sie wird deshalb
     nur als Bestaetigung verwendet, nicht als alleiniger Kaufgrund.
     """
-    inst_id = to_okx_symbol(symbol)
     limit = max(1, min(int(limit), 500))
+    if strict:
+        return _fetch_strict_trade_pressure(symbol, limit)
+    inst_id = to_okx_symbol(symbol)
     cache_key = f"{inst_id}:{limit}"
     now = time.time()
     cached = _trade_pressure_cache.get(cache_key)
