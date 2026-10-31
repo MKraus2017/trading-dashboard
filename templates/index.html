@@ -37,6 +37,7 @@
   <div class="tab" onclick="showTab('verbesserungen')">🚀 Verbesserungen</div>
   <div class="tab" onclick="showTab('krypto')">🪙 Krypto</div>
   <div class="tab" onclick="showTab('astra')">✨ Astra Ultra</div>
+  <div class="tab" onclick="showTab('opus')">🧠 Opus 5.5</div>
   <div class="tab" onclick="showTab('okxlive')">🔴 OKX Live</div>
 </div>
 
@@ -342,6 +343,43 @@
       </details>
     </div>
 
+    <div class="panel" id="panel-opus">
+      <div class="section-title">🧠 Opus 5.5 · Herausforderer im Strategiewettbewerb
+        <button class="refresh-btn" onclick="refreshOpusArena()">⟳ Anzeige aktualisieren</button>
+      </div>
+      <p style="color:#8b949e;">Eigenständiges virtuelles Testdepot, Regeln entworfen von Claude Opus 5.5. Startkapital = Durchschnitt aus
+        Krypto- und Astra-Depotwert beim Start. Fest programmierte Regeln – keine laufenden KI-Aufrufe, keine echten Orders, kein Telegram.</p>
+      <div id="opus-status" class="no-data" role="status">Stand wird geladen …</div>
+      <div class="section-title">🏆 Wettbewerb seit Opus-Start</div>
+      <div id="opus-leaderboard" style="overflow-x:auto;"></div>
+      <div id="opus-summary" class="summary-grid"></div>
+      <div class="section-title">📂 Offene Opus-Positionen</div>
+      <div id="opus-positions" style="overflow-x:auto;"></div>
+      <div class="section-title">📝 Abgeschlossene Opus-Trades</div>
+      <div id="opus-trades" style="overflow-x:auto;"></div>
+      <div class="section-title">💡 2-Stunden-Prüfungen</div>
+      <div id="opus-decisions" style="overflow-x:auto;"></div>
+      <details style="margin:20px 0;"><summary>Depotverlauf aller drei · letzter Stand je UTC-Tag</summary>
+        <div id="opus-daily" style="overflow-x:auto;"></div>
+      </details>
+      <details style="margin:20px 0;">
+        <summary>Regeln, Kosten und Grenzen (opus_pullback_2h_v1)</summary>
+        <p><strong>Idee:</strong> Statt Ausbrüche zu kaufen wie Astra, kauft Opus einen bestätigten Rücksetzer im Aufwärtstrend.
+          BTC, ETH, SOL · nur LONG 1× · abgeschlossene 2H-Kerzen.</p>
+        <p><strong>Einstieg</strong> (alles muss erfüllt sein): Schluss über EMA200 und EMA50 über EMA200 (Aufwärtstrend);
+          tiefster RSI14 der vier Kerzen vor der Signalkerze ≤ 40 (Rücksetzer); Signalkerze grün und Schluss über dem Hoch der Vorkerze (Umkehr).</p>
+        <p><strong>Ausstieg:</strong> Start-Stop 1,5× ATR14 unter dem Kaufkurs; nachgezogener Stop = höchster Kurs seit Kauf − 3× ATR14
+          (wird nur nach oben angepasst); Schluss unter EMA200; spätestens nach 120 Stunden. Kein festes Kursziel.</p>
+        <p><strong>Risiko:</strong> geplantes Stop-Risiko inkl. Kosten 0,5% des Depotwerts pro Kauf, insgesamt höchstens 1,5%;
+          maximal drei Positionen, je höchstens 40% Positionswert. Kosten je Seite wie bei Astra: 0,20% Gebühr + 0,05% Slippage.
+          Einstieg nur in den ersten drei Minuten nach Kerzenschluss mit frischen Daten aller drei Coins; kein rückwirkendes Nachholen.</p>
+        <p style="color:#d29922;"><strong>Kein Backtest:</strong> Beim Aufbau waren keine historischen Marktdaten erreichbar. Die Regeln sind eine begründete
+          Hypothese, kein ausgewählter historischer Gewinner. Der Vergleich startet für alle drei zum selben Zeitpunkt; Krypto wird zum
+          Rohwert wie im Krypto-Reiter gezeigt. Ein Krypto-Depot-Reset oder Astra-Neustart macht dessen Vergleich ungültig.
+          Wenige Tage oder einzelne Trades bestimmen keinen Sieger.</p>
+      </details>
+    </div>
+
     <!-- OKX Live Tab (ECHTES GELD, echte Futures-Positionen) -->
     <div class="panel" id="panel-okxlive">
       <div class="section-title" style="color:#f85149;">🔴 OKX Live-Handel — ECHTES GELD (Spot, kein Hebel)</div>
@@ -404,5 +442,6 @@
 <script src="/static/app.js?v=32"></script>
 <script src="/static/crypto_exit_shadow.js?v=1"></script>
 <script src="/static/astra_ultra.js?v=4"></script>
+<script src="/static/opus_arena.js?v=1"></script>
 </body>
 </html>

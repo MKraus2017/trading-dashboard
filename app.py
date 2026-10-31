@@ -1184,6 +1184,15 @@ def api_astra_ultra():
     return response
 
 
+@app.route("/api/crypto/opus_arena", methods=["GET"])
+@login_required
+def api_opus_arena():
+    from analyzer import opus_arena
+    response = jsonify(opus_arena.report(db_store.DB_PATH, get_current_user_id()))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/api/crypto/astra_ultra/research", methods=["GET"])
 @login_required
 def api_astra_research():
@@ -1708,6 +1717,7 @@ from analyzer import signal_watch
 from analyzer import crypto_watch
 from analyzer import crypto_exit_shadow
 from analyzer import astra_ultra
+from analyzer import opus_arena
 from analyzer import stock_watch
 
 
@@ -1718,6 +1728,7 @@ def start_background_watchers():
         stock_watch.start()
         crypto_exit_shadow.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
         astra_ultra.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
+        opus_arena.start(db_store.DB_PATH, lambda: storage_runtime.maintenance_required(db_store.DB_PATH))
 
 
 @app.before_request
